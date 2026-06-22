@@ -1,0 +1,48 @@
+[package]
+name = "psyche-network"
+version.workspace = true
+edition = "2021"
+
+[dependencies]
+psyche-tui.workspace = true
+psyche-core.workspace = true
+psyche-modeling.workspace = true
+psyche-metrics.workspace = true
+iroh.workspace = true
+iroh-blobs.workspace = true
+iroh-gossip.workspace = true
+iroh-relay.workspace = true
+tokio-util.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+tracing.workspace = true
+bytes.workspace = true
+rand.workspace = true
+postcard.workspace = true
+sha2.workspace = true
+futures-util.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+tch.workspace = true
+data-encoding = "2.6.0"
+ed25519-dalek = "3.0.0-pre.1"
+serde_json.workspace = true
+serde_bytes = "0.11.15"
+tokenizers.workspace = true
+get_if_addrs = "0.5.3"
+n0-future = "0.3.2"
+url = { version = "2.5", features = ["serde"] }
+iroh-services = { version = "0.12", features = [
+  "client_host",
+  "net_diagnostics",
+] }
+psyche-event-sourcing.workspace = true
+
+[dev-dependencies]
+# for examples
+clap.workspace = true
+clap-markdown.workspace = true
+
+test-log.workspace = true

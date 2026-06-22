@@ -1,0 +1,64 @@
+mod app;
+pub mod logging;
+mod maybe;
+mod tabbed;
+pub mod terminal;
+mod widget;
+
+use anyhow::Result;
+use tokio::{
+    signal,
+    sync::mpsc::{self, Sender},
+};
+use tokio_util::sync::CancellationToken;
+
+pub use app::App;
+pub use logging::{LogOutput, LoggerWidget, ServiceInfo, logging};
+pub use maybe::MaybeTui;
+pub use tabbed::TabbedWidget;
+pub use terminal::{TerminalWrapper, init_terminal};
+pub use widget::CustomWidget;
+
+pub fn start_render_loop<T: CustomWidget>(
+    widget: T,
+) -> Result<(CancellationToken, Sender<T::Data>)> {
+    let (tx, rx) = mpsc::channel(10);
+    let cancel = CancellationToken::new();
+    tokio::spawn({
+        let cancel = cancel.clone();
+        async move {
+            let terminal = init_terminal().unwrap();
+            let start_result = App::new(widget).start(cancel, terminal, rx).await;
+            start_result.unwrap();
+            println!("explicit shutdown :)")
+        }
+    });
+    Ok((cancel, tx))
+}
+
+pub fn maybe_start_render_loop<T: CustomWidget>(
+    widget: Option<T>,
+) -> Result<(CancellationToken, Option<Sender<T::Data>>)> {
+    Ok(match widget {
+        Some(widget) => {
+            let (cancel, tx) = start_render_loop(widget)?;
+            (cancel, Some(tx))
+        }
+        None => (setup_ctrl_c(), None),
+    })
+}
+
+pub fn setup_ctrl_c() -> CancellationToken {
+    let token = CancellationToken::new();
+    tokio::spawn({
+        let token = token.clone();
+        async move {
+            signal::ctrl_c().await.unwrap();
+            token.cancel();
+        }
+    });
+    token
+}
+
+pub use crossterm;
+pub use ratatui;

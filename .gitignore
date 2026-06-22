@@ -1,0 +1,68 @@
+### macOS ###
+.DS_Store
+.AppleDouble
+.LSOverride
+*.icloud
+._*
+
+### Rust ###
+debug/
+target/
+**/*.rs.bk
+*.pdb
+
+### Python ###
+__pycache__
+
+### Windows ###
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+[Dd]esktop.ini
+
+### Tooling ###
+result
+result-*
+nix-results/
+after_drv
+before_drv
+.direnv/
+.aider*
+flamegraph.svg
+perf.data
+perf.data.*
+.vscode/
+.zed/
+.idea/
+.venv/
+libtorch*
+slurm*
+*.key
+node_modules/
+bindings
+.pre-commit-config.yaml
+
+### Data folders ###
+/data
+/distro-data
+checkpoints/
+logs/
+txt/
+/events
+config/testing/dolma/
+**/devnet_funded_accounts
+config/solana-test/test-config.toml
+
+### Solana ###
+test-ledger
+
+### Book ###
+book
+
+### Env files ###
+**/.env
+
+### Website ###
+website/frontend/public/tokenizers/*.json
+website/frontend/public/prompts/index.json

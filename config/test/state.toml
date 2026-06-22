@@ -1,0 +1,37 @@
+run_id = "test"
+run_state = "WaitingForMembers"
+[config]
+warmup_time = 5
+cooldown_time = 5
+epoch_time = 60
+max_round_train_time = 5
+round_witness_time = 2
+min_clients = 2
+init_min_clients = 2
+global_batch_size_start = 4
+global_batch_size_end = 4
+global_batch_size_warmup_tokens = 0
+verification_percent = 0
+witness_nodes = 1
+total_steps = 10
+waiting_for_members_extra_time = 3
+
+[model.LLM]
+architecture = "HfLlama"
+data_type = "Pretraining"
+max_seq_len = 512
+optimizer = "Dummy"
+data_location = "Dummy"
+cold_start_warmup_steps = 0
+
+
+[model.LLM.checkpoint.Dummy]
+repo_id = ""
+
+
+[model.LLM.lr_schedule.Cosine]
+base_lr = 4.0e-4
+warmup_steps = 20
+warmup_init_lr = 0.0
+total_steps = 2000
+final_lr = 4.0e-5

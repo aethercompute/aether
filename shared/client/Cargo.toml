@@ -1,0 +1,43 @@
+[package]
+name = "psyche-client"
+version.workspace = true
+edition = "2021"
+
+[dependencies]
+psyche-core = { workspace = true, features = ["rand"] }
+psyche-coordinator.workspace = true
+psyche-data-provider.workspace = true
+psyche-event-sourcing.workspace = true
+psyche-eval.workspace = true
+psyche-metrics.workspace = true
+psyche-modeling.workspace = true
+psyche-network.workspace = true
+psyche-tui.workspace = true
+psyche-python-extension-impl = { workspace = true, optional = true }
+psyche-watcher.workspace = true
+postcard.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tch.workspace = true
+tokenizers.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+rand.workspace = true
+futures.workspace = true
+hex = "0.4.3"
+lazy_static = "1.5.0"
+wandb = { git = "https://github.com/NousResearch/wandb-rs.git", rev = "db6118e3bf3526718c1097baecf36f564233a735" }
+rand_chacha.workspace = true
+thiserror.workspace = true
+time.workspace = true
+hf-hub.workspace = true
+clap.workspace = true
+sysinfo = "0.32.0"
+iroh-blobs.workspace = true
+
+[features]
+parallelism = ["psyche-modeling/parallelism"]
+python = ["psyche-python-extension-impl"]
