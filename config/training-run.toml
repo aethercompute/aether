@@ -1,0 +1,31 @@
+[server]
+state_path = "config/deepseek-v3-dense-160m-ultra-fineweb/state.toml"
+server_port = 39405
+live_web_port = 8081
+tui = false
+
+[dataset]
+enabled = true
+script = "scripts/prepare-ultra-fineweb-local.py"
+output_dir = "data/ultra-fineweb-deepseek-512-bin"
+sequence_length = 512
+num_sequences = 10000000
+shard_size = 8192
+token_bytes = 4
+dataset = "openbmb/Ultra-FineWeb"
+split = "en"
+text_field = "content"
+tokenizer = "deepseek-ai/DeepSeek-V3"
+seed = 1337
+buffer_docs = 0
+trust_remote_code = false
+
+[model]
+enabled = true
+script = "scripts/push-new-model-hf.py"
+config = "config/deepseek-v3-dense-160m-ultra-fineweb/model-config.json"
+repo = "aethercompute/deepseek-v3-dense-160m-init"
+tokenizer = "deepseek-ai/DeepSeek-V3"
+private = false
+dtype = "bfloat16"
+device = ""
