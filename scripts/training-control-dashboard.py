@@ -423,6 +423,12 @@ def render_config_form(config: dict) -> str:
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
+        if self.path == "/health":
+            self.send_response(HTTPStatus.OK)
+            self.send_header("content-type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"ok\n")
+            return
         if not self.authorized():
             self.request_auth()
             return
