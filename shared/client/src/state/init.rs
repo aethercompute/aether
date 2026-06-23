@@ -7,9 +7,9 @@ use psyche_core::{
     Barrier, CancellableBarrier, IntegrationTestLogMarker, NodeIdentity, Shuffle, TokenSize,
 };
 use psyche_data_provider::{
-    DataProvider, DataProviderTcpClient, DownloadError, DummyDataProvider,
-    PreprocessedDataProvider, Split, WeightedDataProvider, download_dataset_repo_async,
-    download_model_from_gcs_async, download_model_repo_async,
+    DataProvider, DataProviderTcpClient, DownloadError, DummyDataProvider, LocalDataProvider,
+    PreprocessedDataProvider, Split, WeightedDataProvider,
+    download_dataset_repo_async, download_model_from_gcs_async, download_model_repo_async,
     http::{FileURLs, HttpDataProvider},
 };
 use psyche_event_sourcing::event;
@@ -211,7 +211,14 @@ impl RunInitConfigAndIO {
                     )
                     .await?,
                 ),
-                LLMTrainingDataLocation::Local(_) => todo!(),
+                LLMTrainingDataLocation::Local(local) => {
+                    DataProvider::Local(LocalDataProvider::new_from_directory(
+                        String::from(&local.path),
+                        local.token_size_in_bytes,
+                        llm.max_seq_len as usize,
+                        local.shuffle,
+                    )?)
+                }
                 LLMTrainingDataLocation::Dummy => {
                     DataProvider::Dummy(DummyDataProvider::new(TokenSize::TwoBytes, 2048, u64::MAX))
                 }

@@ -92,11 +92,41 @@ pub enum LLMTrainingDataLocation {
     #[default]
     Dummy,
     Server(FixedString<{ SOLANA_MAX_STRING_LEN }>),
-    Local(FixedString<{ SOLANA_MAX_URL_STRING_LEN }>),
+    Local(LocalLLMTrainingDataLocation),
     Http(HttpLLMTrainingDataLocation),
     /// link to a JSON file that deserializes to a Vec<LLMTrainingDataLocationAndWeight>
     WeightedHttp(FixedString<{ SOLANA_MAX_URL_STRING_LEN }>),
     Preprocessed(FixedString<{ SOLANA_MAX_URL_STRING_LEN }>),
+}
+
+#[derive(
+    AnchorSerialize,
+    AnchorDeserialize,
+    InitSpace,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    Zeroable,
+    Copy,
+    TS,
+)]
+#[repr(C)]
+#[allow(clippy::large_enum_variant)]
+pub struct LocalLLMTrainingDataLocation {
+    pub path: FixedString<{ SOLANA_MAX_URL_STRING_LEN }>,
+    pub token_size_in_bytes: TokenSize,
+    pub shuffle: Shuffle,
+}
+
+impl Default for LocalLLMTrainingDataLocation {
+    fn default() -> Self {
+        Self {
+            path: FixedString::default(),
+            token_size_in_bytes: TokenSize::TwoBytes,
+            shuffle: Shuffle::DontShuffle,
+        }
+    }
 }
 
 #[derive(
@@ -316,7 +346,7 @@ impl Model {
                 let bad_data_location = match llm.data_location {
                     LLMTrainingDataLocation::Dummy => false,
                     LLMTrainingDataLocation::Server(url) => url.is_empty(),
-                    LLMTrainingDataLocation::Local(_) => false,
+                    LLMTrainingDataLocation::Local(local) => local.path.is_empty(),
                     LLMTrainingDataLocation::Http(HttpLLMTrainingDataLocation {
                         location, ..
                     }) => match location {

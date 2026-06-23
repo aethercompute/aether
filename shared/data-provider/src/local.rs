@@ -106,8 +106,10 @@ impl LocalDataProvider {
                 .enumerate()
                 // find every sequence in every file
                 .flat_map(|(file_index, current_tokens)| {
-                    (0..current_tokens.as_ref().as_ref().len() - seq_len_in_bytes)
-                        .step_by(seq_len_in_bytes)
+                    let file_len = current_tokens.as_ref().as_ref().len();
+                    let num_sequences = file_len / seq_len_in_bytes;
+                    (0..num_sequences)
+                        .map(move |sequence_index| sequence_index * seq_len_in_bytes)
                         .map(move |byte_offset| SequencePointer {
                             file_index,
                             byte_offset,
