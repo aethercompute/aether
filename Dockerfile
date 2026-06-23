@@ -3,14 +3,13 @@
 FROM python:3.12-slim-bookworm AS builder
 
 ARG RUST_VERSION=1.89.0
-ARG TORCH_VERSION=2.7.0
+ARG TORCH_VERSION=2.9.1
 ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 ARG PYTHON_TRAINING_DEPS="datasets huggingface-hub tqdm transformers"
 ENV CARGO_HOME=/usr/local/cargo \
     RUSTUP_HOME=/usr/local/rustup \
     PATH=/usr/local/cargo/bin:$PATH \
-    LIBTORCH_USE_PYTORCH=1 \
-    LIBTORCH_BYPASS_VERSION_CHECK=1
+    LIBTORCH_USE_PYTORCH=1
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -43,11 +42,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 FROM python:3.12-slim-bookworm AS runtime
 
-ARG TORCH_VERSION=2.7.0
+ARG TORCH_VERSION=2.9.1
 ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 ARG PYTHON_TRAINING_DEPS="datasets huggingface-hub tqdm transformers"
 ENV LIBTORCH_USE_PYTORCH=1 \
-    LIBTORCH_BYPASS_VERSION_CHECK=1 \
     PYTHONUNBUFFERED=1 \
     RUST_LOG=info \
     TRAINING_RUN_CONFIG=config/training-run.toml \
