@@ -6,10 +6,12 @@
 
 debug/
 target/
+**/target
 **/*.rs.bk
 *.pdb
 
 __pycache__/
+*.pyc
 
 Thumbs.db
 Thumbs.db:encryptable
@@ -27,6 +29,7 @@ perf.data.*
 .vscode/
 .zed/
 .venv/
+venv/
 libtorch*
 slurm*
 *.key
@@ -45,7 +48,23 @@ book
 **/.rustc_info.json
 
 config/client/.env
+.env
+.env.*
+!.env.example
 
 **/README.md
 
 scripts/devnet/devnet_funded_accounts
+
+.git
+.gitignore
+.pytest_cache
+.mypy_cache
+.ruff_cache
+node_modules
+website/node_modules
+website/.next
+dist
+build
+*.log
+secrets.nix
