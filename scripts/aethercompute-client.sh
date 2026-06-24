@@ -90,25 +90,25 @@ ensure_identity_key() {
 select_device() {
   local detected_gpus=0
 
-  printf "${bold}Select device${reset}\n"
-  printf "  1) auto - let Psyche choose\n"
-  printf "  2) cpu\n"
+  >&2 printf "${bold}Select device${reset}\n"
+  >&2 printf "  1) auto - let Psyche choose\n"
+  >&2 printf "  2) cpu\n"
 
   if command -v nvidia-smi >/dev/null 2>&1; then
     detected_gpus="$(nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null | wc -l | tr -d ' ')"
   fi
 
   if [[ "$detected_gpus" =~ ^[0-9]+$ ]] && (( detected_gpus > 0 )); then
-    printf "  3) cuda - all visible NVIDIA GPUs\n"
+    >&2 printf "  3) cuda - all visible NVIDIA GPUs\n"
     local i
     for ((i = 0; i < detected_gpus; i++)); do
       local name
       name="$(nvidia-smi --query-gpu=name --format=csv,noheader -i "$i" 2>/dev/null || true)"
-      printf "  %d) cuda:%d%s\n" "$((i + 4))" "$i" "${name:+ - $name}"
+      >&2 printf "  %d) cuda:%d%s\n" "$((i + 4))" "$i" "${name:+ - $name}"
     done
-    printf "  c) custom, e.g. cuda:0,1 or mps\n"
+    >&2 printf "  c) custom, e.g. cuda:0,1 or mps\n"
   else
-    printf "  c) custom, e.g. cuda, cuda:0, mps\n"
+    >&2 printf "  c) custom, e.g. cuda, cuda:0, mps\n"
   fi
 
   local choice
@@ -119,7 +119,7 @@ select_device() {
     1) printf "auto" ;;
     2) printf "cpu" ;;
     3)
-      if [[ "$detected_gpus" =~ ^[0-9]+$ ]] && (( detected_gpus > 0 )); then
+      if [[ "$detected_gpus" =~ ^[0-9]$ ]] && (( detected_gpus > 0 )); then
         printf "cuda"
       else
         printf "auto"
