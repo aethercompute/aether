@@ -109,18 +109,18 @@ def initialize_deepseek_weights(model: DeepseekV3ForCausalLM, config: DeepseekV3
 def main(args):
     if not args.config:
         raise RuntimeError("No config provided")
-    config = json.load(open(args.config))
-    model_type = config["model_type"]
+    raw_config = json.load(open(args.config))
+    model_type = raw_config["model_type"]
 
     if model_type == "llama":
         config = LlamaConfig.from_pretrained(args.config)
     elif model_type == "deepseek_v3":
-        config = DeepseekV3Config.from_pretrained(args.config)
-        missing_fields = [field for field in ("rope_theta",) if not hasattr(config, field)]
+        missing_fields = [field for field in ("rope_theta",) if field not in raw_config]
         if missing_fields:
             raise RuntimeError(
                 f"DeepSeek config is missing required fields: {', '.join(missing_fields)}"
             )
+        config = DeepseekV3Config.from_pretrained(args.config)
     else:
         raise ValueError(f"Unsupported model type `{model_type}`")
 
