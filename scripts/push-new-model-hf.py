@@ -7,6 +7,7 @@ from transformers import (
 )
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from torch import nn
+from huggingface_hub import HfApi
 import argparse
 import torch
 import math
@@ -146,6 +147,12 @@ def main(args):
     print(f"Model has {total_params} parameters")
     if args.repo:
         model.push_to_hub(args.repo, private=args.private)
+        HfApi().upload_file(
+            path_or_fileobj=args.config,
+            path_in_repo="config.json",
+            repo_id=args.repo,
+            repo_type="model",
+        )
         if args.tokenizer:
             AutoTokenizer.from_pretrained(args.tokenizer).push_to_hub(
                 args.repo, private=args.private
