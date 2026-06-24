@@ -216,28 +216,34 @@ def run_background(name: str, command: list[str], on_success=None, long_running:
         setattr(STATE, target_attr, job)
 
     def worker() -> None:
-        env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1"
-        process = subprocess.Popen(
-            command,
-            cwd=repo_root(),
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-        with STATE.lock:
-            job.process = process
-        assert process.stdout is not None
-        for line in process.stdout:
-            STATE.append_log(job, line)
-        returncode = process.wait()
-        with STATE.lock:
-            job.returncode = returncode
-            job.finished_at = time.time()
-        if returncode == 0 and on_success is not None:
-            on_success()
+        try:
+            env = os.environ.copy()
+            env["PYTHONUNBUFFERED"] = "1"
+            process = subprocess.Popen(
+                command,
+                cwd=repo_root(),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            with STATE.lock:
+                job.process = process
+            assert process.stdout is not None
+            for line in process.stdout:
+                STATE.append_log(job, line)
+            returncode = process.wait()
+            with STATE.lock:
+                job.returncode = returncode
+                job.finished_at = time.time()
+            if returncode == 0 and on_success is not None:
+                on_success()
+        except Exception as exc:
+            with STATE.lock:
+                job.log.append(f"ERROR: {exc}")
+                job.returncode = -1
+                job.finished_at = time.time()
 
     threading.Thread(target=worker, daemon=True).start()
     return job
