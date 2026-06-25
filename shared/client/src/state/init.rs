@@ -169,6 +169,11 @@ pub struct RunInitConfigAndIO {
     pub tx_request_model_config: UnboundedSender<OneShotModelConfigSender>,
     pub tx_broadcast_finished: UnboundedSender<FinishedBroadcast>,
 
+    /// Fired once after the checkpoint has been downloaded and the model loaded,
+    /// signalling to the server that this client is ready to be admitted into
+    /// the next epoch.
+    pub tx_ready_for_epoch: UnboundedSender<()>,
+
     pub metrics: Arc<ClientMetrics>,
 }
 
@@ -187,6 +192,7 @@ impl RunInitConfigAndIO {
             tx_request_download,
             tx_request_model_config,
             tx_broadcast_finished,
+            tx_ready_for_epoch,
             metrics,
         } = self;
 
@@ -908,6 +914,13 @@ impl RunInitConfigAndIO {
             checkpoint_extra_files,
             model_task_runner,
         );
+
+        // Signal readiness so the server knows it can admit us into the next
+        // epoch. This decouples checkpoint download from epoch warmup — a slow
+        // joiner downloads in the background and is only admitted once ready,
+        // so it never disrupts active training.
+        info!("Checkpoint loaded — signalling readiness to server");
+        let _ = tx_ready_for_epoch.send(());
 
         Ok(StepStateMachine::new(
             init_config.identity,

@@ -4,6 +4,8 @@ use std::sync::{Arc, RwLock};
 use iroh::EndpointId;
 use iroh::endpoint::{AfterHandshakeOutcome, ConnectionInfo, EndpointHooks};
 
+use crate::p2p_model_sharing;
+
 pub trait Allowlist: std::fmt::Debug + Clone {
     fn allowed(&self, addr: EndpointId) -> bool;
     fn force_allow(&self, addr: EndpointId);
@@ -104,6 +106,14 @@ impl<A: Allowlist> AllowlistHook<A> {
 
 impl<A: Allowlist + Send + Sync> EndpointHooks for AllowlistHook<A> {
     async fn after_handshake(&self, conn: &ConnectionInfo) -> AfterHandshakeOutcome {
+        // Always accept model-sharing connections. Syncing clients that have
+        // not yet been admitted to an epoch need to download checkpoints from
+        // peers via this ALPN, but their endpoint IDs are not yet in the
+        // epoch allowlist. The model-sharing protocol itself only serves
+        // parameters that have been explicitly loaded, so this is safe.
+        if conn.alpn() == p2p_model_sharing::ALPN {
+            return AfterHandshakeOutcome::Accept;
+        }
         if self.allowlist.allowed(conn.remote_id()) {
             AfterHandshakeOutcome::Accept
         } else {

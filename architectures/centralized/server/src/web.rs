@@ -20,7 +20,11 @@ pub struct LossPoint {
 pub struct WebState {
     pub coordinator: Option<Coordinator>,
     pub loss_history: Vec<LossPoint>,
-    pub pending_clients: Vec<String>,
+    /// Connected clients still downloading the checkpoint (not yet ready).
+    pub syncing_clients: Vec<String>,
+    /// Connected clients that have the checkpoint loaded and are awaiting
+    /// epoch admission.
+    pub ready_clients: Vec<String>,
     pub server_addr: String,
 }
 
@@ -100,6 +104,8 @@ async fn overview_partial(State(state): State<SharedState>) -> Html<String> {
             } else {
                 "No"
             };
+            let syncing = s.syncing_clients.len();
+            let ready = s.ready_clients.len();
             Html(format!(
                 r#"<table border="1">
 <tr><td><b>Run State</b></td><td>{run_state} {pending}</td></tr>
@@ -109,6 +115,7 @@ async fn overview_partial(State(state): State<SharedState>) -> Html<String> {
 <tr><td><b>Height (Round)</b></td><td>{height}</td></tr>
 <tr><td><b>Epoch Steps</b></td><td>{epoch_start_step} - {epoch_last_step}</td></tr>
 <tr><td><b>Clients</b></td><td>{clients_count} ({exited} exited)</td></tr>
+<tr><td><b>Connected</b></td><td><span style="color:#3fb950">{ready} ready</span>, <span style="color:#d29922">{syncing} syncing</span></td></tr>
 <tr><td><b>Server</b></td><td>{server_addr}</td></tr>
 <tr><td><b>State Duration</b></td><td>{state_duration_str}</td></tr>
 <tr><td><b>Epoch Duration</b></td><td>{epoch_duration}</td></tr>
@@ -127,6 +134,8 @@ async fn overview_partial(State(state): State<SharedState>) -> Html<String> {
                 epoch_last_step = coord.epoch_state.last_step,
                 clients_count = clients_count,
                 exited = exited,
+                ready = ready,
+                syncing = syncing,
                 server_addr = s.server_addr,
                 state_duration_str = format_duration(state_duration),
                 epoch_duration = epoch_duration,
@@ -203,6 +212,35 @@ async fn clients_partial(State(state): State<SharedState>) -> Html<String> {
                 String::new()
             };
 
+            let connecting_rows: String = s
+                .syncing_clients
+                .iter()
+                .map(|c| {
+                    format!(
+                        r#"<tr><td>{}</td><td style="color:#d29922"><b>Syncing</b></td></tr>"#,
+                        c
+                    )
+                })
+                .chain(s.ready_clients.iter().map(|c| {
+                    format!(
+                        r#"<tr><td>{}</td><td style="color:#58a6ff"><b>Ready (waiting for next epoch)</b></td></tr>"#,
+                        c
+                    )
+                }))
+                .collect();
+
+            let connecting_section = if !connecting_rows.is_empty() {
+                format!(
+                    r#"<br><table border="1">
+<caption><b>Connected — Not Yet Admitted</b></caption>
+<thead><tr><th>Client ID</th><th>Status</th></tr></thead>
+<tbody>{connecting_rows}</tbody>
+</table>"#,
+                )
+            } else {
+                String::new()
+            };
+
             Html(format!(
                 r#"<div><b>Client Summary:</b> {total} total &mdash;
 <span style="color:#3fb950">{healthy} healthy</span>,
@@ -214,7 +252,8 @@ async fn clients_partial(State(state): State<SharedState>) -> Html<String> {
 <thead><tr><th>Client ID</th><th>Status</th><th>Exited Height</th></tr></thead>
 <tbody>{rows}</tbody>
 </table>
-{exited_section}"#,
+{exited_section}
+{connecting_section}"#,
                 total = total,
                 healthy = healthy,
                 dropped = dropped,
@@ -759,7 +798,8 @@ async fn api_state(State(state): State<SharedState>) -> impl axum::response::Int
     let json = serde_json::json!({
         "coordinator": &s.coordinator,
         "loss_history": &s.loss_history,
-        "pending_clients": &s.pending_clients,
+        "syncing_clients": &s.syncing_clients,
+        "ready_clients": &s.ready_clients,
         "server_addr": &s.server_addr,
     });
     axum::Json(json)

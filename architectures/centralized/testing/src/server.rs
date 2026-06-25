@@ -31,6 +31,16 @@ enum TestingQueryMsg {
     PendingClientsLen {
         respond_to: oneshot::Sender<usize>,
     },
+    ReadyClients {
+        respond_to: oneshot::Sender<HashSet<NodeIdentity>>,
+    },
+    ReadyClientsLen {
+        respond_to: oneshot::Sender<usize>,
+    },
+    /// All connected clients (syncing + ready).
+    ConnectedClientsLen {
+        respond_to: oneshot::Sender<usize>,
+    },
     RunState {
         respond_to: oneshot::Sender<RunState>,
     },
@@ -107,6 +117,7 @@ impl CoordinatorServer {
             None,
             Some(WARMUP_TIME),
             true,
+            None,
         )
         .await
         .unwrap();
@@ -138,6 +149,18 @@ impl CoordinatorServer {
             }
             TestingQueryMsg::PendingClientsLen { respond_to } => {
                 let clients = self.inner.get_pending_clients();
+                respond_to.send(clients.len()).unwrap();
+            }
+            TestingQueryMsg::ReadyClients { respond_to } => {
+                let clients = self.inner.get_ready_clients();
+                respond_to.send(clients).unwrap();
+            }
+            TestingQueryMsg::ReadyClientsLen { respond_to } => {
+                let clients = self.inner.get_ready_clients();
+                respond_to.send(clients.len()).unwrap();
+            }
+            TestingQueryMsg::ConnectedClientsLen { respond_to } => {
+                let clients = self.inner.get_all_connected_clients();
                 respond_to.send(clients.len()).unwrap();
             }
             TestingQueryMsg::RunState { respond_to } => {
@@ -251,6 +274,27 @@ impl CoordinatorServerHandle {
     pub async fn get_pending_clients_len(&self) -> usize {
         let (send, recv) = oneshot::channel();
         let msg = TestingQueryMsg::PendingClientsLen { respond_to: send };
+        let _ = self.query_chan_sender.send(msg).await;
+        recv.await.expect("Coordinator actor task has been killed")
+    }
+
+    pub async fn get_ready_clients(&self) -> HashSet<NodeIdentity> {
+        let (send, recv) = oneshot::channel();
+        let msg = TestingQueryMsg::ReadyClients { respond_to: send };
+        let _ = self.query_chan_sender.send(msg).await;
+        recv.await.expect("Coordinator actor task has been killed")
+    }
+
+    pub async fn get_ready_clients_len(&self) -> usize {
+        let (send, recv) = oneshot::channel();
+        let msg = TestingQueryMsg::ReadyClientsLen { respond_to: send };
+        let _ = self.query_chan_sender.send(msg).await;
+        recv.await.expect("Coordinator actor task has been killed")
+    }
+
+    pub async fn get_connected_clients_len(&self) -> usize {
+        let (send, recv) = oneshot::channel();
+        let msg = TestingQueryMsg::ConnectedClientsLen { respond_to: send };
         let _ = self.query_chan_sender.send(msg).await;
         recv.await.expect("Coordinator actor task has been killed")
     }

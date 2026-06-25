@@ -4,7 +4,9 @@ use crate::{
 };
 
 use iroh_blobs::api::Tag;
-use psyche_coordinator::{Committee, Coordinator, RunState, Witness, WitnessProof};
+use psyche_coordinator::{
+    Committee, Coordinator, RunState, Witness, WitnessProof, model::{Checkpoint, Model},
+};
 use psyche_core::{IntegrationTestLogMarker, MerkleRoot, MerkleTree, NodeIdentity, sha256};
 use psyche_event_sourcing::event;
 use psyche_modeling::{DistroResult, Trainer};
@@ -1044,12 +1046,32 @@ impl RunManager {
 
     pub async fn apply_state(&mut self, state: Coordinator) -> Result<(), ApplyStateError> {
         let new_state = match &mut self.0 {
+            // Start initialization as soon as we receive our first coordinator
+            // state — but only for checkpoints that can be fetched without P2P
+            // peers (Hub, GCS, Dummy). For P2P checkpoints the client needs to
+            // be admitted to the epoch first so it can discover peer addresses
+            // via the gossip mesh; those fall through to the original trigger
+            // below.
             InitStage::NotYetInitialized(init_info @ Some(..))
-            // We run the initialization only when we are sure that we didn't just recently joined in Warmup
-            // If this is the case, then our ID won't be present in the list of clients available for this epoch
-                if state.run_state == RunState::Warmup && state.epoch_state.clients.iter().any(|c| c.id == init_info.as_ref().unwrap().init_config.identity) =>
+                if !checkpoint_needs_p2p(&state) =>
             {
-                // Take ownership of init_info using std::mem::take
+                let init_info = init_info.take().unwrap();
+                Some(InitStage::Initializing(Box::new((
+                    tokio::spawn(init_info.init_run(state)),
+                    state,
+                ))))
+            }
+            // Original trigger: wait until we're admitted to an epoch (Warmup)
+            // before starting init. Used for P2P checkpoints where we need
+            // gossip connectivity to discover peer addresses for download.
+            InitStage::NotYetInitialized(init_info @ Some(..))
+                if state.run_state == RunState::Warmup
+                    && state
+                        .epoch_state
+                        .clients
+                        .iter()
+                        .any(|c| c.id == init_info.as_ref().unwrap().init_config.identity) =>
+            {
                 let init_info = init_info.take().unwrap();
                 Some(InitStage::Initializing(Box::new((
                     tokio::spawn(init_info.init_run(state)),
@@ -1085,7 +1107,7 @@ impl RunManager {
             }
             // we're running, process it in a sec
             InitStage::Running(..) => None,
-            // not initialized but we haven't seen a warmup yet, we're just waiting!
+            // P2P checkpoint: haven't been admitted to an epoch yet, waiting
             InitStage::NotYetInitialized(_) => {
                 return Ok(());
             }
@@ -1132,6 +1154,18 @@ impl RunManager {
             }
             _ => false,
         }
+    }
+}
+
+/// Returns true if the checkpoint can only be fetched via P2P (requires
+/// established gossip connections to peers). Non-P2P checkpoints (Hub, GCS,
+/// Dummy) can be downloaded independently of epoch admission.
+fn checkpoint_needs_p2p(state: &Coordinator) -> bool {
+    match &state.model {
+        Model::LLM(llm) => matches!(
+            llm.checkpoint,
+            Checkpoint::P2P(_) | Checkpoint::P2PGcs(_)
+        ),
     }
 }
 

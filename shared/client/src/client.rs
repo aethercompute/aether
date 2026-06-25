@@ -93,6 +93,7 @@ impl Client {
                 let (tx_request_model_config, mut rx_request_model_config) =
                     mpsc::unbounded_channel();
                 let (tx_broadcast_finished, mut rx_broadcast_finished) = mpsc::unbounded_channel();
+                let (tx_ready_for_epoch, mut rx_ready_for_epoch) = mpsc::unbounded_channel();
 
                 let max_concurrent_parameter_requests =
                     init_config.max_concurrent_parameter_requests;
@@ -113,6 +114,7 @@ impl Client {
                     tx_request_download: tx_request_download.clone(),
                     tx_request_model_config,
                     tx_broadcast_finished,
+                    tx_ready_for_epoch,
                 });
 
                 let download_scheduler = DownloadSchedulerHandle::new(
@@ -564,6 +566,10 @@ impl Client {
                         }
                         Some(checkpoint) = rx_checkpoint.recv() => {
                             watcher.backend_mut().send_checkpoint(checkpoint).await?;
+                        }
+                        Some(()) = rx_ready_for_epoch.recv() => {
+                            info!("Checkpoint loaded — notifying server that we're ready for the next epoch");
+                            watcher.backend_mut().send_ready_for_epoch().await?;
                         }
                         Some(model) = rx_model.recv() => {
                             sharable_model.update_parameters(model)?;

@@ -27,4 +27,13 @@ pub trait Backend: Send + Sync {
     async fn send_witness(&mut self, opportunistic_data: OpportunisticData) -> Result<()>;
     async fn send_health_check(&mut self, health_check: HealthChecks) -> Result<()>;
     async fn send_checkpoint(&mut self, checkpoint: model::Checkpoint) -> Result<()>;
+
+    /// Called once the client has finished downloading and loading the
+    /// checkpoint and is ready to be admitted into the next epoch.
+    ///
+    /// Default no-op: architectures that handle admission differently (e.g.
+    /// on-chain coordinators) can ignore this.
+    async fn send_ready_for_epoch(&mut self) -> Result<()> {
+        Ok(())
+    }
 }

@@ -26,7 +26,7 @@ async fn connect_single_node() {
     let server_port = server_handle.server_port;
     let run_id = &server_handle.run_id;
     let _client_handle = ClientHandle::default(server_port, run_id).await;
-    let connected_clients = || server_handle.get_pending_clients_len();
+    let connected_clients = || server_handle.get_connected_clients_len();
 
     assert_with_retries(connected_clients, 1).await;
 }
@@ -44,7 +44,7 @@ async fn connect_multiple_nodes() {
     let run_id = &server_handle.run_id;
     let _client_handles = spawn_clients(number_of_nodes, server_port, run_id).await;
 
-    let connected_clients = || server_handle.get_pending_clients_len();
+    let connected_clients = || server_handle.get_connected_clients_len();
     let run_state = || server_handle.get_run_state();
 
     assert_with_retries(connected_clients, number_of_nodes).await;
@@ -120,7 +120,7 @@ async fn state_change_shutdown_node_in_warmup() {
     )
     .await;
     assert_with_retries(|| server_handle.get_clients_len(), 1).await;
-    assert_with_retries(|| server_handle.get_pending_clients_len(), 1).await;
+    assert_with_retries(|| server_handle.get_connected_clients_len(), 1).await;
 }
 
 #[test_log::test(tokio::test(flavor = "multi_thread"))]
@@ -413,7 +413,7 @@ async fn client_join_in_training() {
 
     // assert new client didnt join the round but is ready in pending clients
     info!("waiting for pending clients to contain new client");
-    assert_with_retries(|| server_handle.get_pending_clients_len(), 3).await;
+    assert_with_retries(|| server_handle.get_connected_clients_len(), 3).await;
     assert_with_retries(|| server_handle.get_clients_len(), 2).await;
 
     // train

@@ -49,7 +49,13 @@ type TabsData = <Tabs as CustomWidget>::Data;
 
 struct Backend {
     net_server: TcpServer<ClientToServerMessage, ServerToClientMessage>,
+    /// Clients that have connected and sent `Join` but have NOT yet finished
+    /// downloading/loading the checkpoint. They are excluded from epoch
+    /// admission so slow joiners never disrupt active training.
     pending_clients: HashSet<NodeIdentity>,
+    /// Clients that have signalled `ReadyForEpoch` (checkpoint loaded). Only
+    /// these are passed to the coordinator for epoch admission.
+    ready_clients: HashSet<NodeIdentity>,
 }
 
 impl Backend {
@@ -120,6 +126,19 @@ impl App {
 
     pub fn get_pending_clients(&self) -> HashSet<NodeIdentity> {
         self.backend.pending_clients.clone()
+    }
+
+    pub fn get_ready_clients(&self) -> HashSet<NodeIdentity> {
+        self.backend.ready_clients.clone()
+    }
+
+    /// All connected clients regardless of readiness (syncing + ready).
+    pub fn get_all_connected_clients(&self) -> HashSet<NodeIdentity> {
+        self.backend
+            .pending_clients
+            .union(&self.backend.ready_clients)
+            .copied()
+            .collect()
     }
 
     pub fn get_run_state(&self) -> RunState {
@@ -281,7 +300,8 @@ impl App {
                 WebState {
                     coordinator: Some(coordinator),
                     loss_history: Vec::new(),
-                    pending_clients: Vec::new(),
+                    syncing_clients: Vec::new(),
+                    ready_clients: Vec::new(),
                     server_addr: String::new(),
                 },
                 web_port,
@@ -351,6 +371,7 @@ impl App {
                 backend: Backend {
                     net_server,
                     pending_clients: HashSet::new(),
+                    ready_clients: HashSet::new(),
                 },
                 save_state_dir,
                 coordinator_writer,
@@ -429,9 +450,15 @@ impl App {
             if let Ok(mut state) = shared.lock() {
                 state.coordinator = Some(self.coordinator);
                 state.loss_history.clone_from(&self.loss_history);
-                state.pending_clients = self
+                state.syncing_clients = self
                     .backend
                     .pending_clients
+                    .iter()
+                    .map(|c| c.to_string())
+                    .collect();
+                state.ready_clients = self
+                    .backend
+                    .ready_clients
                     .iter()
                     .map(|c| c.to_string())
                     .collect();
@@ -443,6 +470,7 @@ impl App {
     fn on_disconnect(&mut self, from: PublicKey) -> Result<()> {
         let from_identity = NodeIdentity::from_single_key(*from.as_bytes());
         self.backend.pending_clients.remove(&from_identity);
+        self.backend.ready_clients.remove(&from_identity);
 
         if self.withdraw_on_disconnect {
             let position = self
@@ -474,6 +502,22 @@ impl App {
                     self.backend.pending_clients.insert(from_identity);
                 } else {
                     info!("{from:?} tried to join unknown run {run_id}");
+                }
+                false
+            }
+            ClientToServerMessage::ReadyForEpoch => {
+                // The client has finished downloading/loading the checkpoint.
+                // Promote from pending (syncing) to ready so it can be admitted
+                // at the next epoch boundary.
+                if self.backend.pending_clients.remove(&from_identity) {
+                    info!("client {from} is ready for epoch admission");
+                    self.backend.ready_clients.insert(from_identity);
+                } else if !self.backend.ready_clients.contains(&from_identity) {
+                    // Received readiness from a client we don't know about
+                    // (e.g. it joined before the server started, or re-connected).
+                    // Accept it as ready directly.
+                    info!("client {from} signalled readiness (was not in pending)");
+                    self.backend.ready_clients.insert(from_identity);
                 }
                 false
             }
@@ -545,11 +589,40 @@ impl App {
 
     async fn on_tick(&mut self) {
         self.kick_unhealthy_clients();
+        // Determine which clients to pass to the coordinator for epoch admission.
+        //
+        // For non-P2P checkpoints (Hub, GCS, Dummy): only admit clients that
+        // have signalled readiness (checkpoint loaded). Syncing clients stay in
+        // `pending_clients` and join at a later epoch boundary once they finish
+        // downloading — this prevents slow joiners from disrupting warmup.
+        //
+        // For P2P checkpoints: admit ALL connected clients. P2P download
+        // requires gossip connectivity which is only established after
+        // admission, so we can't gate on readiness here.
+        let checkpoint_is_p2p = match &self.coordinator.model {
+            Model::LLM(llm) => matches!(
+                llm.checkpoint,
+                Checkpoint::P2P(_) | Checkpoint::P2PGcs(_)
+            ),
+        };
+
+        let (admission_iter, admission_count) = if checkpoint_is_p2p {
+            let all: Vec<&NodeIdentity> = self
+                .backend
+                .pending_clients
+                .iter()
+                .chain(self.backend.ready_clients.iter())
+                .collect();
+            let count = all.len();
+            (all, count)
+        } else {
+            let ready: Vec<&NodeIdentity> = self.backend.ready_clients.iter().collect();
+            let count = ready.len();
+            (ready, count)
+        };
+
         match self.coordinator.tick(
-            Some(SizedIterator::new(
-                self.backend.pending_clients.iter(),
-                self.backend.pending_clients.len(),
-            )),
+            Some(SizedIterator::new(admission_iter.into_iter(), admission_count)),
             Self::get_timestamp(),
             rand::rng().next_u64(),
         ) {
@@ -638,6 +711,7 @@ impl App {
         for client in self.coordinator.epoch_state.exited_clients {
             if client.state != ClientState::Healthy {
                 self.backend.pending_clients.remove(&client.id);
+                self.backend.ready_clients.remove(&client.id);
             }
         }
     }
@@ -659,7 +733,7 @@ impl From<&App> for DashboardState {
             server_addr: app.backend.net_server.local_addr().to_string(),
             nodes_next_epoch: app
                 .backend
-                .pending_clients
+                .ready_clients
                 .iter()
                 .map(|c| c.to_string())
                 .collect(),
