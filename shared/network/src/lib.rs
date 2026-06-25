@@ -1037,6 +1037,8 @@ pub async fn blob_ticket_param_request_task(
     peer_manager: Arc<PeerManagerHandle>,
     cancellation_token: CancellationToken,
 ) -> Result<(BlobTicket, ModelRequestType)> {
+    let mut consecutive_failures = 0u32;
+
     loop {
         if cancellation_token.is_cancelled() {
             return Err(anyhow!("model parameter request cancelled"));
@@ -1062,13 +1064,14 @@ pub async fn blob_ticket_param_request_task(
                 return Ok((blob_ticket, model_request_type));
             }
             Ok(Err(e)) | Err(e) => {
+                consecutive_failures = consecutive_failures.saturating_add(1);
                 // Failed - report error and potentially try next peer
                 peer_manager.report_blob_ticket_request_error(peer_id, None);
 
                 warn!("Request failed for peer {peer_id}: {e}. Trying next peer");
 
-                // Small delay before retry
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                let delay_ms = 500_u64.saturating_mul(consecutive_failures.min(10) as u64);
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
             }
         }
     }

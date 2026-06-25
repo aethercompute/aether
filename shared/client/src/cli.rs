@@ -1,7 +1,7 @@
 use crate::{CheckpointConfig, WandBInfo};
 
 use crate::UploadInfo;
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use clap::Args;
 use psyche_data_provider::{GcsUploadInfo, HubUploadInfo};
 use psyche_eval::tasktype_from_name;
@@ -183,7 +183,7 @@ pub struct TrainArgs {
     #[clap(long, env)]
     pub dummy_training_delay_secs: Option<u64>,
 
-    #[clap(long, default_value_t = 8, env)]
+    #[clap(long, default_value_t = 2, env)]
     pub max_concurrent_parameter_requests: usize,
 
     #[clap(long, default_value_t = 4, env)]
