@@ -1,11 +1,11 @@
 use crate::{
-    state::{train::FinishedTrainers, types::DeserializeError},
     Broadcast, BroadcastType, ClientTUIState,
+    state::{train::FinishedTrainers, types::DeserializeError},
 };
 
 use iroh_blobs::api::Tag;
 use psyche_coordinator::{Committee, Coordinator, RunState, Witness, WitnessProof};
-use psyche_core::{sha256, IntegrationTestLogMarker, MerkleRoot, MerkleTree, NodeIdentity};
+use psyche_core::{IntegrationTestLogMarker, MerkleRoot, MerkleTree, NodeIdentity, sha256};
 use psyche_event_sourcing::event;
 use psyche_modeling::{DistroResult, Trainer};
 use psyche_network::{BlobTicket, Hash, P2PEndpointInfo, TransmittableDistroResult};
@@ -21,9 +21,10 @@ use tokio::{
     sync::mpsc::{self},
     task::JoinHandle,
 };
-use tracing::{debug, info, trace, trace_span, warn, Instrument};
+use tracing::{Instrument, debug, info, trace, trace_span, warn};
 
 use super::{
+    FinishedBroadcast, RunInitConfigAndIO,
     cooldown::{CooldownError, CooldownStep, CooldownStepMetadata},
     evals::EvalError,
     init::InitRunError,
@@ -33,7 +34,6 @@ use super::{
     types::PayloadState,
     warmup::{WarmupStep, WarmupStepMetadata},
     witness::{WitnessStep, WitnessStepMetadata, WitnessingError},
-    FinishedBroadcast, RunInitConfigAndIO,
 };
 
 pub struct StepStateMachine {
@@ -559,15 +559,13 @@ impl StepStateMachine {
         if let Some(self_result) = self_result {
             trace!(
                 "Processing our own distro result for batch {} in step {} with hash {hash}",
-                distro_result.batch_id,
-                distro_result.step
+                distro_result.batch_id, distro_result.step
             );
             round_state.self_distro_results.push(self_result);
         } else {
             trace!(
                 "Finished download of distro result for batch {} in step {} with hash {hash}",
-                distro_result.batch_id,
-                distro_result.step
+                distro_result.batch_id, distro_result.step
             );
         }
 
@@ -593,14 +591,14 @@ impl StepStateMachine {
 
         let Some(commitment) = commitments_for_batch
             .iter()
-            .find(|comm| comm.0 == from && comm.1 .1.ticket.hash() == hash)
+            .find(|comm| comm.0 == from && comm.1.1.ticket.hash() == hash)
         else {
             info!("No commitment for payload from {}", from);
             return;
         };
 
         // TODO: verify shape of distro_results
-        let commitment = commitment.1 .0;
+        let commitment = commitment.1.0;
         let batch_ids_not_yet_trained_on = round_state.batch_ids_not_yet_trained_on.clone();
         let blooms = round_state.blooms.clone();
         let downloads = round_state.downloads.clone();
@@ -649,8 +647,7 @@ impl StepStateMachine {
                     remaining_batch_ids.remove(&batch_id);
                     trace!(
                         "Remaining batches to download for step {}: {:?}",
-                        distro_result.step,
-                        remaining_batch_ids
+                        distro_result.step, remaining_batch_ids
                     );
                     remaining_batch_ids.is_empty()
                 } else {
@@ -870,6 +867,14 @@ impl StepStateMachine {
             (ActiveStep::Cooldown(cooldown), RunState::Finished) => {
                 let (_trainers, _upload_handle) = cooldown.finish().await?;
                 ActiveStep::Intermediate
+            }
+            (
+                current_step @ ActiveStep::Warmup(..),
+                RunState::WaitingForMembers | RunState::Paused,
+            ) => {
+                self.sent_warmup_finished = false;
+                self.sent_warmup_witness = false;
+                current_step
             }
             // stay in existing run state if there's no reason to change.
             (current_step, next_run_state) if current_step.allowed_in_run_state(next_run_state) => {
