@@ -347,16 +347,18 @@ def html_page(message: str | None = None) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Aether Training Control</title>
   <style>
-    body {{ font-family: system-ui, sans-serif; margin: 2rem; max-width: 1100px; }}
-    input {{ width: 100%; box-sizing: border-box; padding: .35rem; }}
+    body {{ font-family: system-ui, sans-serif; margin: 2rem; max-width: 1100px; background: #0d1117; color: #c9d1d9; }}
+    input {{ width: 100%; box-sizing: border-box; padding: .35rem; background: #161b22; color: #e6edf3; border: 1px solid #30363d; }}
     label {{ display: block; font-weight: 600; margin-top: .8rem; }}
-    fieldset {{ border: 1px solid #ccc; margin: 1rem 0; padding: 1rem; }}
-    button {{ padding: .55rem .8rem; margin: .3rem .3rem .3rem 0; }}
-    .ok {{ color: #117733; font-weight: 700; }}
-    .warn {{ color: #aa6600; font-weight: 700; }}
-    .bad {{ color: #aa2222; font-weight: 700; }}
-    pre {{ background: #111; color: #eee; padding: 1rem; overflow: auto; max-height: 26rem; }}
+    fieldset {{ border: 1px solid #30363d; margin: 1rem 0; padding: 1rem; }}
+    button {{ padding: .55rem .8rem; margin: .3rem .3rem .3rem 0; background: #21262d; color: #e6edf3; border: 1px solid #30363d; cursor: pointer; }}
+    .ok {{ color: #3fb950; font-weight: 700; }}
+    .warn {{ color: #d29922; font-weight: 700; }}
+    .bad {{ color: #f85149; font-weight: 700; }}
+    pre {{ background: #161b22; color: #e6edf3; padding: 1rem; overflow: auto; max-height: 26rem; border: 1px solid #30363d; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .75rem; }}
+    code {{ color: #f0f6fc; }}
+    a {{ color: #58a6ff; }}
   </style>
 </head>
 <body>

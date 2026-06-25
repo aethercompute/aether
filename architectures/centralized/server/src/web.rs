@@ -162,10 +162,10 @@ async fn clients_partial(State(state): State<SharedState>) -> Html<String> {
                 let state_str = format!("{}", client.state);
                 let exited = client.exited_height;
                 let state_class = match client.state {
-                    ClientState::Healthy => " style=\"color:green\"",
-                    ClientState::Dropped => " style=\"color:red\"",
-                    ClientState::Withdrawn => " style=\"color:orange\"",
-                    ClientState::Ejected => " style=\"color:red\"",
+                    ClientState::Healthy => " style=\"color:#3fb950\"",
+                    ClientState::Dropped => " style=\"color:#f85149\"",
+                    ClientState::Withdrawn => " style=\"color:#db6d28\"",
+                    ClientState::Ejected => " style=\"color:#f85149\"",
                 };
                 rows.push_str(&format!(
                     r#"<tr><td>{}</td><td{state_class}><b>{}</b></td><td>{}</td></tr>"#,
@@ -203,10 +203,10 @@ async fn clients_partial(State(state): State<SharedState>) -> Html<String> {
 
             Html(format!(
                 r#"<div><b>Client Summary:</b> {total} total &mdash;
-<span style="color:green">{healthy} healthy</span>,
-<span style="color:red">{dropped} dropped</span>,
-<span style="color:orange">{withdrawn} withdrawn</span>,
-<span style="color:red">{ejected} ejected</span></div>
+<span style="color:#3fb950">{healthy} healthy</span>,
+<span style="color:#f85149">{dropped} dropped</span>,
+<span style="color:#db6d28">{withdrawn} withdrawn</span>,
+<span style="color:#f85149">{ejected} ejected</span></div>
 <br>
 <table border="1">
 <thead><tr><th>Client ID</th><th>Status</th><th>Exited Height</th></tr></thead>
@@ -489,10 +489,10 @@ fn render_loss_svg(losses: &[LossPoint]) -> String {
 <b>Latest Loss:</b> {last_loss:.4} &nbsp; <b>Min:</b> {min_loss:.4} &nbsp; <b>Max:</b> {max_loss:.4} &nbsp; <b>Avg:</b> {avg_loss:.4} &nbsp; Steps: {min_step:.0} - {max_step:.0} &nbsp; Points: {n}
 <br><br>
 <svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">
-<rect x="{plot_x0}" y="{plot_y0}" width="{plot_w}" height="{plot_h}" fill="none" stroke="black"/>
+<rect x="{plot_x0}" y="{plot_y0}" width="{plot_w}" height="{plot_h}" fill="none" stroke="#30363d"/>
 {y_labels}
 {x_labels}
-<polyline points="{points_str}" fill="none" stroke="black"/>
+<polyline points="{points_str}" fill="none" stroke="#e6edf3"/>
 </svg>
 </div>"##,
         last_loss = last_loss,
@@ -592,10 +592,10 @@ fn render_throughput_svg(losses: &[LossPoint]) -> String {
 <b>Latest Tokens/s:</b> {last_tps:.1} &nbsp; <b>Avg:</b> {avg_tps:.1} &nbsp; <b>Peak:</b> {max_tps:.1} &nbsp; Steps: {min_step:.0} - {max_step:.0} &nbsp; Points: {n}
 <br><br>
 <svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">
-<rect x="{plot_x0}" y="{plot_y0}" width="{plot_w}" height="{plot_h}" fill="none" stroke="green"/>
+<rect x="{plot_x0}" y="{plot_y0}" width="{plot_w}" height="{plot_h}" fill="none" stroke="#30363d"/>
 {y_labels}
 {x_labels}
-<polyline points="{points_str}" fill="none" stroke="green"/>
+<polyline points="{points_str}" fill="none" stroke="#3fb950"/>
 </svg>
 </div>"##,
         last_tps = last_tps,
@@ -687,11 +687,13 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
 <title>Psyche Monitor</title>
 <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 <style>
-body { font-family: monospace; margin: 20px; }
-h1 { color: #333; }
-h2 { color: #555; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+body { font-family: monospace; margin: 20px; background: #0d1117; color: #c9d1d9; }
+h1 { color: #f0f6fc; }
+h2 { color: #c9d1d9; border-bottom: 1px solid #30363d; padding-bottom: 4px; }
 table { border-collapse: collapse; }
-td, th { padding: 4px 8px; text-align: left; }
+td, th { padding: 4px 8px; text-align: left; border: 1px solid #30363d; }
+b { color: #f0f6fc; }
+a { color: #58a6ff; }
 .flex-row { display: flex; gap: 20px; flex-wrap: wrap; }
 .flex-col { flex: 1; min-width: 300px; }
 </style>
