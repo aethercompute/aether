@@ -1081,14 +1081,6 @@ impl RunManager {
             InitStage::NotYetInitialized(None) => {
                 unreachable!("Once we take the init state, we move to initializing.");
             }
-            InitStage::Initializing(..)
-                if state.run_state == RunState::WaitingForMembers
-                    || state.run_state == RunState::Paused =>
-            {
-                // a client has left the network, transitioning back to RunState::WaitingForMembers.
-                // wait for new clients to join the network.
-                return Ok(());
-            }
             InitStage::Initializing(init) => {
                 let (ref mut init_future, _) = &mut **init;
                 // Try to complete initialization
