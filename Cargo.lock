@@ -7127,6 +7127,7 @@ dependencies = [
  "toml 0.8.23",
  "tower-http 0.6.8",
  "tracing",
+ "wandb",
 ]
 
 [[package]]

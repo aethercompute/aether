@@ -32,6 +32,7 @@ use tokio::time::{interval, MissedTickBehavior};
 use tokio::{select, time::Interval};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, info_span, warn, Instrument};
+use wandb::LogData;
 
 use crate::dashboard::{DashboardState, DashboardTui};
 use crate::web::{self, LossPoint, WebState};
@@ -112,6 +113,7 @@ pub struct App {
     pause: Option<Arc<Notify>>,
     loss_history: Vec<LossPoint>,
     web_state: Option<std::sync::Arc<std::sync::Mutex<WebState>>>,
+    wandb_run: Option<Arc<wandb::Run>>,
 }
 
 /// Methods intended for testing purposes only.
@@ -361,6 +363,9 @@ impl App {
                 None
             };
 
+            let run_id = String::from(&coordinator.run_id);
+            let wandb_run = init_wandb(&run_id).await;
+
             Ok(Self {
                 cancel,
                 training_data_server,
@@ -381,6 +386,7 @@ impl App {
                 pause,
                 loss_history: Vec::new(),
                 web_state: Some(web_state),
+                wandb_run,
             })
         }.instrument(info_span!("App::new")).await
     }
@@ -467,6 +473,19 @@ impl App {
         }
     }
 
+    fn log_to_wandb(&self, point: &LossPoint) {
+        let Some(run) = self.wandb_run.clone() else {
+            return;
+        };
+        let mut log = LogData::new();
+        log.insert("_step", point.step);
+        log.insert("train/loss", point.loss);
+        log.insert("train/tokens_per_sec", point.tokens_per_sec);
+        tokio::spawn(async move {
+            run.log(log).await;
+        });
+    }
+
     fn on_disconnect(&mut self, from: PublicKey) -> Result<()> {
         let from_identity = NodeIdentity::from_single_key(*from.as_bytes());
         self.backend.pending_clients.remove(&from_identity);
@@ -526,12 +545,14 @@ impl App {
                 if let Err(error) = match *witness {
                     OpportunisticData::WitnessStep(witness, witness_metadata) => {
                         if witness_metadata.loss.is_finite() {
-                            self.loss_history.push(LossPoint {
+                            let point = LossPoint {
                                 step: witness_metadata.step,
                                 loss: witness_metadata.loss,
                                 tokens_per_sec: witness_metadata.tokens_per_sec,
                                 unix_timestamp: Self::get_timestamp(),
-                            });
+                            };
+                            self.log_to_wandb(&point);
+                            self.loss_history.push(point);
                         }
                         if self.loss_history.len() > 500 {
                             self.loss_history.drain(0..self.loss_history.len() - 500);
@@ -600,10 +621,7 @@ impl App {
         // requires gossip connectivity which is only established after
         // admission, so we can't gate on readiness here.
         let checkpoint_is_p2p = match &self.coordinator.model {
-            Model::LLM(llm) => matches!(
-                llm.checkpoint,
-                Checkpoint::P2P(_) | Checkpoint::P2PGcs(_)
-            ),
+            Model::LLM(llm) => matches!(llm.checkpoint, Checkpoint::P2P(_) | Checkpoint::P2PGcs(_)),
         };
 
         let (admission_iter, admission_count) = if checkpoint_is_p2p {
@@ -622,7 +640,10 @@ impl App {
         };
 
         match self.coordinator.tick(
-            Some(SizedIterator::new(admission_iter.into_iter(), admission_count)),
+            Some(SizedIterator::new(
+                admission_iter.into_iter(),
+                admission_count,
+            )),
             Self::get_timestamp(),
             rand::rng().next_u64(),
         ) {
@@ -737,6 +758,52 @@ impl From<&App> for DashboardState {
                 .iter()
                 .map(|c| c.to_string())
                 .collect(),
+        }
+    }
+}
+
+/// Creates a wandb run for server-side metric logging, driven entirely by
+/// environment variables. Returns `None` (and the server continues normally)
+/// if `WANDB_API_KEY` is unset or the wandb backend is unreachable.
+///
+/// - `WANDB_API_KEY`  (required to enable)
+/// - `WANDB_PROJECT`  (default: `psyche`)
+/// - `WANDB_RUN`      (default: `server-<run_id>`)
+/// - `WANDB_ENTITY`   (optional)
+/// - `WANDB_GROUP`    (optional)
+async fn init_wandb(run_id: &str) -> Option<Arc<wandb::Run>> {
+    let api_key = std::env::var("WANDB_API_KEY").ok()?;
+    let project = std::env::var("WANDB_PROJECT").unwrap_or_else(|_| "aethercompute".to_string());
+    let run_name = std::env::var("WANDB_RUN")
+        .unwrap_or_else(|_| format!("server-{run_id}-{}", chrono::Utc::now().format("%Y-%m-%d")));
+    let entity = std::env::var("WANDB_ENTITY").ok();
+    let group = std::env::var("WANDB_GROUP").ok();
+
+    let wandb = wandb::WandB::new(wandb::BackendOptions::new(api_key));
+    let mut run_info = wandb::RunInfo::new(project).name(run_name).config((
+        ("run_id", run_id.to_string()),
+        ("source", "server".to_string()),
+    ));
+    if let Some(entity) = entity {
+        run_info = run_info.entity(entity);
+    }
+    if let Some(group) = group {
+        run_info = run_info.group(group);
+    }
+    match run_info.build() {
+        Ok(built) => match wandb.new_run(built).await {
+            Ok(run) => {
+                info!("Connected to wandb; logging server-side metrics.");
+                Some(Arc::new(run))
+            }
+            Err(e) => {
+                warn!("Could not connect to wandb ({e:?}); continuing without it.");
+                None
+            }
+        },
+        Err(e) => {
+            warn!("wandb run build failed ({e:?}); continuing without it.");
+            None
         }
     }
 }
