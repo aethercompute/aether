@@ -1046,14 +1046,15 @@ impl RunManager {
 
     pub async fn apply_state(&mut self, state: Coordinator) -> Result<(), ApplyStateError> {
         let new_state = match &mut self.0 {
-            // Start initialization as soon as we receive our first coordinator
-            // state — but only for checkpoints that can be fetched without P2P
-            // peers (Hub, GCS, Dummy). For P2P checkpoints the client needs to
-            // be admitted to the epoch first so it can discover peer addresses
-            // via the gossip mesh; those fall through to the original trigger
-            // below.
+            // Start initialization early for non-P2P checkpoints (Hub, GCS,
+            // Dummy) — but ONLY when the coordinator is at WaitingForMembers
+            // (an epoch boundary). This ensures we download the correct
+            // checkpoint for the upcoming epoch. If we join mid-epoch, the Hub
+            // checkpoint is about to be replaced by P2P with trained weights,
+            // so we must wait and download via P2P after admission instead.
             InitStage::NotYetInitialized(init_info @ Some(..))
-                if !checkpoint_needs_p2p(&state) =>
+                if !checkpoint_needs_p2p(&state)
+                    && state.run_state == RunState::WaitingForMembers =>
             {
                 let init_info = init_info.take().unwrap();
                 Some(InitStage::Initializing(Box::new((
