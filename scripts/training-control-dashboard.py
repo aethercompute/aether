@@ -332,6 +332,19 @@ def server_command(config: dict) -> list[str]:
     return command
 
 
+TAB_SCRIPT = """
+<script>
+const t = document.querySelectorAll('.tabs button.tab');
+const p = document.querySelectorAll('[data-panel]');
+t.forEach(b => b.addEventListener('click', () => {
+  t.forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  p.forEach(s => { s.hidden = s.dataset.panel !== b.dataset.tab; });
+}));
+</script>
+"""
+
+
 def html_page(message: str | None = None) -> str:
     config = load_config()
     data_ready, data_message = dataset_status(config)
@@ -340,6 +353,18 @@ def html_page(message: str | None = None) -> str:
     with STATE.lock:
         job = STATE.job
         server = STATE.server
+    if server and server.running:
+        server_short, server_cls = "running", "ok"
+    elif server is None:
+        server_short, server_cls = "idle", "warn"
+    elif server.returncode == 0:
+        server_short, server_cls = "stopped", "ok"
+    else:
+        server_short, server_cls = "stopped", "bad"
+    data_short = "ready" if data_ready else "pending"
+    data_cls = "ok" if data_ready else "bad"
+    model_short = "ready" if model_ready else "pending"
+    model_cls = "ok" if model_ready else "warn"
     return f"""<!doctype html>
 <html>
 <head>
@@ -347,51 +372,82 @@ def html_page(message: str | None = None) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Aether Training Control</title>
   <style>
-    body {{ font-family: system-ui, sans-serif; margin: 2rem; max-width: 1100px; background: #0d1117; color: #c9d1d9; }}
-    input {{ width: 100%; box-sizing: border-box; padding: .35rem; background: #161b22; color: #e6edf3; border: 1px solid #30363d; }}
-    label {{ display: block; font-weight: 600; margin-top: .8rem; }}
-    fieldset {{ border: 1px solid #30363d; margin: 1rem 0; padding: 1rem; }}
-    button {{ padding: .55rem .8rem; margin: .3rem .3rem .3rem 0; background: #21262d; color: #e6edf3; border: 1px solid #30363d; cursor: pointer; }}
+    body {{ font-family: system-ui, sans-serif; margin: 0; background: #0d1117; color: #c9d1d9; font-size: 13px; line-height: 1.45; }}
+    .wrap {{ max-width: 1100px; margin: 0 auto; padding: 0 1rem 2rem; }}
+    .topbar {{ position: sticky; top: 0; z-index: 10; background: #0d1117; border-bottom: 1px solid #30363d; }}
+    .topbar .wrap {{ display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding-top: .6rem; padding-bottom: .6rem; }}
+    .brand {{ font-size: 15px; font-weight: 700; color: #f0f6fc; }}
+    .statusline {{ font-size: 12px; color: #8b949e; }}
+    .msg {{ padding: .5rem .75rem; margin: 1rem 0 0; border: 1px solid #30363d; }}
+    .tabs {{ display: flex; border-bottom: 1px solid #30363d; margin-top: 1rem; }}
+    .tabs button.tab {{ all: unset; cursor: pointer; padding: .45rem .8rem; color: #8b949e; border-bottom: 2px solid transparent; font: inherit; }}
+    .tabs button.tab:hover {{ color: #e6edf3; background: transparent; }}
+    .tabs button.tab.active {{ color: #f0f6fc; border-bottom-color: #58a6ff; background: transparent; }}
+    [data-panel] {{ margin-top: 1rem; }}
+    input[type="text"], input:not([type]) {{ width: 100%; box-sizing: border-box; padding: .3rem; background: #161b22; color: #e6edf3; border: 1px solid #30363d; font: inherit; }}
+    input[type="checkbox"] {{ accent-color: #58a6ff; }}
+    label {{ display: block; font-weight: 600; margin-top: .55rem; font-size: 12px; }}
+    fieldset {{ border: 1px solid #30363d; margin: 1rem 0; padding: .75rem; }}
+    legend {{ color: #8b949e; padding: 0 .35rem; }}
+    button {{ padding: .4rem .7rem; background: #21262d; color: #e6edf3; border: 1px solid #30363d; cursor: pointer; font: inherit; }}
+    button:hover {{ background: #2d333b; }}
+    button.primary {{ background: #1f6feb; border-color: #1f6feb; color: #fff; }}
     .ok {{ color: #3fb950; font-weight: 700; }}
     .warn {{ color: #d29922; font-weight: 700; }}
     .bad {{ color: #f85149; font-weight: 700; }}
-    pre {{ background: #161b22; color: #e6edf3; padding: 1rem; overflow: auto; max-height: 26rem; border: 1px solid #30363d; }}
-    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .75rem; }}
-    code {{ color: #f0f6fc; }}
+    pre {{ background: #161b22; color: #e6edf3; padding: .75rem; overflow: auto; max-height: 22rem; border: 1px solid #30363d; font-size: 12px; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: .5rem .75rem; }}
+    .actions {{ display: flex; flex-wrap: wrap; gap: .5rem; }}
+    .actions form {{ margin: 0; }}
+    h3 {{ margin: 1rem 0 .4rem; font-size: 13px; color: #c9d1d9; }}
+    code {{ color: #f0f6fc; font-size: 12px; }}
     a {{ color: #58a6ff; }}
+    p {{ margin: .3rem 0; }}
   </style>
 </head>
 <body>
-  <h1>Aether Training Control</h1>
-  {f'<p class="warn">{html.escape(message)}</p>' if message else ''}
-  <section>
-    <h2>Status</h2>
-    <p>Dataset: <span class="{'ok' if data_ready else 'bad'}">{html.escape(data_message)}</span></p>
-    <p>Init model: <span class="{'ok' if model_ready else 'warn'}">{html.escape(model_message)}</span></p>
-    <p>State checkpoint: <code>{html.escape(checkpoint)}</code></p>
-    <p>Training server: {render_job_status(server, live=True)}</p>
-    <p>Live dashboard: <a href="http://{html.escape(os.environ.get('PUBLIC_HOST', 'localhost'))}:{config['server']['live_web_port']}/">port {config['server']['live_web_port']}</a></p>
-  </section>
-  <form method="post" action="/save">
-    {render_config_form(config)}
-    <button type="submit">Save configuration</button>
-  </form>
-  <section>
-    <h2>Actions</h2>
-    <form method="post" action="/prepare-dataset"><button type="submit">Prepare dataset</button></form>
-    <form method="post" action="/push-model"><button type="submit">Push init model</button></form>
-    <form method="post" action="/validate"><button type="submit">Validate state config</button></form>
-    <form method="post" action="/start-server"><button type="submit">Start training server</button></form>
-    <form method="post" action="/stop-server"><button type="submit">Stop training server</button></form>
-  </section>
-  <section>
-    <h2>Last Job</h2>
-    {render_job(job)}
-  </section>
-  <section>
-    <h2>Server Log</h2>
-    {render_job(server)}
-  </section>
+  <header class="topbar"><div class="wrap">
+    <span class="brand">Aether Training Control</span>
+    <span class="statusline">Dataset: <span class="{data_cls}">{data_short}</span> &middot; Init model: <span class="{model_cls}">{model_short}</span> &middot; Server: <span class="{server_cls}">{server_short}</span></span>
+  </div></header>
+  <main class="wrap">
+    {f'<div class="msg warn">{html.escape(message)}</div>' if message else ''}
+    <nav class="tabs">
+      <button type="button" class="tab active" data-tab="status">Status</button>
+      <button type="button" class="tab" data-tab="config">Config</button>
+      <button type="button" class="tab" data-tab="actions">Actions</button>
+      <button type="button" class="tab" data-tab="logs">Logs</button>
+    </nav>
+    <section data-panel="status">
+      <p>Dataset: <span class="{'ok' if data_ready else 'bad'}">{html.escape(data_message)}</span></p>
+      <p>Init model: <span class="{'ok' if model_ready else 'warn'}">{html.escape(model_message)}</span></p>
+      <p>State checkpoint: <code>{html.escape(checkpoint)}</code></p>
+      <p>Training server: {render_job_status(server, live=True)}</p>
+      <p>Live dashboard: <a href="http://{html.escape(os.environ.get('PUBLIC_HOST', 'localhost'))}:{config['server']['live_web_port']}/">port {config['server']['live_web_port']}</a></p>
+    </section>
+    <section data-panel="config" hidden>
+      <form method="post" action="/save">
+        {render_config_form(config)}
+        <button class="primary" type="submit">Save configuration</button>
+      </form>
+    </section>
+    <section data-panel="actions" hidden>
+      <div class="actions">
+        <form method="post" action="/prepare-dataset"><button type="submit">Prepare dataset</button></form>
+        <form method="post" action="/push-model"><button type="submit">Push init model</button></form>
+        <form method="post" action="/validate"><button type="submit">Validate state config</button></form>
+        <form method="post" action="/start-server"><button type="submit">Start training server</button></form>
+        <form method="post" action="/stop-server"><button type="submit">Stop training server</button></form>
+      </div>
+    </section>
+    <section data-panel="logs" hidden>
+      <h3>Last Job</h3>
+      {render_job(job)}
+      <h3>Server Log</h3>
+      {render_job(server)}
+    </section>
+  </main>
+  {TAB_SCRIPT}
 </body>
 </html>"""
 

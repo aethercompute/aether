@@ -687,53 +687,61 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
 <title>Psyche Monitor</title>
 <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 <style>
-body { font-family: monospace; margin: 20px; background: #0d1117; color: #c9d1d9; }
+body { font-family: monospace; margin: 0; background: #0d1117; color: #c9d1d9; font-size: 13px; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 1rem 1.5rem; }
+.topbar { position: sticky; top: 0; z-index: 10; background: #0d1117; border-bottom: 1px solid #30363d; padding: .55rem 0; }
+.topbar .wrap { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.topbar h1 { font-size: 15px; margin: 0; }
+.hint { color: #8b949e; font-size: 12px; }
 h1 { color: #f0f6fc; }
-h2 { color: #c9d1d9; border-bottom: 1px solid #30363d; padding-bottom: 4px; }
+h2 { color: #c9d1d9; border-bottom: 1px solid #30363d; padding-bottom: 4px; font-size: 14px; margin: 0 0 .5rem; }
 table { border-collapse: collapse; }
-td, th { padding: 4px 8px; text-align: left; border: 1px solid #30363d; }
+td, th { padding: 3px 8px; text-align: left; border: 1px solid #30363d; font-size: 12px; }
 b { color: #f0f6fc; }
 a { color: #58a6ff; }
-.flex-row { display: flex; gap: 20px; flex-wrap: wrap; }
-.flex-col { flex: 1; min-width: 300px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem 1.25rem; margin-top: 1rem; align-items: start; }
+svg { display: block; width: 100%; height: auto; }
+section { margin-top: 1.25rem; }
 </style>
 </head>
 <body>
-
-<div class="flex-row">
-<div class="flex-col">
-<h2>Overview</h2>
-<div hx-get="/partials/overview" hx-trigger="every 2s" hx-swap="innerHTML"><i>Loading...</i></div>
+<header class="topbar"><div class="wrap">
+  <h1>Psyche Monitor</h1>
+  <span class="hint">live &middot; auto-refresh 2&ndash;5s</span>
+</div></header>
+<div class="wrap">
+<div class="grid">
+  <div>
+    <h2>Overview</h2>
+    <div hx-get="/partials/overview" hx-trigger="every 2s" hx-swap="innerHTML"><i>Loading...</i></div>
+  </div>
+  <div>
+    <h2>Clients</h2>
+    <div hx-get="/partials/clients" hx-trigger="every 2s" hx-swap="innerHTML"><i>Loading...</i></div>
+  </div>
+  <div>
+    <h2>Configuration</h2>
+    <div hx-get="/partials/config" hx-trigger="every 5s" hx-swap="innerHTML"><i>Loading...</i></div>
+  </div>
+  <div>
+    <h2>Model</h2>
+    <div hx-get="/partials/model" hx-trigger="every 5s" hx-swap="innerHTML"><i>Loading...</i></div>
+  </div>
 </div>
-<div class="flex-col">
-<h2>Clients</h2>
-<div hx-get="/partials/clients" hx-trigger="every 2s" hx-swap="innerHTML"><i>Loading...</i></div>
+<section>
+  <h2>Rounds</h2>
+  <div hx-get="/partials/rounds" hx-trigger="every 3s" hx-swap="innerHTML"><i>Loading...</i></div>
+</section>
+<div class="grid">
+  <div>
+    <h2>Loss</h2>
+    <div hx-get="/partials/loss" hx-trigger="every 5s" hx-swap="innerHTML"><i>Loading...</i></div>
+  </div>
+  <div>
+    <h2>Throughput (Tokens/sec)</h2>
+    <div hx-get="/partials/throughput" hx-trigger="every 5s" hx-swap="innerHTML"><i>Loading...</i></div>
+  </div>
 </div>
 </div>
-
-<hr>
-
-<h2>Rounds</h2>
-<div hx-get="/partials/rounds" hx-trigger="every 3s" hx-swap="innerHTML"><i>Loading...</i></div>
-
-<div class="flex-row">
-<div class="flex-col">
-<h2>Configuration</h2>
-<div hx-get="/partials/config" hx-trigger="every 5s" hx-swap="innerHTML"><i>Loading...</i></div>
-</div>
-<div class="flex-col">
-<h2>Model</h2>
-<div hx-get="/partials/model" hx-trigger="every 5s" hx-swap="innerHTML"><i>Loading...</i></div>
-</div>
-</div>
-
-<hr>
-
-<h2>Loss</h2>
-<div hx-get="/partials/loss" hx-trigger="every 5s" hx-swap="innerHTML"><i>Loading...</i></div>
-
-<h2>Throughput (Tokens/sec)</h2>
-<div hx-get="/partials/throughput" hx-trigger="every 5s" hx-swap="innerHTML"><i>Loading...</i></div>
-
 </body>
 </html>"##;
