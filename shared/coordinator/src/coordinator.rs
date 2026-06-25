@@ -474,12 +474,6 @@ impl Coordinator {
             return Err(CoordinatorError::InvalidRunState);
         }
 
-        let witness_nodes = if self.config.witness_nodes == 0 {
-            self.epoch_state.clients.len().min(SOLANA_MAX_NUM_WITNESSES)
-        } else {
-            self.config.witness_nodes as usize
-        };
-
         // Everyone can send a witness in the warmup phase so we don't need to check for the committee
         let round = self.current_round().unwrap();
         for witness in round.witnesses.iter() {
@@ -494,7 +488,7 @@ impl Coordinator {
             .push(witness)
             .map_err(|_| CoordinatorError::WitnessesFull)?;
 
-        if round.witnesses.len() == witness_nodes {
+        if round.witnesses.len() == self.epoch_state.clients.len() {
             self.move_clients_without_warmup_witness_to_exited(0);
             if (self.epoch_state.clients.len() as u16) < self.config.min_clients {
                 self.start_waiting_for_members(unix_timestamp);
