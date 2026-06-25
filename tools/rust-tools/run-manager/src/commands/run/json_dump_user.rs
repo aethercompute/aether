@@ -7,8 +7,8 @@ use clap::Args;
 use serde_json::json;
 use serde_json::to_string_pretty;
 
-use psyche_solana_rpc::SolanaBackend;
 use psyche_solana_rpc::utils::native_amount_to_ui_amount;
+use psyche_solana_rpc::SolanaBackend;
 
 #[derive(Debug, Clone, Args)]
 #[command()]

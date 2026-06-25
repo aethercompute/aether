@@ -9,19 +9,19 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anchor_client::solana_sdk::signature::{Keypair, Signer};
 use bollard::container::StartContainerOptions;
-use bollard::{Docker, container::KillContainerOptions};
-use psyche_coordinator::{RunState, model::Checkpoint};
+use bollard::{container::KillContainerOptions, Docker};
+use psyche_coordinator::{model::Checkpoint, RunState};
 use psyche_core::IntegrationTestLogMarker;
 use psyche_decentralized_testing::docker_setup::e2e_testing_setup_rpc_fallback;
 use psyche_decentralized_testing::{
-    CLIENT_CONTAINER_PREFIX, NGINX_PROXY_PREFIX,
     chaos::{ChaosAction, ChaosScheduler},
     docker_setup::{
         e2e_testing_setup, e2e_testing_setup_with_min, kill_all_clients, spawn_new_client,
         spawn_new_client_with_monitoring,
     },
     docker_watcher::{DockerWatcher, Response},
-    utils::{SolanaTestClient, write_keypair_to_file},
+    utils::{write_keypair_to_file, SolanaTestClient},
+    CLIENT_CONTAINER_PREFIX, NGINX_PROXY_PREFIX,
 };
 use rstest::*;
 use serial_test::serial;

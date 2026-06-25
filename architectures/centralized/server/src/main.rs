@@ -2,13 +2,13 @@ mod app;
 mod dashboard;
 mod web;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use app::{App, DataServerInfo};
 use clap::{ArgAction, Parser};
 use psyche_coordinator::Coordinator;
 use psyche_tui::{
-    LogOutput, ServiceInfo,
     logging::{MetricsDestination, OpenTelemetry, RemoteLogsDestination, TraceDestination},
+    LogOutput, ServiceInfo,
 };
 use std::{
     path::{Path, PathBuf},

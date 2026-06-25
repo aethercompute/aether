@@ -2,14 +2,14 @@ use chrono::{DateTime, Utc};
 use indexmap::IndexMap;
 use iroh::EndpointId;
 use iroh_blobs::Hash as BlobHash;
-use psyche_coordinator::{RunState, model::Checkpoint};
+use psyche_coordinator::{model::Checkpoint, RunState};
 use psyche_core::BatchId;
 use psyche_metrics::SelectedPath;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::events::{
-    Client, Cooldown, CoordinatorEvent, Event, EventData, P2P, ResourceSnapshot, RpcCallType,
-    Train, Warmup,
+    Client, Cooldown, CoordinatorEvent, Event, EventData, ResourceSnapshot, RpcCallType, Train,
+    Warmup, P2P,
 };
 
 // ── Coordinator ───────────────────────────────────────────────────────────────

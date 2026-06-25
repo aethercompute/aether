@@ -1,20 +1,20 @@
-use anyhow::{Result, anyhow, bail};
+use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use psyche_centralized_shared::{ClientToServerMessage, ServerToClientMessage};
-use psyche_coordinator::model::{self, Checkpoint, LLM, LLMTrainingDataLocation, Model};
+use psyche_coordinator::model::{self, Checkpoint, LLMTrainingDataLocation, Model, LLM};
 use psyche_coordinator::{
-    Client, ClientState, Coordinator, CoordinatorError, HealthChecks, Round, RunState,
-    SOLANA_MAX_NUM_CLIENTS, TickResult,
+    Client, ClientState, Coordinator, CoordinatorError, HealthChecks, Round, RunState, TickResult,
+    SOLANA_MAX_NUM_CLIENTS,
 };
 
 use psyche_core::{FixedVec, NodeIdentity, Shuffle, SizedIterator, TokenSize};
 use psyche_data_provider::{
-    DataProviderTcpServer, DataServerTui, LocalDataProvider, download_model_from_gcs_async,
-    download_model_repo_async,
+    download_model_from_gcs_async, download_model_repo_async, DataProviderTcpServer, DataServerTui,
+    LocalDataProvider,
 };
 use psyche_network::{ClientNotification, PublicKey, TcpServer};
 use psyche_tui::{
-    CustomWidget, MaybeTui, TabbedWidget, logging::LoggerWidget, maybe_start_render_loop,
+    logging::LoggerWidget, maybe_start_render_loop, CustomWidget, MaybeTui, TabbedWidget,
 };
 use psyche_watcher::{CoordinatorTui, OpportunisticData};
 use rand::RngCore;
@@ -26,12 +26,12 @@ use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::sync::mpsc::{channel, Receiver, Sender, UnboundedSender};
 use tokio::sync::Notify;
-use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender, channel};
-use tokio::time::{MissedTickBehavior, interval};
+use tokio::time::{interval, MissedTickBehavior};
 use tokio::{select, time::Interval};
 use tokio_util::sync::CancellationToken;
-use tracing::{Instrument, debug, info, info_span, warn};
+use tracing::{debug, info, info_span, warn, Instrument};
 
 use crate::dashboard::{DashboardState, DashboardTui};
 use crate::web::{self, LossPoint, WebState};

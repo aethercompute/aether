@@ -18,11 +18,11 @@
 //! ```
 
 use tracing::{Event, Level, Subscriber};
-use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
+use tracing_subscriber::Layer;
 
-use crate::EventStore;
 use crate::events::client;
+use crate::EventStore;
 
 /// Forwards `error!()` tracing events to the global [`EventStore`].
 ///

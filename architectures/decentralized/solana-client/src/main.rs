@@ -1,25 +1,24 @@
 use crate::app::build_app;
-use crate::app::{AppParams, TAB_NAMES, Tabs};
+use crate::app::{AppParams, Tabs, TAB_NAMES};
 
 use anchor_client::{
-    Cluster,
     solana_sdk::{
         pubkey::Pubkey,
         signature::{EncodableKey, Keypair},
         signer::Signer,
     },
+    Cluster,
 };
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use clap::{Args, Parser, Subcommand};
-use psyche_client::{TrainArgs, print_identity_keys};
+use psyche_client::{print_identity_keys, TrainArgs};
 use psyche_coordinator::model::{Checkpoint, Model};
 use psyche_event_sourcing::{EventStore, FileBackend, RunStarted};
 use psyche_network::SecretKey;
 use psyche_solana_rpc::SolanaBackend;
 use psyche_tui::{
-    LogOutput, ServiceInfo,
     logging::{MetricsDestination, OpenTelemetry, RemoteLogsDestination, TraceDestination},
-    maybe_start_render_loop,
+    maybe_start_render_loop, LogOutput, ServiceInfo,
 };
 use std::sync::Arc;
 use std::{io::Cursor, path::PathBuf, time::Duration};
@@ -295,7 +294,8 @@ async fn async_main() -> Result<()> {
 
             if model {
                 #[allow(irrefutable_let_patterns)]
-                let Model::LLM(model_config) = coordinator_account_state.model else {
+                let Model::LLM(model_config) = coordinator_account_state.model
+                else {
                     bail!("Model is not an LLM, unsure how to predownload.");
                 };
 

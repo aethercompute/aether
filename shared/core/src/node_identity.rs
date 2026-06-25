@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-use anchor_lang::{Space, prelude::*};
+use anchor_lang::{prelude::*, Space};
 use bytemuck::{Pod, Zeroable};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;

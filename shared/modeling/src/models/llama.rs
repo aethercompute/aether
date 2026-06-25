@@ -1,13 +1,13 @@
 use crate::{
-    AttentionImplementation, AutoConfig, CausalLanguageModel, CausalSelfAttention,
-    ColumnParallelLinear, CommunicatorId, EosToks, LanguageModelConfig, LanguageModelForward,
-    ModelLoadError, PretrainedSource, RMSNorm, RoPECache, RoPEConfig, RowParallelLinear,
-    default_rope, parallelism::Communicator,
+    default_rope, parallelism::Communicator, AttentionImplementation, AutoConfig,
+    CausalLanguageModel, CausalSelfAttention, ColumnParallelLinear, CommunicatorId, EosToks,
+    LanguageModelConfig, LanguageModelForward, ModelLoadError, PretrainedSource, RMSNorm,
+    RoPECache, RoPEConfig, RowParallelLinear,
 };
 use std::sync::Arc;
 use tch::{
-    Device, Kind, Tensor,
     nn::{self, Module},
+    Device, Kind, Tensor,
 };
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]

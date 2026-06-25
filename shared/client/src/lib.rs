@@ -5,9 +5,9 @@ mod protocol;
 mod state;
 mod tui;
 
-pub use cli::{TrainArgs, prepare_environment, print_identity_keys, read_identity_secret_key};
+pub use cli::{prepare_environment, print_identity_keys, read_identity_secret_key, TrainArgs};
 pub use client::Client;
-pub use protocol::{Broadcast, BroadcastType, Finished, NC, TrainingResult};
+pub use protocol::{Broadcast, BroadcastType, Finished, TrainingResult, NC};
 pub use state::{
     CheckpointConfig, GcsUploadInfo, HubUploadInfo, InitRunError, RoundState, RunInitConfig,
     RunInitConfigAndIO, UploadInfo,

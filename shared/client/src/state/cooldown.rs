@@ -1,14 +1,14 @@
 use crate::UploadInfo;
 use psyche_coordinator::{
-    Coordinator,
     model::{self},
+    Coordinator,
 };
-use psyche_data_provider::{GcsManifestMetadata, UploadError, upload_to_gcs, upload_to_hub};
+use psyche_data_provider::{upload_to_gcs, upload_to_hub, GcsManifestMetadata, UploadError};
 use psyche_event_sourcing::event;
 #[cfg(feature = "python")]
 use psyche_modeling::CausalLM;
 use psyche_modeling::{
-    SaveSafetensorsError, Trainer, TrainerThreadCommunicationError, save_tensors_into_safetensors,
+    save_tensors_into_safetensors, SaveSafetensorsError, Trainer, TrainerThreadCommunicationError,
 };
 use std::{
     cmp::Reverse,
@@ -19,14 +19,14 @@ use std::{
 use tch::Tensor;
 use thiserror::Error;
 use tokio::{
-    sync::{Mutex, mpsc},
+    sync::{mpsc, Mutex},
     task::JoinHandle,
 };
-use tracing::{Instrument, info, info_span, warn};
+use tracing::{info, info_span, warn, Instrument};
 
 use super::{
-    CheckpointConfig,
     evals::{ModelTaskRunner, RunningEvals},
+    CheckpointConfig,
 };
 
 #[derive(Error, Debug)]

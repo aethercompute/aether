@@ -6,8 +6,8 @@ use anyhow::{Context, Result};
 use psyche_coordinator::RunState;
 use psyche_solana_authorizer::state::Authorization;
 use psyche_solana_coordinator::{
-    CoordinatorInstance, coordinator_account_from_bytes, find_coordinator_instance,
-    logic::JOIN_RUN_AUTHORIZATION_SCOPE,
+    coordinator_account_from_bytes, find_coordinator_instance, logic::JOIN_RUN_AUTHORIZATION_SCOPE,
+    CoordinatorInstance,
 };
 use solana_account_decoder_client_types::UiAccountEncoding;
 use solana_client::rpc_client::RpcClient;

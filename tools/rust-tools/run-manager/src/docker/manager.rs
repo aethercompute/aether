@@ -1,15 +1,15 @@
 use anchor_client::solana_sdk::bs58;
 use anchor_client::solana_sdk::pubkey::Pubkey;
 use anchor_client::solana_sdk::signature::{EncodableKey, Keypair, Signer};
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{anyhow, bail, Context, Result};
 use std::io::{BufRead, BufReader, Cursor};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use tokio::signal;
 use tracing::{debug, error, info, warn};
 
-use crate::docker::RunInfo;
 use crate::docker::coordinator_client::CoordinatorClient;
+use crate::docker::RunInfo;
 use crate::get_env_var;
 use crate::load_and_apply_env_file;
 use crate::load_wallet_key;

@@ -5,7 +5,7 @@ use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
 use indexmap::IndexMap;
-use psyche_coordinator::{CommitteeSelection, Coordinator, assign_data_for_state};
+use psyche_coordinator::{assign_data_for_state, CommitteeSelection, Coordinator};
 
 use crate::events::Event;
 use crate::projection::{ClusterProjection, ClusterSnapshot, CoordinatorStateSnapshot};

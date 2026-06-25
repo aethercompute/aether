@@ -8,9 +8,9 @@ use serde::Deserialize;
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::SOLANA_MAX_NUM_PENDING_CLIENTS;
 use crate::client::Client;
 use crate::program_error::ProgramError;
+use crate::SOLANA_MAX_NUM_PENDING_CLIENTS;
 
 #[derive(
     Debug,

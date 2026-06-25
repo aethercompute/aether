@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use clap::{ArgAction, Parser};
 use rand::seq::SliceRandom;
 use serde::Deserialize;
@@ -7,8 +7,8 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
-use time::OffsetDateTime;
 use time::macros::format_description;
+use time::OffsetDateTime;
 
 #[derive(Parser, Debug)]
 struct Args {

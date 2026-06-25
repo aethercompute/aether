@@ -1,11 +1,11 @@
 use bollard::{
-    Docker,
     container::{
         Config, CreateContainerOptions, KillContainerOptions, ListContainersOptions,
         RemoveContainerOptions,
     },
     models::DeviceRequest,
     secret::{ContainerSummary, HostConfig},
+    Docker,
 };
 use psyche_core::IntegrationTestLogMarker;
 use std::path::Path;

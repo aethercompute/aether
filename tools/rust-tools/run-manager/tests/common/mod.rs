@@ -1,14 +1,14 @@
 // Common test utilities for run-manager integration tests
 
 use anchor_client::{
-    Cluster,
     solana_sdk::{
         commitment_config::CommitmentConfig,
         pubkey::Pubkey,
         signature::{Keypair, Signer},
     },
+    Cluster,
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use psyche_coordinator::RunState;
 use psyche_solana_rpc::SolanaBackend;
 use std::sync::Arc;

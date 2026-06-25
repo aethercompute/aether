@@ -1,7 +1,7 @@
 use crate::commands::Command;
 use anchor_client::solana_sdk::pubkey::Pubkey;
-use anyhow::Result;
 use anyhow::bail;
+use anyhow::Result;
 use async_trait::async_trait;
 use clap::Args;
 use psyche_coordinator::RunState;

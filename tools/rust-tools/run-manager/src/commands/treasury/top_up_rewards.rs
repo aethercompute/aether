@@ -4,9 +4,9 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use clap::Args;
 
-use psyche_solana_rpc::SolanaBackend;
 use psyche_solana_rpc::utils::native_amount_to_ui_amount;
 use psyche_solana_rpc::utils::ui_amount_to_native_amount;
+use psyche_solana_rpc::SolanaBackend;
 
 #[derive(Debug, Clone, Args)]
 #[command()]

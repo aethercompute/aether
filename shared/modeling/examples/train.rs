@@ -4,13 +4,13 @@ use psyche_core::{
     Barrier, BatchId, CancellableBarrier, ClosedInterval, CosineLR, OptimizerDefinition, Shuffle,
 };
 use psyche_data_provider::{
-    DataProvider, LengthKnownDataProvider, LocalDataProvider, PreprocessedDataProvider, Split,
-    TokenizedDataProvider, download_model_repo_sync,
+    download_model_repo_sync, DataProvider, LengthKnownDataProvider, LocalDataProvider,
+    PreprocessedDataProvider, Split, TokenizedDataProvider,
 };
 use psyche_modeling::{
+    auto_model_for_causal_lm_from_pretrained, save_tensors_into_safetensors,
     AttentionImplementation, Batch, BatchData, BatchDataCPU, CausalLM, CommunicatorId,
     DataParallel, Devices, LocalTrainer, ModelLoadError, ParallelModels, Trainer,
-    auto_model_for_causal_lm_from_pretrained, save_tensors_into_safetensors,
 };
 use psyche_tui::{logging, setup_ctrl_c};
 use std::{sync::Arc, thread::JoinHandle, time::SystemTime};

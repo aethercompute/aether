@@ -122,7 +122,6 @@ impl Client {
                 let mut sharable_model = SharableModel::empty();
                 let peer_manager = Arc::new(PeerManagerHandle::new(
                     MAX_ERRORS_PER_PEER,
-                    param_requests_cancel_token.clone(),
                     p2p.connection_monitor(),
                 ));
 
@@ -192,6 +191,14 @@ impl Client {
 
                             let run_participating_endpoint_ids = participating_endpoint_ids(new_state);
                             allowlist.set(run_participating_endpoint_ids);
+                            if sharable_model.tx_model_config_response.is_some() || total_parameters.is_some() {
+                                let me = EndpointId::from_bytes(identity.p2p_identity())?;
+                                let peer_ids = participating_endpoint_ids(new_state)
+                                    .into_iter()
+                                    .filter(|peer_id| peer_id != &me)
+                                    .collect();
+                                peer_manager.set_peers(peer_ids);
+                            }
                             ensure_gossip_connected(new_state, &mut p2p, &mut last_gossip_connection_time);
 
                             if old_state.map(|s| s.0.run_state) != Some(new_state.run_state) && new_state.run_state == RunState::RoundTrain {
@@ -206,7 +213,6 @@ impl Client {
                                     warn!("failed to set p2p info: {e}");
                                 }
                                 broadcasts.retain(|(_, step)| *step >= last_needed_step_blobs);
-                                sharable_model.clear_cache(); // IMPORTANT -- any cached blobs are now invalid
                                 p2p.clear_bandwidth_tracking();
                             }
 

@@ -1,5 +1,5 @@
 use psyche_coordinator::{
-    Coordinator, MAX_TOKENS_TO_SEND, WitnessEvalResult, WitnessMetadata, model,
+    model, Coordinator, WitnessEvalResult, WitnessMetadata, MAX_TOKENS_TO_SEND,
 };
 use psyche_core::{BoundedQueue, FixedVec, LearningRateSchedule};
 use psyche_metrics::ClientMetrics;
@@ -370,7 +370,11 @@ fn perplexity(loss: f32) -> f32 {
 }
 
 fn no_nan(val: f32, replacement: f32) -> f32 {
-    if val.is_nan() { replacement } else { val }
+    if val.is_nan() {
+        replacement
+    } else {
+        val
+    }
 }
 
 fn token_batch_size(state: &Coordinator) -> u32 {

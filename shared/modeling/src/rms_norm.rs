@@ -1,6 +1,6 @@
 use tch::{
-    Kind, Tensor,
     nn::{self, Module},
+    Kind, Tensor,
 };
 
 #[derive(Debug)]

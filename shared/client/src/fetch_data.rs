@@ -1,4 +1,4 @@
-use psyche_coordinator::{Coordinator, get_batch_ids_for_node};
+use psyche_coordinator::{get_batch_ids_for_node, Coordinator};
 use psyche_core::{BatchId, NodeIdentity};
 use psyche_data_provider::{DataProvider, TokenizedDataProvider};
 use psyche_event_sourcing::event;
@@ -9,11 +9,11 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{Mutex, mpsc},
+    sync::{mpsc, Mutex},
     task::JoinHandle,
     time::sleep,
 };
-use tracing::{Instrument, debug, error, trace, trace_span, warn};
+use tracing::{debug, error, trace, trace_span, warn, Instrument};
 
 pub type BatchStep = u32;
 pub type BatchIdSet = HashSet<BatchId>;

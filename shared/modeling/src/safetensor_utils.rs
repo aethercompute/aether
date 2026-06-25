@@ -1,4 +1,4 @@
-use safetensors::{SafeTensors, slice::TensorIndexer};
+use safetensors::{slice::TensorIndexer, SafeTensors};
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
@@ -7,8 +7,8 @@ use std::{
     path::PathBuf,
 };
 use tch::{
-    Device, Kind, Tensor,
     nn::{Shard, VarStore},
+    Device, Kind, Tensor,
 };
 use thiserror::Error;
 

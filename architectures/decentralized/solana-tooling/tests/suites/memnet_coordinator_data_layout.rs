@@ -1,11 +1,11 @@
-use psyche_coordinator::Round;
-use psyche_coordinator::RunState;
 use psyche_coordinator::model::Checkpoint;
 use psyche_coordinator::model::HttpTrainingDataLocation;
 use psyche_coordinator::model::LLMArchitecture;
 use psyche_coordinator::model::LLMTrainingDataLocation;
 use psyche_coordinator::model::LLMTrainingDataType;
 use psyche_coordinator::model::Model;
+use psyche_coordinator::Round;
+use psyche_coordinator::RunState;
 use psyche_core::CosineLR;
 use psyche_core::FixedString;
 use psyche_core::FixedVec;
@@ -14,8 +14,8 @@ use psyche_core::OptimizerDefinition;
 use psyche_core::Shuffle;
 use psyche_core::SmallBoolean;
 use psyche_core::TokenSize;
-use psyche_solana_coordinator::CoordinatorAccount;
 use psyche_solana_coordinator::coordinator_account_from_bytes;
+use psyche_solana_coordinator::CoordinatorAccount;
 
 #[tokio::test]
 pub async fn run() {

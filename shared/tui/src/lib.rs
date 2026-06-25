@@ -13,10 +13,10 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 pub use app::App;
-pub use logging::{LogOutput, LoggerWidget, ServiceInfo, logging};
+pub use logging::{logging, LogOutput, LoggerWidget, ServiceInfo};
 pub use maybe::MaybeTui;
 pub use tabbed::TabbedWidget;
-pub use terminal::{TerminalWrapper, init_terminal};
+pub use terminal::{init_terminal, TerminalWrapper};
 pub use widget::CustomWidget;
 
 pub fn start_render_loop<T: CustomWidget>(

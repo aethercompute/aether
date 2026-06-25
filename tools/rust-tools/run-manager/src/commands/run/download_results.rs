@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::commands::Command;
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use clap::Args;
 use futures::TryStreamExt;

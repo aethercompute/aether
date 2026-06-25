@@ -1,15 +1,15 @@
 use std::{fs, path::Path, sync::Arc, time::Duration};
 
 use anchor_client::{
-    ClientError, Cluster, Program,
     solana_sdk::signature::Signature,
     solana_sdk::{
         commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Keypair, signer::Signer,
     },
+    ClientError, Cluster, Program,
 };
 use psyche_coordinator::{
-    NUM_STORED_ROUNDS, Round, RunState,
     model::{Checkpoint, Model},
+    Round, RunState, NUM_STORED_ROUNDS,
 };
 use psyche_core::FixedVec;
 use psyche_solana_coordinator::SOLANA_MAX_NUM_PENDING_CLIENTS;

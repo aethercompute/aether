@@ -4,7 +4,7 @@ use psyche_modeling::{
 };
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3_tch::{PyTensor, wrap_tch_err};
+use pyo3_tch::{wrap_tch_err, PyTensor};
 use std::{
     ops::Deref,
     sync::{Arc, RwLock},
@@ -22,17 +22,15 @@ fn add_one(tensor: PyTensor) -> PyResult<PyTensor> {
 
 #[pyfunction]
 fn start_process_watcher(pid: usize, duration: Duration) -> PyResult<()> {
-    std::thread::spawn(move || {
-        loop {
-            std::thread::sleep(duration);
-            let mut system = System::new_all();
-            if !system.refresh_process(Pid::from(pid)) {
-                println!("Parent process {pid} gone, exiting");
-                system
-                    .process(Pid::from_u32(std::process::id()))
-                    .unwrap()
-                    .kill();
-            }
+    std::thread::spawn(move || loop {
+        std::thread::sleep(duration);
+        let mut system = System::new_all();
+        if !system.refresh_process(Pid::from(pid)) {
+            println!("Parent process {pid} gone, exiting");
+            system
+                .process(Pid::from_u32(std::process::id()))
+                .unwrap()
+                .kill();
         }
     });
     Ok(())

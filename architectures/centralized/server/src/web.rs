@@ -1,7 +1,7 @@
-use axum::{Router, extract::State, response::Html, routing::get};
+use axum::{extract::State, response::Html, routing::get, Router};
 use psyche_coordinator::{
-    ClientState, Coordinator, NUM_STORED_ROUNDS, RunState,
     model::{Checkpoint, LLMArchitecture, LLMTrainingDataType, Model},
+    ClientState, Coordinator, RunState, NUM_STORED_ROUNDS,
 };
 use psyche_core::{LearningRateSchedule, OptimizerDefinition};
 use serde::Serialize;

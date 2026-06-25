@@ -5,14 +5,14 @@ use psyche_centralized_shared::{ClientToServerMessage, ServerToClientMessage};
 use psyche_client::HubUploadInfo;
 use psyche_client::UploadInfo;
 use psyche_client::{
-    Client, ClientTUI, ClientTUIState, NC, RunInitConfig, TrainArgs, read_identity_secret_key,
+    read_identity_secret_key, Client, ClientTUI, ClientTUIState, RunInitConfig, TrainArgs, NC,
 };
-use psyche_coordinator::{Coordinator, HealthChecks, model};
+use psyche_coordinator::{model, Coordinator, HealthChecks};
 use psyche_core::NodeIdentity;
 use psyche_event_sourcing::event;
 use psyche_event_sourcing::events::RpcCallType;
 use psyche_metrics::ClientMetrics;
-use psyche_network::{EndpointId, NetworkTUIState, NetworkTui, SecretKey, TcpClient, allowlist};
+use psyche_network::{allowlist, EndpointId, NetworkTUIState, NetworkTui, SecretKey, TcpClient};
 use psyche_tui::logging::LoggerWidget;
 use psyche_tui::{CustomWidget, TabbedWidget};
 use psyche_watcher::{Backend as WatcherBackend, CoordinatorTui, OpportunisticData};

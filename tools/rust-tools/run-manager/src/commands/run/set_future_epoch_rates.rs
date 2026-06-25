@@ -1,10 +1,10 @@
 use crate::commands::Command;
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use async_trait::async_trait;
 use clap::Args;
 use psyche_solana_treasurer::logic::RunUpdateParams;
 
-use crate::{SolanaBackend, instructions};
+use crate::{instructions, SolanaBackend};
 use psyche_solana_rpc::utils::ui_amount_to_native_amount;
 
 #[derive(Debug, Clone, Args)]

@@ -1,11 +1,10 @@
 use crate::instructions::{self, coordinator_tick};
-use crate::retry::{RetryError, retry_function_with_params};
+use crate::retry::{retry_function_with_params, RetryError};
 use anchor_client::anchor_lang::AccountDeserialize;
 use anchor_client::solana_sdk::hash::hash;
 use anchor_client::solana_sdk::instruction::Instruction;
 use anchor_client::solana_sdk::program_pack::Pack;
 use anchor_client::{
-    Client, ClientError, Cluster, Program,
     anchor_lang::system_program,
     solana_client::{
         nonblocking::pubsub_client::PubsubClient,
@@ -17,8 +16,9 @@ use anchor_client::{
         pubkey::Pubkey,
         signature::{Keypair, Signature, Signer},
     },
+    Client, ClientError, Cluster, Program,
 };
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use futures_util::StreamExt;
 use psyche_coordinator::model::{self, Checkpoint};
 use psyche_coordinator::{CommitteeProof, Coordinator, HealthChecks};

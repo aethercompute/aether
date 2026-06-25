@@ -3,10 +3,10 @@ use crate::{
     state::types::{DeserializeError, PayloadState},
 };
 
-use futures::{StreamExt, future::try_join_all, stream::FuturesUnordered};
+use futures::{future::try_join_all, stream::FuturesUnordered, StreamExt};
 use psyche_coordinator::{
-    BLOOM_FALSE_RATE, Commitment, CommitteeSelection, Coordinator, CoordinatorError, HealthChecks,
-    assign_data_for_state, get_batch_ids_for_node, get_batch_ids_for_round, model,
+    assign_data_for_state, get_batch_ids_for_node, get_batch_ids_for_round, model, Commitment,
+    CommitteeSelection, Coordinator, CoordinatorError, HealthChecks, BLOOM_FALSE_RATE,
 };
 use psyche_core::{BatchId, Bloom, IntegrationTestLogMarker, NodeIdentity, OptimizerDefinition};
 use psyche_event_sourcing::event;
@@ -15,22 +15,22 @@ use psyche_modeling::{
     TrainerThreadCommunicationError,
 };
 use psyche_network::{
-    Hash, SerializeDistroResultError, SerializedDistroResult, TransmittableDistroResult,
-    distro_results_to_bytes,
+    distro_results_to_bytes, Hash, SerializeDistroResultError, SerializedDistroResult,
+    TransmittableDistroResult,
 };
 use std::{
     collections::{BTreeMap, HashMap},
     path::PathBuf,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
     },
     time::{Duration, Instant},
 };
 use thiserror::Error;
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
-use tracing::{Instrument, debug, error, info, trace, trace_span, warn};
+use tracing::{debug, error, info, trace, trace_span, warn, Instrument};
 
 use super::{
     evals::{MaybeRunningEvals, ModelTaskRunner},

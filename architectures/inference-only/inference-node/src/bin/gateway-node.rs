@@ -10,24 +10,24 @@
 
 use anyhow::{Context, Result};
 use axum::{
-    Json, Router,
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
+    Json, Router,
 };
 use clap::Parser;
 use iroh::EndpointAddr;
 use psyche_inference::{
-    INFERENCE_ALPN, InferenceGossipMessage, InferenceMessage, InferenceRequest, InferenceResponse,
+    InferenceGossipMessage, InferenceMessage, InferenceRequest, InferenceResponse, INFERENCE_ALPN,
 };
 use psyche_metrics::ClientMetrics;
 use psyche_network::{
-    DiscoveryMode, EndpointId, NetworkConnection, NetworkEvent, RelayKind, allowlist,
+    allowlist, DiscoveryMode, EndpointId, NetworkConnection, NetworkEvent, RelayKind,
 };
 use std::{collections::HashMap, fs, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
-    sync::{RwLock, mpsc},
+    sync::{mpsc, RwLock},
     time::sleep,
 };
 use tokio_util::sync::CancellationToken;

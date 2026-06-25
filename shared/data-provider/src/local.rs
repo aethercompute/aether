@@ -1,15 +1,15 @@
-use anyhow::{Result, anyhow, bail};
+use anyhow::{anyhow, bail, Result};
 use psyche_core::{BatchId, ClosedInterval, Shuffle, TokenSize};
 use rand::seq::SliceRandom;
-use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 use std::fs;
 use tracing::info;
 
 use crate::{
-    TokenizedData,
     file_extensions::DATA_FILE_EXTENSIONS,
     traits::{LengthKnownDataProvider, TokenizedDataProvider},
+    TokenizedData,
 };
 
 fn is_truthy_env_bool(value: &str) -> bool {

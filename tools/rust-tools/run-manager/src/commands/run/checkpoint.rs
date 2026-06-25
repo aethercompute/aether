@@ -5,8 +5,8 @@ use clap::Args;
 use psyche_coordinator::model::HubRepo;
 use psyche_core::FixedString;
 
-use psyche_solana_rpc::SolanaBackend;
 use psyche_solana_rpc::instructions;
+use psyche_solana_rpc::SolanaBackend;
 
 #[derive(Debug, Clone, Args)]
 #[command()]

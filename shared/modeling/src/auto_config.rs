@@ -1,6 +1,6 @@
 use crate::{
-    DeepseekConfig, Devices, LlamaConfig, LoadSafetensorsError, parallelism::tensor_shard,
-    safetensor_utils::load_safetensors_into_variables,
+    parallelism::tensor_shard, safetensor_utils::load_safetensors_into_variables, DeepseekConfig,
+    Devices, LlamaConfig, LoadSafetensorsError,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -28,7 +28,9 @@ pub enum ModelLoadError {
     #[error("this model uses tied embeddings, which aren't supported.")]
     ModelHasTiedEmbeddings,
 
-    #[error("Directly setting attention implementation to FlashAttention-2 is unsupported for now")]
+    #[error(
+        "Directly setting attention implementation to FlashAttention-2 is unsupported for now"
+    )]
     ModelExplicitlyUsesFA2,
 
     #[error("Failed to initialize CNCCL for tensor parallelism {0}")]

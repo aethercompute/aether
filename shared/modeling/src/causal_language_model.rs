@@ -3,12 +3,12 @@ use crate::{
     PretrainedSource, ReduceType, RoPEConfig, StableVarStoreIterator, StableVariableIterator,
 };
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::{fmt::Debug, sync::atomic::AtomicBool};
 use tch::{
-    Device, Kind, Tensor,
     nn::{self, Module},
+    Device, Kind, Tensor,
 };
 
 #[cfg(feature = "parallelism")]

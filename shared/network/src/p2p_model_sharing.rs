@@ -16,8 +16,7 @@ use tokio::sync::{
     oneshot,
 };
 use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::connection_monitor::{ConnectionMonitor, PeerBandwidth};
 use crate::{NetworkConnection, Networkable, TransmittableDownload};
@@ -46,11 +45,7 @@ enum PeerCommand {
 }
 
 impl PeerManagerHandle {
-    pub fn new(
-        max_errors_per_peer: u8,
-        cancellation_token: CancellationToken,
-        connection_monitor: ConnectionMonitor,
-    ) -> Self {
+    pub fn new(max_errors_per_peer: u8, connection_monitor: ConnectionMonitor) -> Self {
         let (peer_tx, peer_rx) = mpsc::unbounded_channel();
 
         // Spawn the peer manager actor
@@ -58,7 +53,6 @@ impl PeerManagerHandle {
             peer_rx,
             max_errors_per_peer,
             connection_monitor,
-            cancellation_token,
         ));
 
         Self { peer_tx }
@@ -157,7 +151,7 @@ impl PeerManagerActor {
         });
     }
 
-    fn handle_message(&mut self, message: PeerCommand, cancellation_token: CancellationToken) {
+    fn handle_message(&mut self, message: PeerCommand) {
         match message {
             PeerCommand::SetPeers { peers } => {
                 self.available_peers = peers.into_iter().collect();
@@ -231,21 +225,11 @@ impl PeerManagerActor {
                     error_count
                 );
                 if *error_count >= self.max_errors_per_peer {
-                    self.available_peers.retain(|id| *id != peer_id);
-                    warn!("Removing peer {peer_id} after {} errors", error_count);
-
-                    if self.available_peers.is_empty()
-                        && self
-                            .errors_per_peers
-                            .iter()
-                            .all(|(_, e)| *e >= self.max_errors_per_peer)
-                    {
-                        error!(
-                            "No more peers available to ask for model blob tickets, terminate process"
-                        );
-                        cancellation_token.cancel();
-                    }
-                } else if !self.available_peers.contains(&peer_id) {
+                    warn!(
+                        "Peer {peer_id} has failed {error_count} model blob ticket request(s); keeping it available for future retries"
+                    );
+                }
+                if !self.available_peers.contains(&peer_id) {
                     self.available_peers.push_back(peer_id);
                 };
             }
@@ -257,12 +241,11 @@ async fn peer_manager_actor(
     mut rx: mpsc::UnboundedReceiver<PeerCommand>,
     max_errors_per_peer: u8,
     connection_monitor: ConnectionMonitor,
-    cancellation_token: CancellationToken,
 ) {
     let mut actor = PeerManagerActor::new(max_errors_per_peer, connection_monitor);
 
     while let Some(message) = rx.recv().await {
-        actor.handle_message(message, cancellation_token.clone());
+        actor.handle_message(message);
     }
 }
 
@@ -577,11 +560,6 @@ impl SharableModel {
             }
         }
     }
-
-    pub fn clear_cache(&mut self) {
-        self.config_and_tokenizer_ticket = None;
-        self.serialized_parameters = None;
-    }
 }
 
 // These impls on the `SharableModel` struct are the ones called by the
@@ -675,14 +653,17 @@ impl SharableModel {
             };
 
             let mut parameters_to_send = HashMap::new();
+            let mut parameters_to_share = HashMap::new();
             for (param_name, parameter) in parameters.into_iter() {
                 let Some(tensor) = parameter else {
                     // This error should never really happen, but checking just in case
                     // something goes really wrong
                     return Err(SharableModelError::ParameterNotInitialized(param_name));
                 };
+                parameters_to_share.insert(param_name.clone(), tensor.shallow_clone());
                 parameters_to_send.insert(param_name, tensor);
             }
+            self.update_parameters(parameters_to_share)?;
             tx_params_response
                 .send(parameters_to_send)
                 .map_err(|_e| SharableModelError::ResponseChannelNotInitialized)?;

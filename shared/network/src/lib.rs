@@ -658,14 +658,14 @@ where
         Ok((blob_ticket, blob_data.len()))
     }
 
-    /// Removes all the tags from the store that are lower than the target tag.
-    /// Also removes all the tags used for the parameter sharing since this will run only in the Train state
+    /// Removes distro result tags from the store that are lower than the target tag.
+    /// Model sharing tags are kept across train states so late joiners can finish
+    /// downloading the epoch-start checkpoint.
     pub async fn remove_staled_tags(
         &mut self,
         target_distro_result_step: u32,
     ) -> anyhow::Result<()> {
         let store = self.blobs_store.as_ref().clone();
-        let model_tags_deleted = store.tags().delete_prefix("model-").await?;
         let mut distro_results_deleted = 0;
         let mut tags = store.tags().list().await?;
 
@@ -682,8 +682,10 @@ where
                 continue;
             };
 
-            // Since tags related to model parameter sharing have been already deleted, it is assumed that
-            // all remaining tags are related to Distro result blobs
+            if !tag_name.starts_with("distro-result_") {
+                continue;
+            }
+
             let tag_name_splitted: Vec<&str> = tag_name.split("_").collect();
             let Some(tag_name_distro_result_step) = tag_name_splitted.get(1) else {
                 warn!("Step not present in tag name: {tag_name}. This may lead to a memory leak");
@@ -708,10 +710,7 @@ where
             }
         }
 
-        debug!(
-            "Untagged {} blobs",
-            model_tags_deleted + distro_results_deleted
-        );
+        debug!("Untagged {distro_results_deleted} stale distro result blobs");
         Ok(())
     }
 
@@ -1038,14 +1037,14 @@ pub async fn blob_ticket_param_request_task(
     peer_manager: Arc<PeerManagerHandle>,
     cancellation_token: CancellationToken,
 ) -> Result<(BlobTicket, ModelRequestType)> {
-    let max_attempts = 500u16;
-    let mut attempts = 0u16;
+    loop {
+        if cancellation_token.is_cancelled() {
+            return Err(anyhow!("model parameter request cancelled"));
+        }
 
-    while attempts < max_attempts {
         let Some(peer_id) = peer_manager.get_next_peer().await else {
             // No peers available, wait a bit and check again
             tokio::time::sleep(Duration::from_millis(500)).await;
-            attempts += 1;
             continue;
         };
 
@@ -1067,17 +1066,10 @@ pub async fn blob_ticket_param_request_task(
                 peer_manager.report_blob_ticket_request_error(peer_id, None);
 
                 warn!("Request failed for peer {peer_id}: {e}. Trying next peer");
-                attempts += 1;
 
                 // Small delay before retry
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
     }
-
-    error!("No peers available to give us a model parameter after {max_attempts} attempts");
-    cancellation_token.cancel();
-    Err(anyhow!(
-        "Failed to get model parameter blob ticket after {max_attempts} attempts"
-    ))
 }

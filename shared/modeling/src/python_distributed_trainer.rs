@@ -1,8 +1,8 @@
 use crate::{
-    ApplyDistroResultError, Batch, BatchData, CausalLM, Communicator, EosToks, LocalTrainer,
-    ParallelModels, PythonDistributedCausalLM, ReduceType, StableVariableIterator,
-    TorchDistributedCommunicator, TrainOutput, Trainer, TrainerThreadCommunicationError,
-    python_causal_lm::WrappedPythonCausalLM, trainer::DistroResults,
+    python_causal_lm::WrappedPythonCausalLM, trainer::DistroResults, ApplyDistroResultError, Batch,
+    BatchData, CausalLM, Communicator, EosToks, LocalTrainer, ParallelModels,
+    PythonDistributedCausalLM, ReduceType, StableVariableIterator, TorchDistributedCommunicator,
+    TrainOutput, Trainer, TrainerThreadCommunicationError,
 };
 
 use psyche_core::{Barrier, CancelledBarrier, LearningRateSchedule, OptimizerDefinition};
@@ -10,8 +10,8 @@ use pyo3::{PyErr, PyResult};
 use std::{
     collections::HashMap,
     sync::{
-        Arc,
         atomic::{AtomicUsize, Ordering},
+        Arc,
     },
 };
 use tch::{Device, Kind, Tensor};
@@ -157,7 +157,8 @@ impl PythonDistributedTrainer {
         if world_size > 1 {
             trace!(
                 "Checking batch padding: original batch size = {}, world_size = {}",
-                original_batch_size, world_size
+                original_batch_size,
+                world_size
             );
 
             data.pad(world_size);

@@ -11,10 +11,10 @@
 use anyhow::{Context, Result};
 use clap::{Args as ClapArgs, Parser, Subcommand};
 use psyche_inference::{
-    INFERENCE_ALPN, InferenceGossipMessage, InferenceNode, InferenceProtocol, ModelSource,
+    InferenceGossipMessage, InferenceNode, InferenceProtocol, ModelSource, INFERENCE_ALPN,
 };
 use psyche_metrics::ClientMetrics;
-use psyche_network::{DiscoveryMode, NetworkConnection, NetworkEvent, RelayKind, allowlist};
+use psyche_network::{allowlist, DiscoveryMode, NetworkConnection, NetworkEvent, RelayKind};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::{fs, time::Duration};

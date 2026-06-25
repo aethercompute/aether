@@ -1,6 +1,6 @@
 use psyche_core::LearningRateSchedule;
 use psyche_core::NodeIdentity;
-use psyche_solana_coordinator::{CoordinatorAccount, coordinator_account_from_bytes};
+use psyche_solana_coordinator::{coordinator_account_from_bytes, CoordinatorAccount};
 use serde::ser::Serialize;
 use ts_rs::TS;
 use wasm_bindgen::prelude::*;

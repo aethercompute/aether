@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use psyche_inference::InferenceGossipMessage;
 use psyche_metrics::ClientMetrics;
-use psyche_network::{DiscoveryMode, NetworkConnection, NetworkEvent, RelayKind, allowlist};
+use psyche_network::{allowlist, DiscoveryMode, NetworkConnection, NetworkEvent, RelayKind};
 use std::{fs, path::PathBuf, sync::Arc, time::Duration};
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;

@@ -1,13 +1,13 @@
 // Library exports for run-manager
 use anchor_client::solana_sdk::pubkey::Pubkey;
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use std::path::PathBuf;
 
 pub mod commands;
 pub mod docker;
 
 // Re-export from psyche-solana-rpc for convenience
-pub use psyche_solana_rpc::{SolanaBackend, SolanaBackendRunner, instructions, utils};
+pub use psyche_solana_rpc::{instructions, utils, SolanaBackend, SolanaBackendRunner};
 
 /// Load environment variables from a file into host process
 /// (needed to read RUN_ID, RPC for querying coordinator)

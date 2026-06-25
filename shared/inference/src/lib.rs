@@ -10,4 +10,4 @@ pub use protocol::{
     ChatMessage, InferenceGossipMessage, InferenceMessage, InferenceRequest, InferenceResponse,
     ModelSource,
 };
-pub use protocol_handler::{INFERENCE_ALPN, InferenceProtocol};
+pub use protocol_handler::{InferenceProtocol, INFERENCE_ALPN};
