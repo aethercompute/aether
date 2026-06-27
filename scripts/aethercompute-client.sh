@@ -1,30 +1,52 @@
-#!/usr/bin/env bash
+#!/bin/sh
 #
 # aethercompute-client.sh — one-command volunteer launcher.
 #
-# This script is a *self-installing* wrapper. It sandboxes everything it needs
-# under `<repo>/.aethercompute/` (rust toolchain, cargo registry, a Python venv
-# with torch) so your global system is never touched, then builds the branded
-# `aether-volunteer` TUI and hands the terminal over to it. The TUI performs
+# Fetches the aether source (cloning it under ~/.aethercompute on first run),
+# sandboxes a whole toolchain (rustup, cargo registry, a python venv + torch)
+# under <repo>/.aethercompute so the global system is never touched, builds the
+# aether-volunteer TUI, and hands the terminal over to it. The TUI performs
 # onboarding, compiles the real training client with live progress, and execs
 # it when you're ready.
 #
 # Usage:
-#   ./scripts/aethercompute-client.sh            # install (if needed) + launch
-#   ./scripts/aethercompute-client.sh uninstall  # wipe the sandbox
-#   ./scripts/aethercompute-client.sh doctor     # show what's installed/missing
+#   curl -fsSL https://aethercompute.org/client.sh | sh          # install + launch
+#   curl -fsSL https://aethercompute.org/client.sh | sh update   # pull latest source
+#   curl -fsSL https://aethercompute.org/client.sh | sh doctor   # env check
+#   curl -fsSL https://aethercompute.org/client.sh | sh uninstall
 #
+# This script targets bash. When piped to a POSIX `sh` (e.g. dash on Debian),
+# the bootstrap below re-fetches it and runs it under bash automatically.
+# -----------------------------------------------------------------------------
+
+# --- bash bootstrap ---------------------------------------------------------
+if [ -z "${BASH_VERSION:-}" ]; then
+  _installer="${AETHER_INSTALLER_URL:-https://aethercompute.org/client.sh}"
+  command -v bash >/dev/null 2>&1 || {
+    echo "aethercompute: bash is required to run the installer." >&2; exit 1; }
+  _tmp="$(mktemp 2>/dev/null || printf '/tmp/aether-client.%d.sh' "$$")"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$_installer" -o "$_tmp" || _rc=1
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$_tmp" "$_installer" || _rc=1
+  else
+    echo "aethercompute: curl or wget is required." >&2; exit 1
+  fi
+  if [ "${_rc:-0}" -ne 0 ]; then
+    rm -f "$_tmp"
+    echo "aethercompute: could not download installer from $_installer" >&2
+    exit 1
+  fi
+  bash "$_tmp" "$@"; _rc=$?; rm -f "$_tmp"; exit "$_rc"
+fi
+
+# ===== bash-only below ======================================================
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SANDBOX="$REPO_ROOT/.aethercompute"
-export RUSTUP_HOME="$SANDBOX/rustup"
-export CARGO_HOME="$SANDBOX/cargo"
-VENV="$SANDBOX/venv"
-VOLUNTEER_BIN="$REPO_ROOT/target/release/aether-volunteer"
-LOG_DIR="$SANDBOX/install-logs"
-INSTALL_LOG="$LOG_DIR/install.log"
+# --- config (overridable via environment) -----------------------------------
+AETHER_HOME="${AETHER_HOME:-$HOME/.aethercompute}"
+REPO_URL="${AETHER_REPO_URL:-https://github.com/alkinun/aether.git}"
+REPO_REF="${AETHER_REPO_REF:-main}"
 
 VOLUNTEER_CRATE="psyche-centralized-volunteer"
 RUST_PROFILE="minimal"
@@ -83,15 +105,82 @@ spin() {
 }
 
 # --- platform / capability detection ---------------------------------------
-is_macos()  { [[ "$(uname -s)" == "Darwin" ]]; }
-is_linux()  { [[ "$(uname -s)" == "Linux" ]]; }
+is_macos()   { [[ "$(uname -s)" == "Darwin" ]]; }
+is_linux()   { [[ "$(uname -s)" == "Linux" ]]; }
 has_nvidia() { command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; }
 
 has() { command -v "$1" >/dev/null 2>&1; }
 
-# --- individual setup steps ------------------------------------------------
+# --- path resolution -------------------------------------------------------
+# Dev mode:  the script lives at <repo>/scripts/aethercompute-client.sh, so the
+#            repo is one level up from the script's own directory.
+# Standalone (curl | sh): BASH_SOURCE is empty/stdin, so there is no local repo;
+#            the source is cloned under AETHER_HOME and treated as the repo root.
+resolve_paths() {
+  local self="${BASH_SOURCE[0]:-}"
+  if [[ -n "$self" && -f "$self" ]]; then
+    local sdir
+    sdir="$(cd "$(dirname "$self")" 2>/dev/null && pwd)" || sdir=""
+    if [[ -n "$sdir" && -f "$sdir/../Cargo.toml" ]]; then
+      REPO_ROOT="$(cd "$sdir/.." && pwd)"
+      EMBEDDED_REPO=1
+      setup_paths
+      return
+    fi
+  fi
+  REPO_ROOT="$AETHER_HOME/repo"
+  EMBEDDED_REPO=0
+  setup_paths
+}
+
+# All sandboxed state lives under <repo>/.aethercompute — this MUST match
+# `sandbox_dir()` in architectures/centralized/volunteer/src/config.rs, which
+# derives it from the crate's compile-time CARGO_MANIFEST_DIR. The install logs
+# live under AETHER_HOME (not the sandbox) so they exist before the first clone.
+setup_paths() {
+  SANDBOX="$REPO_ROOT/.aethercompute"
+  export RUSTUP_HOME="$SANDBOX/rustup"
+  export CARGO_HOME="$SANDBOX/cargo"
+  VENV="$SANDBOX/venv"
+  VOLUNTEER_BIN="$REPO_ROOT/target/release/aether-volunteer"
+  LOG_DIR="$AETHER_HOME/install-logs"
+  INSTALL_LOG="$LOG_DIR/install.log"
+}
+
+# --- source acquisition ----------------------------------------------------
 ensure_dirs() { mkdir -p "$SANDBOX" "$LOG_DIR"; }
 
+ensure_repo() {
+  if [[ "$EMBEDDED_REPO" == "1" ]]; then return 0; fi
+  mkdir -p "$AETHER_HOME"
+  if [[ -f "$REPO_ROOT/Cargo.toml" ]]; then return 0; fi
+  if has git; then
+    run_step "fetching aether source" \
+      git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$REPO_ROOT" \
+      || die "could not clone $REPO_URL. See $INSTALL_LOG"
+  elif has tar; then
+    fetch_tarball
+  else
+    die "need 'git' or 'tar' to fetch the aether source. Install one and re-run."
+  fi
+}
+
+# Tarball fallback when git is unavailable. GitHub serves source archives at
+# <repo>/archive/<ref>.tar.gz (works for branches and tags).
+fetch_tarball() {
+  local archive tarball_url="${REPO_URL%.git}/archive/${REPO_REF}.tar.gz"
+  archive="$(mktemp)"
+  run_step "downloading aether source" \
+    curl -fsSL "$tarball_url" -o "$archive" \
+    || { rm -f "$archive"; die "could not download source from $tarball_url. See $INSTALL_LOG"; }
+  mkdir -p "$REPO_ROOT"
+  run_step "extracting aether source" \
+    tar -xzf "$archive" -C "$REPO_ROOT" --strip-components=1 \
+    || { rm -f "$archive"; die "could not extract source archive. See $INSTALL_LOG"; }
+  rm -f "$archive"
+}
+
+# --- individual setup steps ------------------------------------------------
 ensure_rust() {
   if [[ -x "$CARGO_HOME/bin/cargo" ]]; then return 0; fi
   if ! has curl; then die "curl is required to bootstrap rust. Please install it and re-run."; fi
@@ -201,22 +290,33 @@ ensure_volunteer_bin() {
 }
 
 # --- subcommands -----------------------------------------------------------
-do_uninstall() {
-  printf "  ${amber}Removing sandbox %s${reset}\n" "$SANDBOX"
-  rm -rf "$SANDBOX"
-  ok "sandbox removed (repo source untouched)."
-}
+show_help() {
+  cat <<'HELP'
+aethercompute-client.sh — one-command volunteer launcher.
 
-do_doctor() {
-  printf "  %s\n\n" "$(brand '◆ AETHERCOMPUTE · environment check')"
-  check "sandbox dir"        "[[ -d '$SANDBOX' ]]"
-  check "cargo (sandbox)"    "[[ -x '$CARGO_HOME/bin/cargo' ]]"
-  check "rust toolchain"     "'$CARGO_HOME/bin/rustc' -V >/dev/null 2>&1"
-  check "C compiler"         "command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1"
-  check "python3"            "command -v python3 >/dev/null 2>&1"
-  check "system torch"       "python3 -c 'import torch' >/dev/null 2>&1"
-  check "launcher binary"    "[[ -x '$VOLUNTEER_BIN' ]]"
-  echo
+Fetches the aether source, sandboxes a whole toolchain (rustup, cargo registry,
+python venv + torch) under ~/.aethercompute, builds the aether-volunteer TUI,
+and hands the terminal over to it. The TUI performs onboarding, compiles the
+real training client with live progress, and execs it when you're ready.
+
+Usage:
+  curl -fsSL https://aethercompute.org/client.sh | sh         install + launch
+  curl -fsSL https://aethercompute.org/client.sh | sh update  pull latest source
+  curl -fsSL https://aethercompute.org/client.sh | sh doctor  show what's installed
+  curl -fsSL https://aethercompute.org/client.sh | sh uninstall
+
+Subcommands:
+  (none)    ensure prerequisites, build, and launch the volunteer TUI
+  update    fetch the latest aether source (re-run without args to rebuild)
+  doctor    diagnose the local environment
+  uninstall remove all aethercompute data
+
+Environment:
+  AETHER_HOME          install root (default: ~/.aethercompute)
+  AETHER_REPO_URL      git source to clone (default: github.com/alkinun/aether)
+  AETHER_REPO_REF      branch/tag to use (default: main)
+  AETHER_INSTALLER_URL self-URL for the POSIX sh -> bash re-exec
+HELP
 }
 
 check() {
@@ -224,8 +324,60 @@ check() {
   if eval "$test" >/dev/null 2>&1; then ok "$label"; else fail "$label"; fi
 }
 
+do_doctor() {
+  printf "  %s\n\n" "$(brand '◆ AETHERCOMPUTE · environment check')"
+  check "source repo"      "[[ -f '$REPO_ROOT/Cargo.toml' ]]"
+  check "sandbox dir"      "[[ -d '$SANDBOX' ]]"
+  check "cargo (sandbox)"  "[[ -x '$CARGO_HOME/bin/cargo' ]]"
+  check "rust toolchain"   "'$CARGO_HOME/bin/rustc' -V >/dev/null 2>&1"
+  check "C compiler"       "command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 || command -v clang >/dev/null 2>&1"
+  check "python3"          "command -v python3 >/dev/null 2>&1"
+  check "system torch"     "python3 -c 'import torch' >/dev/null 2>&1"
+  check "launcher binary"  "[[ -x '$VOLUNTEER_BIN' ]]"
+  echo
+}
+
+do_uninstall() {
+  if [[ "$EMBEDDED_REPO" == "1" ]]; then
+    printf "  ${amber}Removing sandbox %s${reset}\n" "$SANDBOX"
+    rm -rf "$SANDBOX"
+    ok "sandbox removed (repo source untouched)."
+  else
+    printf "  ${amber}Removing %s${reset}\n" "$AETHER_HOME"
+    rm -rf "$AETHER_HOME"
+    ok "all aethercompute data removed."
+  fi
+}
+
+do_update() {
+  printf "\n  "; brand '◆ AETHERCOMPUTE'; printf "  ${dim}update${reset}\n\n"
+  if has git && [[ -d "$REPO_ROOT/.git" ]]; then
+    run_step "pulling latest source" \
+      git -C "$REPO_ROOT" pull --ff-only \
+      || warn "could not pull updates (continuing with existing source)."
+  else
+    # Tarball install (or embedded repo without git): re-fetch from scratch.
+    rm -rf "$REPO_ROOT"
+    if has git; then
+      mkdir -p "$AETHER_HOME"
+      run_step "re-cloning aether source" \
+        git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$REPO_ROOT" \
+        || die "could not clone $REPO_URL. See $INSTALL_LOG"
+    elif has tar; then
+      fetch_tarball
+    else
+      die "need 'git' or 'tar' to update the aether source."
+    fi
+  fi
+  ok "source is up to date."
+  hint "re-run without arguments to rebuild + launch."
+}
+
 do_launch() {
+  ensure_repo
   ensure_dirs
+  cd "$REPO_ROOT"
+
   # Boot animation while we figure out what's missing.
   printf "\n  "; brand '◆ AETHERCOMPUTE'; printf "  ${dim}volunteer launcher${reset}\n\n"
 
@@ -249,14 +401,15 @@ do_launch() {
 }
 
 main() {
+  resolve_paths
   case "${1:-}" in
+    update)    do_update; exit 0 ;;
     uninstall) do_uninstall; exit 0 ;;
-    doctor)    ensure_dirs; do_doctor; exit 0 ;;
-    -h|--help|help)
-      sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
-      exit 0 ;;
-    "") do_launch "$@" ;;
-    *) printf "${rose}unknown subcommand: %s${reset}\n" "$1" >&2; exit 2 ;;
+    doctor)    do_doctor; exit 0 ;;
+    -h|--help|help) show_help; exit 0 ;;
+    "")        do_launch "$@" ;;
+    *) printf "${rose}unknown subcommand: %s${reset}\n" "$1" >&2
+       show_help >&2; exit 2 ;;
   esac
 }
 
