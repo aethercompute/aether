@@ -7,7 +7,9 @@
 #
 # The launcher's server_command() picks this up automatically whenever it sits
 # next to state.toml (same convention as the llama2-20m-dolma configs).
-dir = "data/ultra-fineweb-deepseek-512-bin"
+# Relative paths resolve against THIS file's directory (see server main.rs
+# load_config_state), so use ../../ to reach the repo root.
+dir = "../../data/ultra-fineweb-deepseek-512-bin"
 token_size = "FourBytes"
 seq_len = 512
 # Order in which the server traverses the dataset. Any fixed 32 bytes are valid;
