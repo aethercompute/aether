@@ -1,8 +1,9 @@
 use anyhow::Result;
 use psyche_coordinator::{
-    model::{Checkpoint, LLMArchitecture},
-    ClientState, RunState,
+    model::{Checkpoint, LLMArchitecture, LLMTrainingDataType, Model},
+    ClientState, RunState, NUM_STORED_ROUNDS,
 };
+use psyche_core::{LearningRateSchedule, OptimizerDefinition};
 use russh::keys::ssh_key::{Algorithm, PublicKey};
 use russh::server::*;
 use russh::{Channel, ChannelId, Pty};
@@ -314,37 +315,13 @@ fn load_or_generate_host_key(path: Option<PathBuf>) -> Result<russh::keys::Priva
 struct Snapshot {
     waiting: bool,
     run_state: String,
-    run_id: String,
-    model: String,
-    checkpoint: String,
-    epoch: u32,
-    step: u32,
-    total_steps: u32,
-    height: u32,
-    epoch_steps: String,
-    ready_clients: usize,
-    syncing_clients: usize,
-    healthy: u32,
-    dropped: u32,
-    withdrawn: u32,
-    ejected: u32,
-    server_addr: String,
-    latest_loss: Option<f32>,
-    latest_tps: Option<f32>,
-    avg_tps: Option<f32>,
-    weighted_tps: Option<f32>,
-    elapsed: Option<u64>,
-    remaining_steps: u32,
-    tokens_per_step: Option<f64>,
-    eta_weighted: Option<u64>,
-    eta_current: Option<u64>,
-    warmup_time: u64,
-    epoch_time: u64,
-    min_clients: u32,
-    init_min_clients: u32,
-    witness_nodes: u32,
-    loss_points: Vec<(u32, f32)>,
-    throughput_points: Vec<(u32, f32)>,
+    overview: Vec<String>,
+    config: Vec<String>,
+    model: Vec<String>,
+    timing: Vec<String>,
+    clients: Vec<String>,
+    rounds: Vec<String>,
+    wandb: Vec<String>,
 }
 
 fn snapshot_state(state: &SharedState) -> Snapshot {
@@ -357,37 +334,16 @@ fn snapshot_from_web_state(s: &WebState) -> Snapshot {
         return Snapshot {
             waiting: true,
             run_state: "Waiting for coordinator data".into(),
-            run_id: "-".into(),
-            model: "-".into(),
-            checkpoint: "-".into(),
-            epoch: 0,
-            step: 0,
-            total_steps: 0,
-            height: 0,
-            epoch_steps: "-".into(),
-            ready_clients: s.ready_clients.len(),
-            syncing_clients: s.syncing_clients.len(),
-            healthy: 0,
-            dropped: 0,
-            withdrawn: 0,
-            ejected: 0,
-            server_addr: s.server_addr.clone(),
-            latest_loss: None,
-            latest_tps: None,
-            avg_tps: None,
-            weighted_tps: None,
-            elapsed: None,
-            remaining_steps: 0,
-            tokens_per_step: None,
-            eta_weighted: None,
-            eta_current: None,
-            warmup_time: 0,
-            epoch_time: 0,
-            min_clients: 0,
-            init_min_clients: 0,
-            witness_nodes: 0,
-            loss_points: Vec::new(),
-            throughput_points: Vec::new(),
+            overview: vec![kv_line("Status", "Waiting for coordinator data")],
+            config: Vec::new(),
+            model: Vec::new(),
+            timing: Vec::new(),
+            clients: vec![
+                kv_line("Ready", &s.ready_clients.len().to_string()),
+                kv_line("Syncing", &s.syncing_clients.len().to_string()),
+            ],
+            rounds: Vec::new(),
+            wandb: wandb_rows(s),
         };
     };
 
@@ -404,94 +360,265 @@ fn snapshot_from_web_state(s: &WebState) -> Snapshot {
         }
     }
 
-    let valid_tps: Vec<f32> = s
-        .loss_history
-        .iter()
-        .filter_map(|p| p.tokens_per_sec.is_finite().then_some(p.tokens_per_sec))
-        .filter(|v| *v > 0.0)
-        .collect();
-    let avg_tps = (!valid_tps.is_empty())
-        .then(|| valid_tps.iter().copied().sum::<f32>() / valid_tps.len() as f32);
-    let weighted_tps = weighted_tokens_per_sec(&s.loss_history);
-    let latest = s.loss_history.last();
-    let current_tps = latest.and_then(|p| p.tokens_per_sec.is_finite().then_some(p.tokens_per_sec));
     let now = current_unix_timestamp();
-    let elapsed = s
-        .loss_history
-        .first()
-        .map(|p| now.saturating_sub(p.unix_timestamp))
-        .or_else(|| {
-            (coord.run_state_start_unix_timestamp > 0)
-                .then(|| now.saturating_sub(coord.run_state_start_unix_timestamp))
-        });
+    let state_duration = now.saturating_sub(coord.run_state_start_unix_timestamp);
+    let epoch_duration = if coord.epoch_state.start_timestamp > 0 {
+        format_duration(now.saturating_sub(coord.epoch_state.start_timestamp))
+    } else {
+        "-".into()
+    };
     let remaining_steps = coord.config.total_steps.saturating_sub(coord.progress.step);
     let tokens_per_step = coord.get_target_global_batch_size(coord.current_round()) as f64
         * coord.get_sequence_length() as f64;
     let remaining_tokens = remaining_steps as f64 * tokens_per_step;
-    let eta_weighted =
-        estimate_remaining_time(remaining_tokens, weighted_tps.unwrap_or(0.0) as f64);
-    let eta_current = estimate_remaining_time(remaining_tokens, current_tps.unwrap_or(0.0) as f64);
-    let model = match &coord.model {
-        psyche_coordinator::model::Model::LLM(llm) => format!(
-            "{} · seq {}",
-            format_llm_architecture(&llm.architecture),
-            llm.max_seq_len
+    let current_tps = s.loss_history.last().and_then(|p| {
+        p.tokens_per_sec
+            .is_finite()
+            .then_some(p.tokens_per_sec as f64)
+    });
+    let avg_tps = average_tokens_per_sec(&s.loss_history);
+    let weighted_tps = weighted_tokens_per_sec(&s.loss_history);
+    let eta_weighted = estimate_remaining_time(remaining_tokens, weighted_tps.unwrap_or(0.0));
+    let eta_current = estimate_remaining_time(remaining_tokens, current_tps.unwrap_or(0.0));
+
+    let pending = if coord.pending_pause.is_true() {
+        " pending pause"
+    } else {
+        ""
+    };
+    let overview = vec![
+        kv_line(
+            "Run State",
+            &format!("{}{pending}", format_run_state(coord.run_state)),
         ),
+        kv_line("Run ID", &coord.run_id.to_string()),
+        kv_line("Epoch", &coord.progress.epoch.to_string()),
+        kv_line(
+            "Step",
+            &format!("{} / {}", coord.progress.step, coord.config.total_steps),
+        ),
+        kv_line(
+            "Height",
+            &coord.epoch_state.rounds[coord.epoch_state.rounds_head as usize]
+                .height
+                .to_string(),
+        ),
+        kv_line(
+            "Epoch Steps",
+            &format!(
+                "{} - {}",
+                coord.epoch_state.start_step, coord.epoch_state.last_step
+            ),
+        ),
+        kv_line(
+            "Clients",
+            &format!(
+                "{} ({} exited)",
+                coord.epoch_state.clients.len(),
+                coord.epoch_state.exited_clients.len()
+            ),
+        ),
+        kv_line(
+            "Connected",
+            &format!(
+                "{} ready, {} syncing",
+                s.ready_clients.len(),
+                s.syncing_clients.len()
+            ),
+        ),
+        kv_line(
+            "Server",
+            if s.server_addr.is_empty() {
+                "-"
+            } else {
+                &s.server_addr
+            },
+        ),
+        kv_line("State Duration", &format_duration(state_duration)),
+        kv_line("Epoch Duration", &epoch_duration),
+        kv_line(
+            "Data Index",
+            &coord.progress.epoch_start_data_index.to_string(),
+        ),
+        kv_line(
+            "First Round",
+            bool_str(coord.epoch_state.first_round.is_true()),
+        ),
+        kv_line(
+            "Cold Start",
+            bool_str(coord.epoch_state.cold_start_epoch.is_true()),
+        ),
+    ];
+
+    let config = vec![
+        kv_line("Total Steps", &coord.config.total_steps.to_string()),
+        kv_line("Epoch Time", &format_duration(coord.config.epoch_time)),
+        kv_line("Warmup Time", &format_duration(coord.config.warmup_time)),
+        kv_line(
+            "Cooldown Time",
+            &format_duration(coord.config.cooldown_time),
+        ),
+        kv_line(
+            "Max Train Time",
+            &format_duration(coord.config.max_round_train_time),
+        ),
+        kv_line(
+            "Witness Time",
+            &format_duration(coord.config.round_witness_time),
+        ),
+        kv_line(
+            "Warmup Tokens",
+            &coord.config.global_batch_size_warmup_tokens.to_string(),
+        ),
+        kv_line("Init Min", &coord.config.init_min_clients.to_string()),
+        kv_line("Min Clients", &coord.config.min_clients.to_string()),
+        kv_line("Witness Nodes", &coord.config.witness_nodes.to_string()),
+        kv_line(
+            "Batch Start",
+            &coord.config.global_batch_size_start.to_string(),
+        ),
+        kv_line("Batch End", &coord.config.global_batch_size_end.to_string()),
+        kv_line(
+            "Verify %",
+            &format!("{}%", coord.config.verification_percent),
+        ),
+        kv_line(
+            "Waiting Extra",
+            &format_duration(coord.config.waiting_for_members_extra_time.into()),
+        ),
+    ];
+
+    let model = match &coord.model {
+        Model::LLM(llm) => vec![
+            kv_line("Architecture", format_llm_architecture(&llm.architecture)),
+            kv_line("Max Seq Len", &llm.max_seq_len.to_string()),
+            kv_line("Cold Warmup", &llm.cold_start_warmup_steps.to_string()),
+            kv_line("Data Type", format_data_type(&llm.data_type)),
+            kv_line("Checkpoint", format_checkpoint_label(&llm.checkpoint)),
+            kv_line(
+                "LR Schedule",
+                &format_lr_schedule(&llm.lr_schedule, coord.progress.step),
+            ),
+            kv_line("Optimizer", &format_optimizer(&llm.optimizer)),
+        ],
     };
-    let checkpoint = match &coord.model {
-        psyche_coordinator::model::Model::LLM(llm) => {
-            format_checkpoint_label(&llm.checkpoint).into()
+
+    let timing = vec![
+        kv_line(
+            "Elapsed",
+            &format_duration_opt(
+                s.loss_history
+                    .first()
+                    .map(|p| now.saturating_sub(p.unix_timestamp))
+                    .or_else(|| {
+                        (coord.run_state_start_unix_timestamp > 0).then_some(state_duration)
+                    }),
+            ),
+        ),
+        kv_line("Remaining", &remaining_steps.to_string()),
+        kv_line("Tokens / Step", &format!("{tokens_per_step:.0}")),
+        kv_line(
+            "ETA Weighted",
+            &format!(
+                "{} ({})",
+                format_duration_opt(eta_weighted),
+                format_tps(weighted_tps)
+            ),
+        ),
+        kv_line(
+            "ETA Overall",
+            &format!(
+                "{} ({})",
+                format_duration_opt(estimate_remaining_time(
+                    remaining_tokens,
+                    avg_tps.unwrap_or(0.0)
+                )),
+                format_tps(avg_tps)
+            ),
+        ),
+        kv_line(
+            "ETA Current",
+            &format!(
+                "{} ({})",
+                format_duration_opt(eta_current),
+                format_tps(current_tps)
+            ),
+        ),
+    ];
+
+    let mut clients = vec![
+        kv_line(
+            "Summary",
+            &format!("{} total", healthy + dropped + withdrawn + ejected),
+        ),
+        kv_line("Healthy", &healthy.to_string()),
+        kv_line("Dropped", &dropped.to_string()),
+        kv_line("Withdrawn", &withdrawn.to_string()),
+        kv_line("Ejected", &ejected.to_string()),
+        kv_line("Ready", &s.ready_clients.len().to_string()),
+        kv_line("Syncing", &s.syncing_clients.len().to_string()),
+    ];
+    clients.push(table_header(&["Client ID", "Status", "Exited"]));
+    if coord.epoch_state.clients.is_empty() {
+        clients.push(dim_line("No clients connected"));
+    } else {
+        for client in coord.epoch_state.clients.iter() {
+            clients.push(table_row(&[
+                &shorten(&client.id.to_string(), 18),
+                &client.state.to_string(),
+                &client.exited_height.to_string(),
+            ]));
         }
-    };
+    }
+    if !coord.epoch_state.exited_clients.is_empty() {
+        clients.push(dim_line("Exited Clients"));
+        for client in coord.epoch_state.exited_clients.iter() {
+            clients.push(table_row(&[
+                &shorten(&client.id.to_string(), 18),
+                &client.state.to_string(),
+                &client.exited_height.to_string(),
+            ]));
+        }
+    }
+    if !s.syncing_clients.is_empty() || !s.ready_clients.is_empty() {
+        clients.push(dim_line("Connected - Not Yet Admitted"));
+        for client in &s.syncing_clients {
+            clients.push(table_row(&[&shorten(client, 18), "Syncing", "-"]));
+        }
+        for client in &s.ready_clients {
+            clients.push(table_row(&[&shorten(client, 18), "Ready", "-"]));
+        }
+    }
+
+    let head = coord.epoch_state.rounds_head as usize;
+    let mut rounds = vec![table_header(&[
+        "Height", "Data", "Seed", "Clients", "TB", "Wit",
+    ])];
+    for offset in 0..NUM_STORED_ROUNDS {
+        let idx = (head + NUM_STORED_ROUNDS - offset) % NUM_STORED_ROUNDS;
+        let round = &coord.epoch_state.rounds[idx];
+        let marker = if offset == 0 { "*" } else { " " };
+        rounds.push(table_row(&[
+            &format!("{marker}{}", round.height),
+            &round.data_index.to_string(),
+            &round.random_seed.to_string(),
+            &round.clients_len.to_string(),
+            &round.tie_breaker_tasks.to_string(),
+            &round.witnesses.len().to_string(),
+        ]));
+    }
+    rounds.push(dim_line("* current round"));
 
     Snapshot {
         waiting: false,
         run_state: format_run_state(coord.run_state).into(),
-        run_id: coord.run_id.to_string(),
+        overview,
+        config,
         model,
-        checkpoint,
-        epoch: coord.progress.epoch as u32,
-        step: coord.progress.step,
-        total_steps: coord.config.total_steps,
-        height: coord.epoch_state.rounds[coord.epoch_state.rounds_head as usize].height,
-        epoch_steps: format!(
-            "{} - {}",
-            coord.epoch_state.start_step, coord.epoch_state.last_step
-        ),
-        ready_clients: s.ready_clients.len(),
-        syncing_clients: s.syncing_clients.len(),
-        healthy,
-        dropped,
-        withdrawn,
-        ejected,
-        server_addr: s.server_addr.clone(),
-        latest_loss: latest.and_then(|p| p.loss.is_finite().then_some(p.loss)),
-        latest_tps: current_tps,
-        avg_tps,
-        weighted_tps,
-        elapsed,
-        remaining_steps,
-        tokens_per_step: Some(tokens_per_step),
-        eta_weighted,
-        eta_current,
-        warmup_time: coord.config.warmup_time,
-        epoch_time: coord.config.epoch_time,
-        min_clients: coord.config.min_clients as u32,
-        init_min_clients: coord.config.init_min_clients as u32,
-        witness_nodes: coord.config.witness_nodes as u32,
-        loss_points: s
-            .loss_history
-            .iter()
-            .filter_map(|p| p.loss.is_finite().then_some((p.step, p.loss)))
-            .collect(),
-        throughput_points: s
-            .loss_history
-            .iter()
-            .filter_map(|p| {
-                (p.tokens_per_sec.is_finite() && p.tokens_per_sec > 0.0)
-                    .then_some((p.step, p.tokens_per_sec))
-            })
-            .collect(),
+        timing,
+        clients,
+        rounds,
+        wandb: wandb_rows(s),
     }
 }
 
@@ -517,89 +644,43 @@ fn render_ansi(s: &Snapshot, width: u16, height: u16, frame: u64) -> String {
         &format!("{PANEL_HI}{}{RESET}", "─".repeat(width as usize)),
     );
 
-    let progress = if s.total_steps > 0 {
-        s.step as f32 / s.total_steps as f32
-    } else {
-        0.0
-    };
-
-    let overview = vec![
-        kv_line("Run", &shorten(&s.run_id, 28)),
-        kv_line("State", &s.run_state),
-        kv_line("Epoch", &s.epoch.to_string()),
-        kv_line("Step", &format!("{} / {}", s.step, s.total_steps)),
-        kv_line("Height", &s.height.to_string()),
-        kv_line("Epoch Steps", &s.epoch_steps),
-        kv_line(
-            "Server",
-            if s.server_addr.is_empty() {
-                "-"
-            } else {
-                &s.server_addr
-            },
-        ),
-    ];
-    let timing = vec![
-        kv_line("Progress", &format!("{:>5.1}%", progress * 100.0)),
-        color_line(
-            BRAND_A,
-            &progress_bar(progress, panel_value_width(width) as usize),
-        ),
-        kv_line("Elapsed", &format_duration_opt(s.elapsed)),
-        kv_line("Remaining", &s.remaining_steps.to_string()),
-        kv_line(
-            "Tokens/Step",
-            &s.tokens_per_step
-                .map(|v| format!("{v:.0}"))
-                .unwrap_or_else(|| "-".into()),
-        ),
-        kv_line("ETA Weighted", &format_duration_opt(s.eta_weighted)),
-        kv_line("ETA Current", &format_duration_opt(s.eta_current)),
-    ];
-    render_panel_pair(&mut out, width, "Overview", overview, "Timing", timing);
+    render_panel_pair(
+        &mut out,
+        width,
+        "Overview",
+        s.overview.clone(),
+        "Timing",
+        s.timing.clone(),
+    );
     blank(&mut out);
 
-    let training = vec![
-        kv_line("Latest Loss", &format_opt(s.latest_loss, 4)),
-        kv_line("Tokens/sec", &format_opt(s.latest_tps, 1)),
-        kv_line("Weighted tok/s", &format_opt(s.weighted_tps, 1)),
-        kv_line("Average tok/s", &format_opt(s.avg_tps, 1)),
-        kv_line(
-            "Loss",
-            &sparkline(&s.loss_points, panel_value_width(width) as usize),
-        ),
-        kv_line(
-            "Throughput",
-            &sparkline(&s.throughput_points, panel_value_width(width) as usize),
-        ),
-    ];
-    let clients = vec![
-        kv_line("Healthy", &s.healthy.to_string()),
-        kv_line("Ready", &s.ready_clients.to_string()),
-        kv_line("Syncing", &s.syncing_clients.to_string()),
-        kv_line("Dropped", &s.dropped.to_string()),
-        kv_line("Withdrawn", &s.withdrawn.to_string()),
-        kv_line("Ejected", &s.ejected.to_string()),
-        kv_line(
-            "Total",
-            &(s.healthy + s.dropped + s.withdrawn + s.ejected).to_string(),
-        ),
-    ];
-    render_panel_pair(&mut out, width, "Training", training, "Clients", clients);
+    render_panel_pair(
+        &mut out,
+        width,
+        "Configuration",
+        s.config.clone(),
+        "Model",
+        s.model.clone(),
+    );
     blank(&mut out);
 
-    if height >= 32 {
-        let model = vec![
-            kv_line("Model", &s.model),
-            kv_line("Checkpoint", &s.checkpoint),
-            kv_line("Warmup", &format_duration(s.warmup_time)),
-            kv_line("Epoch Time", &format_duration(s.epoch_time)),
-            kv_line("Init Min", &s.init_min_clients.to_string()),
-            kv_line("Min Clients", &s.min_clients.to_string()),
-            kv_line("Witnesses", &s.witness_nodes.to_string()),
-        ];
-        render_panel(&mut out, "Config / Model", model);
+    if width >= 100 {
+        render_panel_pair(
+            &mut out,
+            width,
+            "Clients",
+            fit_rows(s.clients.clone(), height, 14),
+            "Rounds",
+            fit_rows(s.rounds.clone(), height, 14),
+        );
         blank(&mut out);
+        render_panel(&mut out, "Weights & Biases", s.wandb.clone());
+    } else {
+        render_panel(&mut out, "Clients", fit_rows(s.clients.clone(), height, 16));
+        blank(&mut out);
+        render_panel(&mut out, "Rounds", fit_rows(s.rounds.clone(), height, 16));
+        blank(&mut out);
+        render_panel(&mut out, "Weights & Biases", s.wandb.clone());
     }
 
     line(
@@ -696,8 +777,67 @@ fn kv_line(key: &str, value: &str) -> String {
     format!("{DIM}{key:<15}{RESET}{BLOOM_BONE}{value}{RESET}")
 }
 
-fn color_line(color: &str, value: &str) -> String {
-    format!("{color}{value}{RESET}")
+fn dim_line(value: &str) -> String {
+    format!("{DIM}{value}{RESET}")
+}
+
+fn table_header(cols: &[&str]) -> String {
+    format!("{DIM}{}{RESET}", table_plain(cols))
+}
+
+fn table_row(cols: &[&str]) -> String {
+    format!("{BLOOM_BONE}{}{RESET}", table_plain(cols))
+}
+
+fn table_plain(cols: &[&str]) -> String {
+    const WIDTHS: [usize; 6] = [18, 12, 8, 8, 6, 6];
+    cols.iter()
+        .enumerate()
+        .map(|(i, col)| {
+            format!(
+                "{:<width$}",
+                shorten(col, WIDTHS.get(i).copied().unwrap_or(10)),
+                width = WIDTHS.get(i).copied().unwrap_or(10)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn fit_rows(mut rows: Vec<String>, height: u16, reserved: usize) -> Vec<String> {
+    let max_rows = (height as usize).saturating_sub(reserved).max(6);
+    if rows.len() <= max_rows {
+        return rows;
+    }
+    let hidden = rows.len() - max_rows + 1;
+    rows.truncate(max_rows.saturating_sub(1));
+    rows.push(dim_line(&format!("... {hidden} more")));
+    rows
+}
+
+fn wandb_rows(s: &WebState) -> Vec<String> {
+    let Some(wandb) = &s.wandb else {
+        return vec![kv_line("Status", "Disabled or unavailable")];
+    };
+    let mut rows = vec![
+        kv_line("Project", &wandb.project),
+        kv_line("Run", &wandb.run_name),
+        kv_line("Entity", wandb.entity.as_deref().unwrap_or("-")),
+        kv_line("Group", wandb.group.as_deref().unwrap_or("-")),
+    ];
+    if let Some(entity) = &wandb.entity {
+        rows.push(kv_line(
+            "URL",
+            &format!(
+                "https://wandb.ai/{entity}/{}/runs/{}",
+                wandb.project, wandb.run_name
+            ),
+        ));
+    }
+    rows.push(dim_line(
+        "Graphs are available in W&B; SSH shows run metadata.",
+    ));
+    rows
 }
 
 fn visible_len(s: &str) -> usize {
@@ -758,37 +898,28 @@ fn blank(out: &mut String) {
     out.push_str("\r\n");
 }
 
-fn format_opt(value: Option<f32>, precision: usize) -> String {
-    value
-        .map(|v| format!("{v:.precision$}"))
+fn format_tps(tps: Option<f64>) -> String {
+    tps.map(|v| format!("{v:.1} tok/s"))
         .unwrap_or_else(|| "-".into())
 }
 
-fn panel_value_width(width: u16) -> u16 {
-    if width >= 100 {
-        ((width as usize - 3) / 2).saturating_sub(23) as u16
+fn bool_str(value: bool) -> &'static str {
+    if value {
+        "Yes"
     } else {
-        width.saturating_sub(27)
+        "No"
     }
 }
 
-fn sparkline(points: &[(u32, f32)], width: usize) -> String {
-    const BARS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-    if points.len() < 2 || width == 0 {
-        return "-".into();
-    }
-    let width = width.max(8).min(80);
-    let start = points.len().saturating_sub(width);
-    let vals: Vec<f32> = points[start..].iter().map(|(_, v)| *v).collect();
-    let min = vals.iter().copied().fold(f32::INFINITY, f32::min);
-    let max = vals.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let range = (max - min).max(f32::EPSILON);
-    vals.iter()
-        .map(|v| {
-            let idx = (((*v - min) / range) * (BARS.len() - 1) as f32).round() as usize;
-            BARS[idx.min(BARS.len() - 1)]
+fn average_tokens_per_sec(points: &[LossPoint]) -> Option<f64> {
+    let points: Vec<f64> = points
+        .iter()
+        .filter_map(|p| {
+            (p.tokens_per_sec.is_finite() && p.tokens_per_sec > 0.0)
+                .then_some(p.tokens_per_sec as f64)
         })
-        .collect()
+        .collect();
+    (!points.is_empty()).then(|| points.iter().sum::<f64>() / points.len() as f64)
 }
 
 fn current_unix_timestamp() -> u64 {
@@ -808,7 +939,7 @@ fn estimate_remaining_time(remaining_tokens: f64, tokens_per_sec: f64) -> Option
     }
 }
 
-fn weighted_tokens_per_sec(points: &[LossPoint]) -> Option<f32> {
+fn weighted_tokens_per_sec(points: &[LossPoint]) -> Option<f64> {
     let points: Vec<&LossPoint> = points
         .iter()
         .filter(|p| p.tokens_per_sec.is_finite() && p.tokens_per_sec > 0.0)
@@ -835,7 +966,7 @@ fn weighted_tokens_per_sec(points: &[LossPoint]) -> Option<f32> {
         weighted_total += points[i].tokens_per_sec as f64 * weight;
         total_weight += weight;
     }
-    (total_weight > 0.0).then(|| (weighted_total / total_weight) as f32)
+    (total_weight > 0.0).then(|| weighted_total / total_weight)
 }
 
 fn format_duration_opt(secs: Option<u64>) -> String {
@@ -869,12 +1000,6 @@ fn shorten(value: &str, max: usize) -> String {
     }
 }
 
-fn progress_bar(progress: f32, width: usize) -> String {
-    let width = width.max(8);
-    let filled = ((progress.clamp(0.0, 1.0) * width as f32).round() as usize).min(width);
-    format!("{}{}", "━".repeat(filled), "─".repeat(width - filled))
-}
-
 fn format_run_state(state: RunState) -> &'static str {
     match state {
         RunState::Uninitialized => "Uninitialized",
@@ -894,6 +1019,70 @@ fn format_llm_architecture(arch: &LLMArchitecture) -> &'static str {
         LLMArchitecture::HfDeepseek => "HuggingFace DeepSeek",
         LLMArchitecture::HfAuto => "HuggingFace Auto",
         LLMArchitecture::Torchtitan => "Torchtitan",
+    }
+}
+
+fn format_data_type(dt: &LLMTrainingDataType) -> &'static str {
+    match dt {
+        LLMTrainingDataType::Pretraining => "Pretraining",
+        LLMTrainingDataType::Finetuning => "Finetuning",
+    }
+}
+
+fn format_lr_schedule(schedule: &LearningRateSchedule, current_step: u32) -> String {
+    let schedule_type = match schedule {
+        LearningRateSchedule::Constant(_) => "Constant",
+        LearningRateSchedule::Linear(_) => "Linear",
+        LearningRateSchedule::Cosine(_) => "Cosine",
+        LearningRateSchedule::WarmupStableDecay(_) => "WarmupStableDecay",
+    };
+    format!(
+        "{} warmup={} init={:.8} current={:.8}",
+        schedule_type,
+        schedule.get_warmup_steps(),
+        schedule.get_warmup_init_lr(),
+        schedule.get_lr(current_step)
+    )
+}
+
+fn format_optimizer(opt: &OptimizerDefinition) -> String {
+    match opt {
+        OptimizerDefinition::Dummy => "Dummy".into(),
+        OptimizerDefinition::AdamW {
+            betas,
+            weight_decay,
+            eps,
+            clip_grad_norm,
+        } => format!(
+            "AdamW beta=[{},{}] wd={} eps={} clip={}",
+            betas[0],
+            betas[1],
+            weight_decay,
+            eps,
+            clip_grad_norm
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "None".into())
+        ),
+        OptimizerDefinition::Distro {
+            clip_grad_norm,
+            weight_decay,
+            compression_decay,
+            compression_topk,
+            compression_chunk,
+            quantize_1bit,
+        } => format!(
+            "Distro clip={} wd={} decay={} topk={} chunk={} 1bit={}",
+            clip_grad_norm
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "None".into()),
+            weight_decay
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "None".into()),
+            compression_decay,
+            compression_topk,
+            compression_chunk,
+            quantize_1bit
+        ),
     }
 }
 

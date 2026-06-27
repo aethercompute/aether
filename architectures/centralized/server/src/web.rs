@@ -26,6 +26,15 @@ pub struct WebState {
     /// epoch admission.
     pub ready_clients: Vec<String>,
     pub server_addr: String,
+    pub wandb: Option<WandbInfo>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct WandbInfo {
+    pub project: String,
+    pub run_name: String,
+    pub entity: Option<String>,
+    pub group: Option<String>,
 }
 
 pub(crate) type SharedState = Arc<Mutex<WebState>>;
@@ -797,6 +806,7 @@ async fn api_state(State(state): State<SharedState>) -> impl axum::response::Int
         "syncing_clients": &s.syncing_clients,
         "ready_clients": &s.ready_clients,
         "server_addr": &s.server_addr,
+        "wandb": &s.wandb,
     });
     axum::Json(json)
 }

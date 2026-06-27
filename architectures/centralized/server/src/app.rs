@@ -36,7 +36,7 @@ use wandb::LogData;
 
 use crate::dashboard::{DashboardState, DashboardTui};
 use crate::ssh_monitor;
-use crate::web::{self, LossPoint, WebState};
+use crate::web::{self, LossPoint, WandbInfo, WebState};
 
 /// Upper bound on the number of samples retained in `loss_history`. When this
 /// is reached the older half of the history is decimated (every other point
@@ -122,6 +122,7 @@ pub struct App {
     loss_history: Vec<LossPoint>,
     web_state: Option<std::sync::Arc<std::sync::Mutex<WebState>>>,
     wandb_run: Option<Arc<wandb::Run>>,
+    wandb_info: Option<WandbInfo>,
 }
 
 /// Methods intended for testing purposes only.
@@ -315,6 +316,7 @@ impl App {
                     syncing_clients: Vec::new(),
                     ready_clients: Vec::new(),
                     server_addr: String::new(),
+                    wandb: None,
                 },
                 web_port,
                 cancel.clone(),
@@ -388,7 +390,10 @@ impl App {
             };
 
             let run_id = String::from(&coordinator.run_id);
-            let wandb_run = init_wandb(&run_id).await;
+            let (wandb_run, wandb_info) = match init_wandb(&run_id).await {
+                Some((run, info)) => (Some(run), Some(info)),
+                None => (None, None),
+            };
 
             Ok(Self {
                 cancel,
@@ -411,6 +416,7 @@ impl App {
                 loss_history: Vec::new(),
                 web_state: Some(web_state),
                 wandb_run,
+                wandb_info,
             })
         }.instrument(info_span!("App::new")).await
     }
@@ -493,6 +499,7 @@ impl App {
                     .map(|c| c.to_string())
                     .collect();
                 state.server_addr = self.backend.net_server.local_addr().to_string();
+                state.wandb.clone_from(&self.wandb_info);
             }
         }
     }
@@ -813,7 +820,7 @@ impl From<&App> for DashboardState {
 /// - `WANDB_RUN`      (default: `server-<run_id>-<UTC timestamp>`)
 /// - `WANDB_ENTITY`   (optional)
 /// - `WANDB_GROUP`    (optional)
-async fn init_wandb(run_id: &str) -> Option<Arc<wandb::Run>> {
+async fn init_wandb(run_id: &str) -> Option<(Arc<wandb::Run>, WandbInfo)> {
     let api_key = std::env::var("WANDB_API_KEY").ok()?;
     let project = std::env::var("WANDB_PROJECT").unwrap_or_else(|_| "aethercompute".to_string());
     let run_name = std::env::var("WANDB_RUN").unwrap_or_else(|_| {
@@ -824,6 +831,12 @@ async fn init_wandb(run_id: &str) -> Option<Arc<wandb::Run>> {
     });
     let entity = std::env::var("WANDB_ENTITY").ok();
     let group = std::env::var("WANDB_GROUP").ok();
+    let info = WandbInfo {
+        project: project.clone(),
+        run_name: run_name.clone(),
+        entity: entity.clone(),
+        group: group.clone(),
+    };
 
     let wandb = wandb::WandB::new(wandb::BackendOptions::new(api_key));
     let mut run_info = wandb::RunInfo::new(project).name(run_name).config((
@@ -840,7 +853,7 @@ async fn init_wandb(run_id: &str) -> Option<Arc<wandb::Run>> {
         Ok(built) => match wandb.new_run(built).await {
             Ok(run) => {
                 info!("Connected to wandb; logging server-side metrics.");
-                Some(Arc::new(run))
+                Some((Arc::new(run), info))
             }
             Err(e) => {
                 warn!("Could not connect to wandb ({e:?}); continuing without it.");
