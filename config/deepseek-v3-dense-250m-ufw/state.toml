@@ -18,7 +18,7 @@ global_batch_size_warmup_tokens = 0
 verification_percent = 0
 witness_nodes = 1
 total_steps = 62500
-waiting_for_members_extra_time = 10
+waiting_for_members_extra_time = 60
 
 [model.LLM]
 architecture = "HfDeepseek"

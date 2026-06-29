@@ -122,6 +122,7 @@ pub struct App {
     web_state: Option<std::sync::Arc<std::sync::Mutex<WebState>>>,
     wandb_run: Option<Arc<wandb::Run>>,
     wandb_info: Option<WandbInfo>,
+    last_admission_change_unix_timestamp: u64,
 }
 
 /// Methods intended for testing purposes only.
@@ -409,6 +410,7 @@ impl App {
                 web_state: Some(web_state),
                 wandb_run,
                 wandb_info,
+                last_admission_change_unix_timestamp: 0,
             })
         }.instrument(info_span!("App::new")).await
     }
@@ -532,8 +534,11 @@ impl App {
 
     fn on_disconnect(&mut self, from: PublicKey) -> Result<()> {
         let from_identity = NodeIdentity::from_single_key(*from.as_bytes());
-        self.backend.pending_clients.remove(&from_identity);
-        self.backend.ready_clients.remove(&from_identity);
+        let removed_pending = self.backend.pending_clients.remove(&from_identity);
+        let removed_ready = self.backend.ready_clients.remove(&from_identity);
+        if removed_pending || removed_ready {
+            self.last_admission_change_unix_timestamp = Self::get_timestamp();
+        }
 
         if self.withdraw_on_disconnect {
             let position = self
@@ -562,7 +567,9 @@ impl App {
                 let coord_run_id = String::from(&self.coordinator.run_id);
                 if coord_run_id == run_id {
                     info!("added pending client {from}");
-                    self.backend.pending_clients.insert(from_identity);
+                    if self.backend.pending_clients.insert(from_identity) {
+                        self.last_admission_change_unix_timestamp = Self::get_timestamp();
+                    }
                 } else {
                     info!("{from:?} tried to join unknown run {run_id}");
                 }
@@ -575,12 +582,14 @@ impl App {
                 if self.backend.pending_clients.remove(&from_identity) {
                     info!("client {from} is ready for epoch admission");
                     self.backend.ready_clients.insert(from_identity);
+                    self.last_admission_change_unix_timestamp = Self::get_timestamp();
                 } else if !self.backend.ready_clients.contains(&from_identity) {
                     // Received readiness from a client we don't know about
                     // (e.g. it joined before the server started, or re-connected).
                     // Accept it as ready directly.
                     info!("client {from} signalled readiness (was not in pending)");
                     self.backend.ready_clients.insert(from_identity);
+                    self.last_admission_change_unix_timestamp = Self::get_timestamp();
                 }
                 false
             }
@@ -680,12 +689,33 @@ impl App {
             (ready, count)
         };
 
+        let now = Self::get_timestamp();
+        let admission_ready_at = self
+            .coordinator
+            .run_state_start_unix_timestamp
+            .max(self.last_admission_change_unix_timestamp)
+            .saturating_add(self.coordinator.config.waiting_for_members_extra_time as u64);
+        let should_wait_for_more_clients = self.coordinator.run_state
+            == RunState::WaitingForMembers
+            && admission_count as u16 >= self.coordinator.config.init_min_clients
+            && now < admission_ready_at;
+
+        let (admission_iter, admission_count) = if should_wait_for_more_clients {
+            debug!(
+                ready_at = admission_ready_at,
+                admission_count, "waiting for client admission quiet period"
+            );
+            (Vec::new(), 0)
+        } else {
+            (admission_iter, admission_count)
+        };
+
         match self.coordinator.tick(
             Some(SizedIterator::new(
                 admission_iter.into_iter(),
                 admission_count,
             )),
-            Self::get_timestamp(),
+            now,
             rand::rng().next_u64(),
         ) {
             Ok(TickResult::EpochEnd(result)) => {
@@ -772,8 +802,11 @@ impl App {
     fn kick_unhealthy_clients(&mut self) {
         for client in self.coordinator.epoch_state.exited_clients {
             if client.state != ClientState::Healthy {
-                self.backend.pending_clients.remove(&client.id);
-                self.backend.ready_clients.remove(&client.id);
+                let removed_pending = self.backend.pending_clients.remove(&client.id);
+                let removed_ready = self.backend.ready_clients.remove(&client.id);
+                if removed_pending || removed_ready {
+                    self.last_admission_change_unix_timestamp = Self::get_timestamp();
+                }
             }
         }
     }
