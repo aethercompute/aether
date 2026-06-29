@@ -1,6 +1,0 @@
-torch
-numpy
-einops
-pandas
-matplotlib
-seaborn
