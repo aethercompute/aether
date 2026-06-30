@@ -1,32 +1,32 @@
 use allowlist::Allowlist;
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use bytes::Bytes;
 use download::{DownloadManager, DownloadManagerEvent, DownloadUpdate};
 use futures_util::{StreamExt, TryFutureExt};
-use iroh::{EndpointAddr, RelayConfig};
 use iroh::{endpoint::QuicTransportConfig, protocol::Router};
+use iroh::{EndpointAddr, RelayConfig};
 use iroh_blobs::api::Tag;
 use iroh_blobs::store::GcConfig;
 use iroh_blobs::{
-    BlobsProtocol,
     api::downloader::Downloader,
     store::mem::{MemStore, Options as MemStoreOptions},
     util::connection_pool::Options as PoolOptions,
+    BlobsProtocol,
 };
 use iroh_gossip::{
     api::{GossipReceiver, GossipSender},
     net::Gossip,
     proto::{HyparviewConfig, PlumtreeConfig},
 };
-use iroh_services::{API_SECRET_ENV_VAR_NAME, ApiSecret, caps::NetDiagnosticsCap};
+use iroh_services::{caps::NetDiagnosticsCap, ApiSecret, API_SECRET_ENV_VAR_NAME};
 use n0_future::task::AbortOnDropHandle;
 pub use p2p_model_sharing::{
-    MODEL_REQUEST_TIMEOUT_SECS, ModelConfigSharingMessage, ParameterSharingMessage,
-    PeerManagerHandle,
+    ModelConfigSharingMessage, ParameterSharingMessage, PeerManagerHandle,
+    MODEL_REQUEST_TIMEOUT_SECS,
 };
 use psyche_event_sourcing::event;
 use psyche_metrics::{ClientMetrics, PeerConnection};
-use router::{SupportedProtocols, spawn_router};
+use router::{spawn_router, SupportedProtocols};
 use state::State;
 use std::str::FromStr;
 use std::{
@@ -44,15 +44,15 @@ use tokio::{
     sync::{mpsc::UnboundedReceiver, oneshot},
     task::JoinError,
     time::timeout,
-    time::{Interval, interval},
+    time::{interval, Interval},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{Instrument, debug, debug_span, error, info, trace, warn};
+use tracing::{debug, debug_span, error, info, trace, warn, Instrument};
 use util::{fmt_relay_mode, gossip_topic};
 
 pub use ed25519_dalek::Signature;
 pub use iroh::RelayMode;
-pub use iroh_blobs::{BlobFormat, Hash, ticket::BlobTicket};
+pub use iroh_blobs::{ticket::BlobTicket, BlobFormat, Hash};
 
 pub mod allowlist;
 mod authenticable_identity;
@@ -86,12 +86,12 @@ pub use iroh::{Endpoint, EndpointId, PublicKey, SecretKey};
 use iroh_relay::{RelayMap, RelayQuicConfig};
 pub use latency_sorted::LatencySorted;
 pub use p2p_model_sharing::{
-    ALPN, ModelRequestType, SharableModel, SharableModelError, TransmittableModelConfig,
+    ModelRequestType, SharableModel, SharableModelError, TransmittableModelConfig, ALPN,
 };
 pub use serde::Networkable;
 pub use serialized_distro::{
-    SerializeDistroResultError, SerializedDistroResult, TransmittableDistroResult,
-    distro_results_from_reader, distro_results_to_bytes,
+    distro_results_from_reader, distro_results_to_bytes, SerializeDistroResultError,
+    SerializedDistroResult, TransmittableDistroResult,
 };
 pub use signed_message::SignedMessage;
 pub use tcp::{ClientNotification, TcpClient, TcpServer};

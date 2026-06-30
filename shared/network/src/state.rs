@@ -6,7 +6,7 @@ use std::{
 
 use iroh::EndpointId;
 
-use crate::{P2PEndpointInfo, connection_monitor::PeerBandwidth, download::DownloadUpdate};
+use crate::{connection_monitor::PeerBandwidth, download::DownloadUpdate, P2PEndpointInfo};
 
 #[derive(Debug)]
 pub struct State {

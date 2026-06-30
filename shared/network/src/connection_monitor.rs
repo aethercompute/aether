@@ -8,7 +8,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinSet;
-use tracing::{Instrument, debug, info};
+use tracing::{debug, info, Instrument};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PeerBandwidth {

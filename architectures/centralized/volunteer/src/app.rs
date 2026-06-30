@@ -8,8 +8,7 @@
 use crate::{
     brand,
     config::{self, LaunchConfig},
-    detect,
-    logo,
+    detect, logo,
     prepare::{self, BuildJob, BuildState},
     requirements,
     terminal::TerminalGuard,
@@ -196,7 +195,7 @@ impl App {
 
     fn handle_form_key(&mut self, k: KeyEvent) -> Flow {
         let last = 6; // index of the Start button
-        // Text fields: indices 0..=3 and 5. Device is 4. Start is 6.
+                      // Text fields: indices 0..=3 and 5. Device is 4. Start is 6.
         match k.code {
             KeyCode::Down | KeyCode::Tab => self.form.focus = (self.form.focus + 1) % (last + 1),
             KeyCode::Up => {
@@ -275,7 +274,9 @@ impl App {
             let mib = dev.vram_mib.unwrap_or(0);
             self.form_error = Some(format!(
                 "{} ({} MiB) is below the {} MiB minimum — choose another device.",
-                dev.value, mib, requirements::MIN_VRAM_MIB
+                dev.value,
+                mib,
+                requirements::MIN_VRAM_MIB
             ));
             return Flow::Continue;
         }
@@ -319,10 +320,7 @@ impl App {
         self.build_elapsed = std::time::Duration::ZERO;
 
         let bin_exists = config::client_bin().exists();
-        if bin_exists
-            && prepare::client_runs()
-            && !prepare::torch_changed_since_build()
-        {
+        if bin_exists && prepare::client_runs() && !prepare::torch_changed_since_build() {
             // Binary is present and matches the active libtorch — reuse it.
             self.screen = Screen::Ready;
             return Flow::Continue;
@@ -450,9 +448,7 @@ impl App {
                 cx.saturating_sub(str_w(cta) / 2),
                 area.y + area.height.saturating_sub(1),
                 cta,
-                Style::default()
-                    .fg(brand::INK)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(brand::INK).add_modifier(Modifier::BOLD),
             );
             return;
         }
@@ -548,11 +544,7 @@ impl App {
             height: 3,
         };
         let focused = self.form.focus == 6;
-        let border_col = if focused {
-            brand::DIM
-        } else {
-            brand::PANEL_HI
-        };
+        let border_col = if focused { brand::DIM } else { brand::PANEL_HI };
         let label = "Start Training";
         let block = Block::default()
             .borders(Borders::ALL)
@@ -572,11 +564,7 @@ impl App {
     }
 
     fn draw_field(&self, f: &mut Frame, r: Rect, label: &str, value: &str, focused: bool) {
-        let border_col = if focused {
-            brand::DIM
-        } else {
-            brand::PANEL_HI
-        };
+        let border_col = if focused { brand::DIM } else { brand::PANEL_HI };
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_col))
@@ -585,7 +573,10 @@ impl App {
                 Style::default().fg(if focused { brand::INK } else { brand::DIM }),
             ));
         let val_style = Style::default().fg(brand::INK);
-        let p = Paragraph::new(value).alignment(Alignment::Left).style(val_style).block(block);
+        let p = Paragraph::new(value)
+            .alignment(Alignment::Left)
+            .style(val_style)
+            .block(block);
         f.render_widget(p, r);
     }
 
@@ -616,12 +607,8 @@ impl App {
             );
         }
         if let Some(e) = &self.identity_error {
-            f.buffer_mut().set_string(
-                b.x + 2,
-                b.y + 8,
-                e,
-                Style::default().fg(brand::DANGER),
-            );
+            f.buffer_mut()
+                .set_string(b.x + 2, b.y + 8, e, Style::default().fg(brand::DANGER));
         }
 
         let note = [
@@ -661,7 +648,10 @@ impl App {
         let s = spinner[(self.frame as usize) % spinner.len()];
         let msg = match &snap {
             Some(s) if matches!(s.state, BuildState::Success) => "Engine ready".to_string(),
-            _ => format!("Compiling {} crates…", snap.as_ref().map(|s| s.compiles).unwrap_or(0)),
+            _ => format!(
+                "Compiling {} crates…",
+                snap.as_ref().map(|s| s.compiles).unwrap_or(0)
+            ),
         };
         // Render spinner + message as a single centered unit.
         let unit_w = 3u16 + str_w(&msg); // spinner + two spaces + message
@@ -693,12 +683,8 @@ impl App {
 
         if let Some(snap) = &snap {
             let t = format!("Elapsed {:#?}", snap.elapsed);
-            f.buffer_mut().set_string(
-                area.x + 4,
-                area.y + 8,
-                &t,
-                Style::default().fg(brand::DIM),
-            );
+            f.buffer_mut()
+                .set_string(area.x + 4, area.y + 8, &t, Style::default().fg(brand::DIM));
 
             let log_h = area.height.saturating_sub(13).max(4);
             let log = Rect {
@@ -710,10 +696,7 @@ impl App {
             let block = Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(brand::PANEL_HI))
-                .title(Span::styled(
-                    " Build Log ",
-                    Style::default().fg(brand::DIM),
-                ))
+                .title(Span::styled(" Build Log ", Style::default().fg(brand::DIM)))
                 .style(Style::default().bg(brand::PANEL));
             let lines: Vec<Line> = snap
                 .lines
@@ -739,33 +722,25 @@ impl App {
         let dev = &self.devices[self.form.device_idx];
         let mut rows = vec![
             ("Run ID", self.form.run_id.clone()),
-            ("Server", format!("{}:{}", self.form.server_host, self.form.server_port)),
+            (
+                "Server",
+                format!("{}:{}", self.form.server_host, self.form.server_port),
+            ),
             ("Device", dev.value.clone()),
             ("Micro Batch Size", self.form.micro_batch.clone()),
         ];
         if let Some(p) = &self.identity_path {
             rows.push(("Identity Key", p.display().to_string()));
         }
-        rows.push((
-            "Engine",
-            config::client_bin().display().to_string(),
-        ));
+        rows.push(("Engine", config::client_bin().display().to_string()));
 
         let start_y = b.y + 4;
         for (i, (k, v)) in rows.iter().enumerate() {
             let y = start_y + i as u16;
-            f.buffer_mut().set_string(
-                b.x + 6,
-                y,
-                k,
-                Style::default().fg(brand::DIM),
-            );
-            f.buffer_mut().set_string(
-                b.x + 22,
-                y,
-                v,
-                Style::default().fg(brand::INK),
-            );
+            f.buffer_mut()
+                .set_string(b.x + 6, y, k, Style::default().fg(brand::DIM));
+            f.buffer_mut()
+                .set_string(b.x + 22, y, v, Style::default().fg(brand::INK));
         }
 
         let cx = b.x + b.width / 2;
@@ -795,7 +770,9 @@ impl App {
             b.x + 2,
             b.y + 4,
             &self.build_failed_msg,
-            Style::default().fg(brand::DANGER).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(brand::DANGER)
+                .add_modifier(Modifier::BOLD),
         );
 
         let snap_lines = self
@@ -813,7 +790,10 @@ impl App {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(brand::PANEL_HI))
-            .title(Span::styled(" Recent output ", Style::default().fg(brand::DIM)))
+            .title(Span::styled(
+                " Recent output ",
+                Style::default().fg(brand::DIM),
+            ))
             .style(Style::default().bg(brand::PANEL));
         let lp: Vec<Line> = snap_lines
             .iter()
@@ -859,12 +839,8 @@ fn draw_header(f: &mut Frame, area: Rect, host: &str, screen: Screen) {
             .add_modifier(Modifier::BOLD),
     );
     let after_wm = h.x + 3 + str_w(wordmark) + 2;
-    f.buffer_mut().set_string(
-        after_wm,
-        1,
-        host,
-        Style::default().fg(brand::DIM),
-    );
+    f.buffer_mut()
+        .set_string(after_wm, 1, host, Style::default().fg(brand::DIM));
     let step = match screen {
         Screen::Welcome => "1/5",
         Screen::Form => "2/5",
@@ -897,12 +873,8 @@ fn draw_footer(f: &mut Frame, area: Rect, screen: Screen) {
         Screen::Ready => "Enter: launch · Q: quit",
         Screen::Error => "R: retry · Q: quit",
     };
-    f.buffer_mut().set_string(
-        area.x + 2,
-        y,
-        hint,
-        Style::default().fg(brand::DIM),
-    );
+    f.buffer_mut()
+        .set_string(area.x + 2, y, hint, Style::default().fg(brand::DIM));
     let url = "aethercompute.org";
     f.buffer_mut().set_string(
         area.x + area.width.saturating_sub(url.len() as u16 + 2),
@@ -919,9 +891,7 @@ fn draw_section_title(f: &mut Frame, area: Rect, title: &str) {
         x,
         y,
         title,
-        Style::default()
-            .fg(brand::INK)
-            .add_modifier(Modifier::BOLD),
+        Style::default().fg(brand::INK).add_modifier(Modifier::BOLD),
     );
     let underline_w = str_w(title).max(10);
     let max_w = area.width.saturating_sub(4);
@@ -959,18 +929,19 @@ fn draw_progress_bar(f: &mut Frame, area: Rect, frame: u64) {
         } else {
             ('░', brand::PANEL_HI)
         };
-        f.buffer_mut()
-            .set_string(area.x + x as u16, area.y, ch.to_string(), Style::default().fg(col));
+        f.buffer_mut().set_string(
+            area.x + x as u16,
+            area.y,
+            ch.to_string(),
+            Style::default().fg(col),
+        );
     }
 }
 
 fn draw_too_small(f: &mut Frame, area: Rect) {
     let msg = format!(
         "please resize your terminal (need ≥{}x{}, have {}x{})",
-        MIN_W,
-        MIN_H,
-        area.width,
-        area.height
+        MIN_W, MIN_H, area.width, area.height
     );
     let x = area.x + area.width.saturating_sub(str_w(&msg)) / 2;
     let y = area.y + area.height / 2;
@@ -1040,9 +1011,24 @@ mod tests {
         app.screen = Screen::Form;
         // Inject a deterministic device list (App::new reads the real host).
         app.devices = vec![
-            detect::DeviceOption { value: "auto".into(), label: "Auto".into(), tag: "AUTO", vram_mib: None },
-            detect::DeviceOption { value: "cuda:0".into(), label: "Weak GPU".into(), tag: "CUDA", vram_mib: Some(2048) },
-            detect::DeviceOption { value: "cuda:1".into(), label: "Big GPU".into(), tag: "CUDA", vram_mib: Some(24 * 1024) },
+            detect::DeviceOption {
+                value: "auto".into(),
+                label: "Auto".into(),
+                tag: "AUTO",
+                vram_mib: None,
+            },
+            detect::DeviceOption {
+                value: "cuda:0".into(),
+                label: "Weak GPU".into(),
+                tag: "CUDA",
+                vram_mib: Some(2048),
+            },
+            detect::DeviceOption {
+                value: "cuda:1".into(),
+                label: "Big GPU".into(),
+                tag: "CUDA",
+                vram_mib: Some(24 * 1024),
+            },
         ];
         // Select the below-minimum GPU and press Start (focus 6 = Start button).
         app.form.device_idx = 1;

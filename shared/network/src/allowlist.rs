@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
-use iroh::EndpointId;
 use iroh::endpoint::{AfterHandshakeOutcome, ConnectionInfo, EndpointHooks};
+use iroh::EndpointId;
 
 use crate::p2p_model_sharing;
 

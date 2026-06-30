@@ -1,25 +1,26 @@
 use crate::{
-    Broadcast, BroadcastType, ClientTUIState, Finished, NC, RunInitConfig, RunInitConfigAndIO,
-    TrainingResult,
     state::{ApplyMessageOutcome, DistroBroadcastAndPayload, FinishedBroadcast, RunManager},
+    Broadcast, BroadcastType, ClientTUIState, Finished, RunInitConfig, RunInitConfigAndIO,
+    TrainingResult, NC,
 };
 use anyhow::anyhow;
-use anyhow::{Error, Result, bail};
+use anyhow::{bail, Error, Result};
 use psyche_coordinator::{Commitment, CommitteeSelection, Coordinator, RunState};
 use psyche_core::IntegrationTestLogMarker;
 use psyche_event_sourcing::event;
 
 use psyche_metrics::{ClientMetrics, ClientRoleInRound, PeerConnection};
 use psyche_network::{
-    DownloadComplete, DownloadSchedulerHandle, DownloadType, EndpointId, ModelRequestType,
-    NetworkEvent, NetworkTUIState, PeerManagerHandle, RetryConfig, RetryQueueResult, SharableModel,
-    TransmittableDownload, allowlist, blob_ticket_param_request_task, raw_p2p_verify,
+    allowlist, blob_ticket_param_request_task, raw_p2p_verify, DownloadComplete,
+    DownloadSchedulerHandle, DownloadType, EndpointId, ModelRequestType, NetworkEvent,
+    NetworkTUIState, PeerManagerHandle, RetryConfig, RetryQueueResult, SharableModel,
+    TransmittableDownload,
 };
 use psyche_watcher::{Backend, BackendWatcher};
 use tokenizers::Tokenizer;
 
 use iroh_blobs::api::Tag;
-use rand::{Rng, RngCore, seq::SliceRandom};
+use rand::{seq::SliceRandom, Rng, RngCore};
 use std::{
     collections::BTreeSet,
     sync::Arc,
@@ -27,7 +28,7 @@ use std::{
 };
 use tokio::{
     select,
-    sync::{Notify, mpsc, watch},
+    sync::{mpsc, watch, Notify},
     task::JoinHandle,
     time::interval,
 };

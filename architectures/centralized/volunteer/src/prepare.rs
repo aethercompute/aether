@@ -203,7 +203,10 @@ impl BuildJob {
         let shared_for_thread = shared.clone();
         let join = thread::spawn(move || {
             if force {
-                push_line(&shared_for_thread, "forcing torch-sys rebuild (libtorch changed)".into());
+                push_line(
+                    &shared_for_thread,
+                    "forcing torch-sys rebuild (libtorch changed)".into(),
+                );
                 let mut clean = Command::new(&env.cargo);
                 clean.arg("clean").arg("-p").arg("torch-sys");
                 env.apply(&mut clean);
@@ -345,7 +348,8 @@ pub fn exec_client(launch: &config::LaunchConfig) -> Result<()> {
 
     let env = Env::detect();
     let mut cmd = Command::new(&bin);
-    cmd.args(launch.client_args()).current_dir(config::repo_root());
+    cmd.args(launch.client_args())
+        .current_dir(config::repo_root());
     env.apply(&mut cmd);
 
     #[cfg(unix)]

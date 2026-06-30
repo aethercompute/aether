@@ -53,15 +53,14 @@ pub fn detect_devices() -> Vec<DeviceOption> {
         }
     }
 
-    if cfg!(target_os = "macos")
-        && is_apple_silicon() {
-            out.push(DeviceOption {
-                value: "mps".to_string(),
-                label: "Apple Metal (MPS)".to_string(),
-                tag: "MPS",
-                vram_mib: None,
-            });
-        }
+    if cfg!(target_os = "macos") && is_apple_silicon() {
+        out.push(DeviceOption {
+            value: "mps".to_string(),
+            label: "Apple Metal (MPS)".to_string(),
+            tag: "MPS",
+            vram_mib: None,
+        });
+    }
 
     out.push(DeviceOption {
         value: "cpu".to_string(),
@@ -76,10 +75,7 @@ pub fn detect_devices() -> Vec<DeviceOption> {
 /// VRAM of the largest NVIDIA GPU on the host, if any. Used to pre-fill the
 /// micro-batch field for the `auto` device path.
 pub fn best_gpu_vram_mib() -> Option<u32> {
-    detect_nvidia()
-        .into_iter()
-        .filter_map(|(_, _, v)| v)
-        .max()
+    detect_nvidia().into_iter().filter_map(|(_, _, v)| v).max()
 }
 
 /// Returns `(index, name, vram_mib)` for each NVIDIA GPU, empty if none /

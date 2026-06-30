@@ -12,7 +12,9 @@ use ratatui::{
 };
 
 const LOGO: &str = include_str!("logo.txt");
-const JUNK: &[char] = &['@', '#', '$', '%', '&', '?', '!', '<', '>', '{', '}', '[', ']'];
+const JUNK: &[char] = &[
+    '@', '#', '$', '%', '&', '?', '!', '<', '>', '{', '}', '[', ']',
+];
 
 struct LogoCanvas {
     area: Rect,
@@ -59,7 +61,15 @@ pub fn draw(buf: &mut Buffer, area: Rect, frame: u64) {
             continue;
         }
         let x_shift = line_shift(frame, row as u32);
-        draw_line(buf, canvas.area, canvas.origin_x, y, x_shift, line, base_style(frame));
+        draw_line(
+            buf,
+            canvas.area,
+            canvas.origin_x,
+            y,
+            x_shift,
+            line,
+            base_style(frame),
+        );
     }
 
     draw_channels(buf, &canvas, &lines, frame);
@@ -107,7 +117,14 @@ fn draw_channels(buf: &mut Buffer, canvas: &LogoCanvas, lines: &[&str], frame: u
         let ch_seed = hash(seed ^ (channel as u32).wrapping_mul(0x9e37));
         let color = glitch_color(ch_seed);
         let dir = if ch_seed.is_multiple_of(2) { 1 } else { -1 };
-        draw_channel(buf, canvas, lines, frame + burst + channel as u64 * 11, color, dir);
+        draw_channel(
+            buf,
+            canvas,
+            lines,
+            frame + burst + channel as u64 * 11,
+            color,
+            dir,
+        );
     }
 }
 
@@ -130,7 +147,14 @@ fn draw_channel(
     }
 }
 
-fn draw_corruption(buf: &mut Buffer, area: Rect, origin_x: u16, origin_y: u16, lines: &[&str], frame: u64) {
+fn draw_corruption(
+    buf: &mut Buffer,
+    area: Rect,
+    origin_x: u16,
+    origin_y: u16,
+    lines: &[&str],
+    frame: u64,
+) {
     if !frame.is_multiple_of(7 + (hash((frame / 23) as u32) % 9) as u64) {
         return;
     }
@@ -153,7 +177,14 @@ fn draw_corruption(buf: &mut Buffer, area: Rect, origin_x: u16, origin_y: u16, l
     }
 }
 
-fn draw_glints(buf: &mut Buffer, area: Rect, origin_x: u16, origin_y: u16, lines: &[&str], frame: u64) {
+fn draw_glints(
+    buf: &mut Buffer,
+    area: Rect,
+    origin_x: u16,
+    origin_y: u16,
+    lines: &[&str],
+    frame: u64,
+) {
     let window = 2 + hash((frame / 31) as u32).wrapping_rem(3) as u64;
     if frame % 19 > window {
         return;

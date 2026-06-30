@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ClientToServerMessage {
-    Join { run_id: String },
+    Join {
+        run_id: String,
+    },
     /// Sent by a client after it has finished downloading and loading the
     /// checkpoint for the current coordinator state. The server will only admit
     /// "ready" clients into an epoch, so slow joiners never disrupt active

@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use iroh_blobs::{Hash, api::Tag, ticket::BlobTicket};
+use iroh_blobs::{api::Tag, ticket::BlobTicket, Hash};
 use tokio::sync::{mpsc, oneshot};
 use tracing::info;
 

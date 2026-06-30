@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use psyche_centralized_shared::{ClientToServerMessage, ServerToClientMessage};
 use psyche_coordinator::model::{self, Checkpoint, LLMTrainingDataLocation, Model, LLM};
 use psyche_coordinator::{
-    Client, ClientState, Coordinator, CoordinatorError, HealthChecks, Round, RunState, TickResult,
+    Client, Coordinator, CoordinatorError, HealthChecks, Round, RunState, TickResult,
     SOLANA_MAX_NUM_CLIENTS,
 };
 
@@ -579,10 +579,12 @@ impl App {
                 // The client has finished downloading/loading the checkpoint.
                 // Promote from pending (syncing) to ready so it can be admitted
                 // at the next epoch boundary.
+                let mut changed = false;
                 if self.backend.pending_clients.remove(&from_identity) {
                     info!("client {from} is ready for epoch admission");
                     self.backend.ready_clients.insert(from_identity);
                     self.last_admission_change_unix_timestamp = Self::get_timestamp();
+                    changed = true;
                 } else if !self.backend.ready_clients.contains(&from_identity) {
                     // Received readiness from a client we don't know about
                     // (e.g. it joined before the server started, or re-connected).
@@ -590,8 +592,9 @@ impl App {
                     info!("client {from} signalled readiness (was not in pending)");
                     self.backend.ready_clients.insert(from_identity);
                     self.last_admission_change_unix_timestamp = Self::get_timestamp();
+                    changed = true;
                 }
-                false
+                changed
             }
             ClientToServerMessage::Witness(witness) => {
                 let state_before = self.coordinator.run_state;
@@ -801,12 +804,15 @@ impl App {
 
     fn kick_unhealthy_clients(&mut self) {
         for client in self.coordinator.epoch_state.exited_clients {
-            if client.state != ClientState::Healthy {
-                let removed_pending = self.backend.pending_clients.remove(&client.id);
-                let removed_ready = self.backend.ready_clients.remove(&client.id);
-                if removed_pending || removed_ready {
-                    self.last_admission_change_unix_timestamp = Self::get_timestamp();
-                }
+            let removed_pending = self.backend.pending_clients.remove(&client.id);
+            let removed_ready = self.backend.ready_clients.remove(&client.id);
+            if removed_pending || removed_ready {
+                info!(
+                    client = %client.id,
+                    state = %client.state,
+                    "removed exited client from admission queue"
+                );
+                self.last_admission_change_unix_timestamp = Self::get_timestamp();
             }
         }
     }

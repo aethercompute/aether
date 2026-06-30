@@ -1,14 +1,14 @@
 use crate::{
-    Commitment, Committee, CommitteeProof, CommitteeSelection, WitnessProof,
     model::{Checkpoint, Model},
+    Commitment, Committee, CommitteeProof, CommitteeSelection, WitnessProof,
 };
 
 use anchor_lang::{
-    AnchorDeserialize, AnchorSerialize, InitSpace,
     prelude::{borsh, msg},
+    AnchorDeserialize, AnchorSerialize, InitSpace,
 };
 use bytemuck::{Pod, Zeroable};
-use psyche_core::{Bloom, FixedString, FixedVec, MerkleRoot, NodeIdentity, SmallBoolean, sha256};
+use psyche_core::{sha256, Bloom, FixedString, FixedVec, MerkleRoot, NodeIdentity, SmallBoolean};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, hash::Hash};
 use ts_rs::TS;
@@ -1205,12 +1205,15 @@ impl Coordinator {
             client_index += 1;
 
             if !keep {
-                self.epoch_state.exited_clients.push(*client).unwrap();
+                let mut exited = *client;
+                exited.state = ClientState::Dropped;
                 self.epoch_state
                     .exited_clients
-                    .last_mut()
-                    .unwrap()
-                    .exited_height = height;
+                    .push(Client {
+                        exited_height: height,
+                        ..exited
+                    })
+                    .unwrap();
             }
 
             keep
@@ -1317,5 +1320,51 @@ impl CoordinatorConfig {
 impl CoordinatorProgress {
     pub fn check(&self) -> bool {
         self.step > 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytemuck::Zeroable;
+    use psyche_core::{FixedVec, NodeIdentity};
+
+    fn identity(n: u8) -> NodeIdentity {
+        let mut key = [0u8; 32];
+        key[0] = n;
+        NodeIdentity::from_single_key(key)
+    }
+
+    #[test]
+    fn warmup_miss_marks_client_dropped_before_exit() {
+        let mut coordinator = Coordinator::zeroed();
+        coordinator.epoch_state.clients =
+            FixedVec::from_iter([Client::new(identity(1)), Client::new(identity(2))]);
+        coordinator
+            .current_round_mut_unchecked()
+            .witnesses
+            .push(Witness {
+                proof: WitnessProof {
+                    position: 0,
+                    index: 0,
+                    witness: Default::default(),
+                },
+                participant_bloom: Default::default(),
+                broadcast_bloom: Default::default(),
+                broadcast_merkle: Default::default(),
+            })
+            .unwrap();
+
+        coordinator.move_clients_without_warmup_witness_to_exited(7);
+
+        assert_eq!(coordinator.epoch_state.clients.len(), 1);
+        assert_eq!(coordinator.epoch_state.clients[0].id, identity(1));
+        assert_eq!(coordinator.epoch_state.exited_clients.len(), 1);
+        assert_eq!(coordinator.epoch_state.exited_clients[0].id, identity(2));
+        assert_eq!(
+            coordinator.epoch_state.exited_clients[0].state,
+            ClientState::Dropped
+        );
+        assert_eq!(coordinator.epoch_state.exited_clients[0].exited_height, 7);
     }
 }

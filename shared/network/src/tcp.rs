@@ -11,8 +11,8 @@ use tokio::{
     net::{TcpListener, TcpStream},
     select,
     sync::{
-        Mutex,
         mpsc::{self, error::SendError},
+        Mutex,
     },
 };
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
