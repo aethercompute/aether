@@ -302,9 +302,13 @@ fn set_state(shared: &Arc<Mutex<Shared>>, state: BuildState) {
 /// `--help` fails (e.g. with an "undefined symbol" error) when the binary was
 /// linked against a different libtorch than the one currently installed.
 pub fn client_runs() -> bool {
+    client_check_error().is_none()
+}
+
+pub fn client_check_error() -> Option<String> {
     let bin = config::client_bin();
     if !bin.exists() {
-        return false;
+        return Some(format!("client binary not found at {}", bin.display()));
     }
     let env = Env::detect();
     let mut cmd = Command::new(&bin);
@@ -312,8 +316,27 @@ pub fn client_runs() -> bool {
     env.apply(&mut cmd);
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    matches!(cmd.output(), Ok(o) if o.status.success())
+        .stderr(Stdio::piped());
+
+    match cmd.output() {
+        Ok(o) if o.status.success() => None,
+        Ok(o) => {
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            let dirs = env
+                .torch_lib_dirs
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(":");
+            Some(format!(
+                "binary failed smoke test with status {}\n\nstderr:\n{}\n\ndetected torch lib dirs:\n{}",
+                o.status,
+                stderr.trim(),
+                if dirs.is_empty() { "<none>" } else { &dirs }
+            ))
+        }
+        Err(e) => Some(format!("failed to run {} --help: {e}", bin.display())),
+    }
 }
 
 /// True if libtorch was (re)installed more recently than the client binary was

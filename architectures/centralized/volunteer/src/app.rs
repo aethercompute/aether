@@ -135,13 +135,13 @@ impl App {
                         // Guard against a "successful" build that still
                         // can't load libtorch (shouldn't happen after a
                         // forced rebuild, but don't hand off a broken bin).
-                        if prepare::client_runs() {
-                            self.screen = Screen::Ready;
-                        } else {
-                            self.build_failed_msg = "build finished but the \
-                                binary still fails to load libtorch"
-                                .to_string();
+                        if let Some(err) = prepare::client_check_error() {
+                            self.build_failed_msg = format!(
+                                "build finished but the binary still fails to load/run\n\n{err}"
+                            );
                             self.screen = Screen::Error;
+                        } else {
+                            self.screen = Screen::Ready;
                         }
                     }
                     BuildState::Failed(msg) => {
