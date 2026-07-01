@@ -11,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[derive(Clone, Debug, Serialize)]
 pub struct LossPoint {
     pub step: u32,
+    pub tokens_processed: u64,
     pub loss: f32,
     pub tokens_per_sec: f32,
     pub unix_timestamp: u64,
@@ -588,6 +589,18 @@ fn format_tps(tps: Option<f64>) -> String {
         .unwrap_or_else(|| "-".into())
 }
 
+fn format_tokens(tokens: f64) -> String {
+    if tokens >= 1_000_000_000.0 {
+        format!("{:.1}B", tokens / 1_000_000_000.0)
+    } else if tokens >= 1_000_000.0 {
+        format!("{:.1}M", tokens / 1_000_000.0)
+    } else if tokens >= 1_000.0 {
+        format!("{:.1}K", tokens / 1_000.0)
+    } else {
+        format!("{tokens:.0}")
+    }
+}
+
 fn render_loss_svg(losses: &[LossPoint]) -> String {
     let width: f64 = 800.0;
     let height: f64 = 250.0;
@@ -608,12 +621,12 @@ fn render_loss_svg(losses: &[LossPoint]) -> String {
         return r#"<i>Not enough loss data yet</i>"#.into();
     }
 
-    let steps: Vec<u32> = filtered.iter().map(|l| l.step).collect();
+    let tokens: Vec<u64> = filtered.iter().map(|l| l.tokens_processed).collect();
     let vals: Vec<f32> = filtered.iter().map(|l| l.loss).collect();
 
-    let min_step = *steps.first().unwrap_or(&0) as f64;
-    let max_step = *steps.last().unwrap_or(&1) as f64;
-    let step_range = (max_step - min_step).max(1.0);
+    let min_tokens = *tokens.first().unwrap_or(&0) as f64;
+    let max_tokens = *tokens.last().unwrap_or(&1) as f64;
+    let token_range = (max_tokens - min_tokens).max(1.0);
 
     let min_loss = vals.iter().copied().fold(f32::INFINITY, |a, b| a.min(b));
     let max_loss = vals
@@ -624,7 +637,7 @@ fn render_loss_svg(losses: &[LossPoint]) -> String {
 
     let mut points: Vec<String> = Vec::with_capacity(n);
     for i in 0..n {
-        let x = plot_x0 + (steps[i] as f64 - min_step) / step_range * plot_w;
+        let x = plot_x0 + (tokens[i] as f64 - min_tokens) / token_range * plot_w;
         let y = plot_y1 - (vals[i] as f64 - min_loss as f64) / loss_range * plot_h;
         points.push(format!("{:.1},{:.1}", x, y));
     }
@@ -646,12 +659,12 @@ fn render_loss_svg(losses: &[LossPoint]) -> String {
     let x_ticks = 6;
     let mut x_labels = String::new();
     for i in 0..=x_ticks {
-        let val = min_step + (max_step - min_step) * (i as f64 / x_ticks as f64);
+        let val = min_tokens + (max_tokens - min_tokens) * (i as f64 / x_ticks as f64);
         let x = plot_x0 + (i as f64 / x_ticks as f64) * plot_w;
         x_labels.push_str(&format!(
-            r##"<text x="{x}" y="{}" text-anchor="middle" fill="#e2ccb8">{:.0}</text>"##,
+            r##"<text x="{x}" y="{}" text-anchor="middle" fill="#e2ccb8">{}</text>"##,
             height - 8.0,
-            val,
+            format_tokens(val),
         ));
     }
 
@@ -660,7 +673,7 @@ fn render_loss_svg(losses: &[LossPoint]) -> String {
 
     format!(
         r##"<div>
-<b>Latest Loss:</b> {last_loss:.4} &nbsp; <b>Min:</b> {min_loss:.4} &nbsp; <b>Max:</b> {max_loss:.4} &nbsp; <b>Avg:</b> {avg_loss:.4} &nbsp; Steps: {min_step:.0} - {max_step:.0} &nbsp; Points: {n}
+<b>Latest Loss:</b> {last_loss:.4} &nbsp; <b>Min:</b> {min_loss:.4} &nbsp; <b>Max:</b> {max_loss:.4} &nbsp; <b>Avg:</b> {avg_loss:.4} &nbsp; Tokens: {min_tokens} - {max_tokens} &nbsp; Points: {n}
 <br><br>
 <svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" class="chart-svg">
 <rect x="{plot_x0}" y="{plot_y0}" width="{plot_w}" height="{plot_h}" fill="none" stroke="#463840"/>
@@ -673,8 +686,8 @@ fn render_loss_svg(losses: &[LossPoint]) -> String {
         min_loss = min_loss,
         max_loss = max_loss,
         avg_loss = avg_loss,
-        min_step = min_step,
-        max_step = max_step,
+        min_tokens = format_tokens(min_tokens),
+        max_tokens = format_tokens(max_tokens),
         n = n,
         width = width,
         height = height,
@@ -711,12 +724,12 @@ fn render_throughput_svg(losses: &[LossPoint]) -> String {
         return r#"<i>Not enough throughput data yet</i>"#.into();
     }
 
-    let steps: Vec<u32> = filtered.iter().map(|l| l.step).collect();
+    let tokens: Vec<u64> = filtered.iter().map(|l| l.tokens_processed).collect();
     let vals: Vec<f32> = filtered.iter().map(|l| l.tokens_per_sec).collect();
 
-    let min_step = *steps.first().unwrap_or(&0) as f64;
-    let max_step = *steps.last().unwrap_or(&1) as f64;
-    let step_range = (max_step - min_step).max(1.0);
+    let min_tokens = *tokens.first().unwrap_or(&0) as f64;
+    let max_tokens = *tokens.last().unwrap_or(&1) as f64;
+    let token_range = (max_tokens - min_tokens).max(1.0);
 
     let min_tps = vals.iter().copied().fold(f32::INFINITY, |a, b| a.min(b));
     let max_tps = vals
@@ -727,7 +740,7 @@ fn render_throughput_svg(losses: &[LossPoint]) -> String {
 
     let mut points: Vec<String> = Vec::with_capacity(n);
     for i in 0..n {
-        let x = plot_x0 + (steps[i] as f64 - min_step) / step_range * plot_w;
+        let x = plot_x0 + (tokens[i] as f64 - min_tokens) / token_range * plot_w;
         let y = plot_y1 - (vals[i] as f64 - min_tps as f64) / tps_range * plot_h;
         points.push(format!("{:.1},{:.1}", x, y));
     }
@@ -749,12 +762,12 @@ fn render_throughput_svg(losses: &[LossPoint]) -> String {
     let x_ticks = 6;
     let mut x_labels = String::new();
     for i in 0..=x_ticks {
-        let val = min_step + (max_step - min_step) * (i as f64 / x_ticks as f64);
+        let val = min_tokens + (max_tokens - min_tokens) * (i as f64 / x_ticks as f64);
         let x = plot_x0 + (i as f64 / x_ticks as f64) * plot_w;
         x_labels.push_str(&format!(
-            r##"<text x="{x}" y="{}" text-anchor="middle" fill="#e2ccb8">{:.0}</text>"##,
+            r##"<text x="{x}" y="{}" text-anchor="middle" fill="#e2ccb8">{}</text>"##,
             height - 8.0,
-            val,
+            format_tokens(val),
         ));
     }
 
@@ -763,7 +776,7 @@ fn render_throughput_svg(losses: &[LossPoint]) -> String {
 
     format!(
         r##"<div>
-<b>Latest Tokens/s:</b> {last_tps:.1} &nbsp; <b>Avg:</b> {avg_tps:.1} &nbsp; <b>Peak:</b> {max_tps:.1} &nbsp; Steps: {min_step:.0} - {max_step:.0} &nbsp; Points: {n}
+<b>Latest Tokens/s:</b> {last_tps:.1} &nbsp; <b>Avg:</b> {avg_tps:.1} &nbsp; <b>Peak:</b> {max_tps:.1} &nbsp; Tokens: {min_tokens} - {max_tokens} &nbsp; Points: {n}
 <br><br>
 <svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" class="chart-svg">
 <rect x="{plot_x0}" y="{plot_y0}" width="{plot_w}" height="{plot_h}" fill="none" stroke="#463840"/>
@@ -775,8 +788,8 @@ fn render_throughput_svg(losses: &[LossPoint]) -> String {
         last_tps = last_tps,
         avg_tps = avg_tps,
         max_tps = max_tps,
-        min_step = min_step,
-        max_step = max_step,
+        min_tokens = format_tokens(min_tokens),
+        max_tokens = format_tokens(max_tokens),
         n = n,
         width = width,
         height = height,

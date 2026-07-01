@@ -513,11 +513,7 @@ impl App {
             },
         );
         log.insert("train/tokens_per_sec", point.tokens_per_sec);
-        log.insert(
-            "train/total_tokens",
-            self.coordinator
-                .total_tokens_processed(self.coordinator.current_round()) as f64,
-        );
+        log.insert("train/total_tokens", point.tokens_processed as f64);
         log.insert(
             "train/global_token_batch_size",
             (self
@@ -615,6 +611,9 @@ impl App {
                         if witness_metadata.loss.is_finite() {
                             let point = LossPoint {
                                 step: witness_metadata.step,
+                                tokens_processed: self
+                                    .coordinator
+                                    .total_tokens_processed(self.coordinator.current_round()),
                                 loss: witness_metadata.loss,
                                 tokens_per_sec: witness_metadata.tokens_per_sec,
                                 unix_timestamp: Self::get_timestamp(),
