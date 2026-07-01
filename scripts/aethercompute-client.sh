@@ -361,6 +361,10 @@ do_update() {
   if has git && [[ -d "$REPO_ROOT/.git" ]]; then
     run_step "pulling latest source" \
       git -C "$REPO_ROOT" pull --ff-only \
+      || ( warn "fast-forward failed; forced update detected, resetting to remote..." \
+          && git -C "$REPO_ROOT" reset --hard "@{upstream}" \
+          && ok "source reset to remote." \
+        ) \
       || warn "could not pull updates (continuing with existing source)."
   else
     # Tarball install (or embedded repo without git): re-fetch from scratch.
