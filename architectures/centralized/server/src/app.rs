@@ -513,6 +513,18 @@ impl App {
             },
         );
         log.insert("train/tokens_per_sec", point.tokens_per_sec);
+        log.insert(
+            "train/total_tokens",
+            self.coordinator
+                .total_tokens_processed(self.coordinator.current_round()) as f64,
+        );
+        log.insert(
+            "train/global_token_batch_size",
+            (self
+                .coordinator
+                .get_target_global_batch_size(self.coordinator.current_round()) as u32
+                * self.coordinator.get_sequence_length()) as f64,
+        );
         tokio::spawn(async move {
             run.log(log).await;
         });
