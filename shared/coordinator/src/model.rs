@@ -1,20 +1,15 @@
 use crate::{coordinator::SOLANA_MAX_URL_STRING_LEN, SOLANA_MAX_STRING_LEN};
 
-use anchor_lang::{
-    prelude::{borsh, msg},
-    AnchorDeserialize, AnchorSerialize, InitSpace,
-};
 use bytemuck::{Zeroable, ZeroableInOption};
 use psyche_core::{
     ConstantLR, FixedString, FixedVec, LearningRateSchedule, OptimizerDefinition, Shuffle,
     TokenSize,
 };
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 use ts_rs::TS;
 
-#[derive(
-    Clone, Debug, Copy, Zeroable, AnchorDeserialize, AnchorSerialize, Serialize, Deserialize, TS,
-)]
+#[derive(Clone, Debug, Copy, Zeroable, Serialize, Deserialize, TS)]
 #[repr(C)]
 pub enum Model {
     LLM(LLM),
@@ -22,19 +17,7 @@ pub enum Model {
 
 unsafe impl ZeroableInOption for Model {}
 
-#[derive(
-    Clone,
-    Debug,
-    Copy,
-    Zeroable,
-    AnchorDeserialize,
-    AnchorSerialize,
-    Serialize,
-    Deserialize,
-    InitSpace,
-    TS,
-    PartialEq,
-)]
+#[derive(Clone, Debug, Copy, Zeroable, Serialize, Deserialize, TS, PartialEq)]
 #[repr(C)]
 pub enum LLMArchitecture {
     HfLlama,
@@ -54,37 +37,14 @@ impl std::fmt::Display for LLMArchitecture {
     }
 }
 
-#[derive(
-    Clone,
-    Debug,
-    Copy,
-    Zeroable,
-    AnchorDeserialize,
-    AnchorSerialize,
-    Serialize,
-    Deserialize,
-    InitSpace,
-    PartialEq,
-    TS,
-)]
+#[derive(Clone, Debug, Copy, Zeroable, Serialize, Deserialize, PartialEq, TS)]
 #[repr(C)]
 pub enum LLMTrainingDataType {
     Pretraining,
     Finetuning,
 }
 
-#[derive(
-    AnchorSerialize,
-    AnchorDeserialize,
-    InitSpace,
-    Serialize,
-    Deserialize,
-    Clone,
-    Debug,
-    Zeroable,
-    Copy,
-    TS,
-)]
+#[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS)]
 #[repr(C)]
 #[allow(clippy::large_enum_variant)]
 #[derive(Default)]
@@ -99,18 +59,7 @@ pub enum LLMTrainingDataLocation {
     Preprocessed(FixedString<{ SOLANA_MAX_URL_STRING_LEN }>),
 }
 
-#[derive(
-    AnchorSerialize,
-    AnchorDeserialize,
-    InitSpace,
-    Serialize,
-    Deserialize,
-    Clone,
-    Debug,
-    Zeroable,
-    Copy,
-    TS,
-)]
+#[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS)]
 #[repr(C)]
 #[allow(clippy::large_enum_variant)]
 pub struct LocalLLMTrainingDataLocation {
@@ -129,18 +78,7 @@ impl Default for LocalLLMTrainingDataLocation {
     }
 }
 
-#[derive(
-    AnchorSerialize,
-    AnchorDeserialize,
-    InitSpace,
-    Serialize,
-    Deserialize,
-    Clone,
-    Debug,
-    Zeroable,
-    Copy,
-    TS,
-)]
+#[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS)]
 #[repr(C)]
 #[allow(clippy::large_enum_variant)]
 pub struct HttpLLMTrainingDataLocation {
@@ -183,18 +121,7 @@ impl LLMTrainingDataLocationAndWeight {
 }
 
 /// NOTE: Support for Vecs of URLs is not enabled because of the large size it would support.
-#[derive(
-    AnchorSerialize,
-    AnchorDeserialize,
-    InitSpace,
-    Serialize,
-    Deserialize,
-    Clone,
-    Debug,
-    Zeroable,
-    Copy,
-    TS,
-)]
+#[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS)]
 #[repr(C)]
 #[allow(clippy::large_enum_variant)]
 pub enum HttpTrainingDataLocation {
@@ -213,9 +140,7 @@ pub enum HttpTrainingDataLocation {
     },
 }
 
-#[derive(
-    AnchorSerialize, AnchorDeserialize, Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS,
-)]
+#[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS)]
 #[repr(C)]
 pub struct LLM {
     pub max_seq_len: u32,
@@ -243,18 +168,7 @@ impl LLM {
     }
 }
 
-#[derive(
-    Clone,
-    Debug,
-    Copy,
-    AnchorDeserialize,
-    AnchorSerialize,
-    InitSpace,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    TS,
-)]
+#[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, TS)]
 pub struct HubRepo {
     pub repo_id: FixedString<{ SOLANA_MAX_STRING_LEN }>,
     pub revision: Option<FixedString<{ SOLANA_MAX_STRING_LEN }>>,
@@ -269,18 +183,7 @@ impl HubRepo {
     }
 }
 
-#[derive(
-    Clone,
-    Debug,
-    Copy,
-    AnchorDeserialize,
-    AnchorSerialize,
-    InitSpace,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    TS,
-)]
+#[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, TS)]
 pub struct GcsRepo {
     pub bucket: FixedString<{ SOLANA_MAX_STRING_LEN }>,
     pub prefix: Option<FixedString<{ SOLANA_MAX_STRING_LEN }>>,
@@ -295,18 +198,7 @@ impl GcsRepo {
     }
 }
 
-#[derive(
-    AnchorSerialize,
-    AnchorDeserialize,
-    InitSpace,
-    Serialize,
-    Deserialize,
-    Clone,
-    Debug,
-    Zeroable,
-    Copy,
-    TS,
-)]
+#[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS)]
 #[repr(C)]
 pub enum Checkpoint {
     Ephemeral,
@@ -339,7 +231,7 @@ impl Model {
         match self {
             Model::LLM(llm) => {
                 if llm.max_seq_len == 0 {
-                    msg!("model check failed: max_seq_len is 0.");
+                    warn!("model check failed: max_seq_len is 0.");
                     return false;
                 }
 
@@ -362,7 +254,7 @@ impl Model {
                     LLMTrainingDataLocation::Preprocessed(url) => url.is_empty(),
                 };
                 if bad_data_location {
-                    msg!("model check failed: bad LLM training data location.");
+                    warn!("model check failed: bad LLM training data location.");
                     return false;
                 }
                 let bad_checkpoint = match llm.checkpoint {
@@ -376,7 +268,7 @@ impl Model {
                 };
 
                 if bad_checkpoint {
-                    msg!("model check failed: bad checkpoint");
+                    warn!("model check failed: bad checkpoint");
                     return false;
                 }
                 if !match llm.optimizer {
@@ -384,7 +276,7 @@ impl Model {
                     OptimizerDefinition::AdamW { .. } => true,
                     OptimizerDefinition::Distro { .. } => true,
                 } {
-                    msg!("model check failed: bad optimizer");
+                    warn!("model check failed: bad optimizer");
                     return false;
                 }
                 true

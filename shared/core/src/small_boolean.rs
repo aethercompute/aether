@@ -1,25 +1,10 @@
 use std::fmt::Debug;
 
-use anchor_lang::{prelude::borsh, AnchorDeserialize, AnchorSerialize, InitSpace};
 use bytemuck::{Pod, Zeroable};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-#[derive(
-    Copy,
-    Clone,
-    Eq,
-    PartialEq,
-    Hash,
-    Zeroable,
-    Pod,
-    AnchorDeserialize,
-    AnchorSerialize,
-    Serialize,
-    Deserialize,
-    InitSpace,
-    TS,
-)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Zeroable, Pod, Serialize, Deserialize, TS)]
 #[repr(transparent)]
 pub struct SmallBoolean(pub u8);
 

@@ -5,8 +5,6 @@ edition = "2021"
 
 [dependencies]
 anyhow.workspace = true
-anchor-lang.workspace = true
-anchor-lang-idl.workspace = true
 bytemuck.workspace = true
 fast-math.workspace = true
 rand = { workspace = true, optional = true }
@@ -19,9 +17,8 @@ bitvec = { git = "https://github.com/arilotter/bitvec", rev = "d33a2437f810ee422
   "std",
 ] }
 ts-rs.workspace = true
+thiserror.workspace = true
 data-encoding = "2.8.0"
-
-[target.'cfg(not(target_os = "solana"))'.dependencies]
 sha2.workspace = true
 
 [features]

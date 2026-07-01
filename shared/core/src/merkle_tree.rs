@@ -4,7 +4,6 @@ use std::fmt::Debug;
 
 use crate::sha256::sha256v;
 
-use anchor_lang::{prelude::borsh, AnchorDeserialize, AnchorSerialize, InitSpace};
 use bytemuck::Zeroable;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -16,9 +15,6 @@ use ts_rs::TS;
 // https://flawed.net.nz/2018/02/21/attacking-merkle-trees-with-a-second-preimage-attack
 const LEAF_PREFIX: &[u8] = &[0];
 const INTERMEDIATE_PREFIX: &[u8] = &[1];
-
-// TODO: We should rethink this constant when merkle tree gets used.
-const SOLANA_MAX_PROOFS_LEN: usize = 100;
 
 macro_rules! hash_leaf {
     {$d:ident} => {
@@ -32,20 +28,8 @@ macro_rules! hash_intermediate {
     }
 }
 
-/// This wrapper is used to implement the `Space` trait for the actual hash.
-#[derive(
-    AnchorSerialize,
-    AnchorDeserialize,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    Clone,
-    Default,
-    Zeroable,
-    Copy,
-    TS,
-)]
+/// This wrapper carries a 32-byte hash with convenient (de)serialization.
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Default, Zeroable, Copy, TS)]
 pub struct HashWrapper {
     pub inner: [u8; 32],
 }
@@ -76,10 +60,6 @@ impl AsRef<[u8]> for HashWrapper {
     }
 }
 
-impl anchor_lang::Space for HashWrapper {
-    const INIT_SPACE: usize = 32;
-}
-
 #[derive(Debug)]
 pub struct MerkleTree {
     leaf_count: usize,
@@ -93,17 +73,7 @@ pub struct ProofEntry<'a>(
     Option<&'a HashWrapper>,
 );
 
-#[derive(
-    Debug,
-    PartialEq,
-    Eq,
-    Clone,
-    Serialize,
-    Deserialize,
-    AnchorDeserialize,
-    AnchorSerialize,
-    InitSpace,
-)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct OwnedProofEntry {
     target: HashWrapper,
     left_sibling: Option<HashWrapper>,
@@ -134,20 +104,8 @@ impl<'a> From<ProofEntry<'a>> for OwnedProofEntry {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Proof<'a>(Vec<ProofEntry<'a>>);
 
-#[derive(
-    Debug,
-    Default,
-    PartialEq,
-    Eq,
-    Clone,
-    AnchorDeserialize,
-    AnchorSerialize,
-    Deserialize,
-    Serialize,
-    InitSpace,
-)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct OwnedProof {
-    #[max_len(SOLANA_MAX_PROOFS_LEN)]
     entries: Vec<OwnedProofEntry>,
 }
 

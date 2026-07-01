@@ -1,32 +1,17 @@
 use std::fmt::Display;
 
-use anchor_lang::{
-    prelude::{borsh, thiserror},
-    AnchorDeserialize, AnchorSerialize, InitSpace,
-};
 use bytemuck::Zeroable;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use ts_rs::TS;
 
 use crate::serde_utils::{serde_deserialize_string, serde_serialize_string};
 
-#[derive(thiserror::Error, Debug)]
+#[derive(Error, Debug)]
 #[error("string of length {} doesn't fit in FixedString<{}>", 0.0, 0.1)]
 pub struct FixedStringError((usize, usize));
 
-#[derive(
-    Serialize,
-    Deserialize,
-    Clone,
-    Copy,
-    TS,
-    AnchorSerialize,
-    AnchorDeserialize,
-    PartialEq,
-    Eq,
-    InitSpace,
-    Zeroable,
-)]
+#[derive(Serialize, Deserialize, Clone, Copy, TS, PartialEq, Eq, Zeroable)]
 #[repr(C)]
 pub struct FixedString<const L: usize>(
     #[serde(

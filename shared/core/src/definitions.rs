@@ -1,4 +1,3 @@
-use anchor_lang::{prelude::borsh, AnchorDeserialize, AnchorSerialize, InitSpace};
 use bytemuck::Zeroable;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
@@ -9,19 +8,7 @@ pub trait LearningRateScheduler: Send + Sync {
     fn get_lr(&self, step: u32) -> f64;
 }
 
-#[derive(
-    AnchorSerialize,
-    Default,
-    AnchorDeserialize,
-    InitSpace,
-    Serialize,
-    Deserialize,
-    Clone,
-    Debug,
-    Zeroable,
-    Copy,
-    TS,
-)]
+#[derive(Default, Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS)]
 #[repr(C)]
 pub struct ConstantLR {
     base_lr: f64,
@@ -59,18 +46,7 @@ impl LearningRateScheduler for ConstantLR {
     }
 }
 
-#[derive(
-    AnchorSerialize,
-    AnchorDeserialize,
-    InitSpace,
-    Serialize,
-    Deserialize,
-    Clone,
-    Debug,
-    Zeroable,
-    Copy,
-    TS,
-)]
+#[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS)]
 #[repr(C)]
 pub struct LinearLR {
     base_lr: f64,
@@ -123,19 +99,7 @@ impl LearningRateScheduler for LinearLR {
     }
 }
 
-#[derive(
-    AnchorSerialize,
-    AnchorDeserialize,
-    InitSpace,
-    Serialize,
-    Deserialize,
-    Clone,
-    Debug,
-    Zeroable,
-    Copy,
-    PartialEq,
-    TS,
-)]
+#[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, PartialEq, TS)]
 #[repr(C)]
 pub struct CosineLR {
     base_lr: f64,
@@ -185,18 +149,7 @@ impl LearningRateScheduler for CosineLR {
     }
 }
 
-#[derive(
-    AnchorSerialize,
-    AnchorDeserialize,
-    InitSpace,
-    Serialize,
-    Deserialize,
-    Clone,
-    Debug,
-    Zeroable,
-    Copy,
-    TS,
-)]
+#[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS)]
 #[repr(C)]
 pub struct WarmupStableDecayLR {
     base_lr: f64,
@@ -273,18 +226,7 @@ impl LearningRateScheduler for WarmupStableDecayLR {
     }
 }
 
-#[derive(
-    AnchorSerialize,
-    AnchorDeserialize,
-    InitSpace,
-    Serialize,
-    Deserialize,
-    Clone,
-    Debug,
-    Zeroable,
-    Copy,
-    TS,
-)]
+#[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS)]
 #[repr(C)]
 pub enum LearningRateSchedule {
     Constant(ConstantLR),
@@ -340,18 +282,7 @@ impl From<ConstantLR> for LearningRateSchedule {
     }
 }
 
-#[derive(
-    AnchorSerialize,
-    AnchorDeserialize,
-    InitSpace,
-    Serialize,
-    Deserialize,
-    Clone,
-    Debug,
-    Zeroable,
-    Copy,
-    TS,
-)]
+#[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS)]
 #[repr(C)]
 pub enum OptimizerDefinition {
     Dummy,

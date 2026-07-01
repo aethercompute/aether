@@ -1,6 +1,5 @@
 use crate::{Client, Coordinator, CoordinatorError, SOLANA_MAX_NUM_WITNESSES};
 
-use anchor_lang::{prelude::borsh, AnchorDeserialize, AnchorSerialize, InitSpace};
 use bytemuck::Zeroable;
 use psyche_core::{compute_shuffled_index, sha256, sha256v, NodeIdentity, SmallBoolean};
 use serde::{Deserialize, Serialize};
@@ -9,18 +8,7 @@ use ts_rs::TS;
 pub const COMMITTEE_SALT: &str = "committee";
 pub const WITNESS_SALT: &str = "witness";
 
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    Default,
-    PartialEq,
-    Zeroable,
-    AnchorDeserialize,
-    AnchorSerialize,
-    Serialize,
-    Deserialize,
-)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Zeroable, Serialize, Deserialize)]
 #[repr(C)]
 pub enum Committee {
     #[default]
@@ -38,18 +26,7 @@ pub struct CommitteeSelection {
     seed: [u8; 32],
 }
 
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    Default,
-    PartialEq,
-    Zeroable,
-    AnchorDeserialize,
-    AnchorSerialize,
-    Serialize,
-    Deserialize,
-)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Zeroable, Serialize, Deserialize)]
 #[repr(C)]
 pub struct CommitteeProof {
     pub committee: Committee,
@@ -57,20 +34,7 @@ pub struct CommitteeProof {
     pub index: u64,
 }
 
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Zeroable,
-    Default,
-    AnchorDeserialize,
-    AnchorSerialize,
-    Serialize,
-    Deserialize,
-    InitSpace,
-    TS,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Zeroable, Default, Serialize, Deserialize, TS)]
 #[repr(C)]
 pub struct WitnessProof {
     // position in virtual shuffle, as determined by seed

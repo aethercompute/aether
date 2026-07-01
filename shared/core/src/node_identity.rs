@@ -1,23 +1,10 @@
 use std::fmt::{Debug, Display};
 
-use anchor_lang::{prelude::*, Space};
 use bytemuck::{Pod, Zeroable};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-#[derive(
-    Clone,
-    Copy,
-    Default,
-    Zeroable,
-    Pod,
-    AnchorSerialize,
-    AnchorDeserialize,
-    Serialize,
-    Deserialize,
-    TS,
-    Eq,
-)]
+#[derive(Clone, Copy, Default, Zeroable, Pod, Serialize, Deserialize, TS, Eq)]
 #[repr(C)]
 pub struct NodeIdentity {
     signer: [u8; 32],
@@ -83,8 +70,4 @@ impl Debug for NodeIdentity {
         }
         write!(f, ")")
     }
-}
-
-impl Space for NodeIdentity {
-    const INIT_SPACE: usize = 64;
 }

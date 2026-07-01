@@ -3,14 +3,11 @@ use crate::{
     Commitment, Committee, CommitteeProof, CommitteeSelection, WitnessProof,
 };
 
-use anchor_lang::{
-    prelude::{borsh, msg},
-    AnchorDeserialize, AnchorSerialize, InitSpace,
-};
 use bytemuck::{Pod, Zeroable};
 use psyche_core::{sha256, Bloom, FixedString, FixedVec, MerkleRoot, NodeIdentity, SmallBoolean};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, hash::Hash};
+use tracing::warn;
 use ts_rs::TS;
 
 pub const SOLANA_MAX_STRING_LEN: usize = 64;
@@ -29,20 +26,7 @@ pub const MAX_TOKENS_TO_SEND: usize = 16;
 // bloom filter with 1024 bits (16 u64)
 pub type WitnessBloom = Bloom<16, 8>;
 
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    Default,
-    PartialEq,
-    Zeroable,
-    AnchorDeserialize,
-    AnchorSerialize,
-    Serialize,
-    Deserialize,
-    InitSpace,
-    TS,
-)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Zeroable, Serialize, Deserialize, TS)]
 #[repr(u8)]
 pub enum RunState {
     #[default]
@@ -56,20 +40,7 @@ pub enum RunState {
     Paused = 7,
 }
 
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    Default,
-    PartialEq,
-    Zeroable,
-    AnchorDeserialize,
-    AnchorSerialize,
-    Serialize,
-    Deserialize,
-    InitSpace,
-    TS,
-)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Zeroable, Serialize, Deserialize, TS)]
 #[repr(u8)]
 pub enum ClientState {
     #[default]
@@ -79,18 +50,7 @@ pub enum ClientState {
     Ejected = 3,
 }
 
-#[derive(
-    Clone,
-    Debug,
-    Zeroable,
-    Default,
-    Copy,
-    Serialize,
-    Deserialize,
-    AnchorDeserialize,
-    AnchorSerialize,
-    TS,
-)]
+#[derive(Clone, Debug, Zeroable, Default, Copy, Serialize, Deserialize, TS)]
 #[repr(C)]
 pub struct Client {
     pub id: NodeIdentity,
@@ -115,19 +75,7 @@ impl Hash for Client {
     }
 }
 
-#[derive(
-    Clone,
-    Default,
-    Debug,
-    Zeroable,
-    Copy,
-    Serialize,
-    Deserialize,
-    AnchorSerialize,
-    AnchorDeserialize,
-    PartialEq,
-    TS,
-)]
+#[derive(Clone, Default, Debug, Zeroable, Copy, Serialize, Deserialize, PartialEq, TS)]
 #[repr(C)]
 pub struct Round {
     pub witnesses: FixedVec<Witness, { SOLANA_MAX_NUM_WITNESSES }>,
@@ -139,19 +87,7 @@ pub struct Round {
     pub tie_breaker_tasks: u16,
 }
 
-#[derive(
-    Clone,
-    Debug,
-    Zeroable,
-    Default,
-    Copy,
-    AnchorDeserialize,
-    AnchorSerialize,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    TS,
-)]
+#[derive(Clone, Debug, Zeroable, Default, Copy, Serialize, Deserialize, PartialEq, TS)]
 #[repr(C)]
 pub struct Witness {
     pub proof: WitnessProof,
@@ -160,18 +96,7 @@ pub struct Witness {
     pub broadcast_merkle: MerkleRoot,
 }
 
-#[derive(
-    Clone,
-    Copy,
-    Zeroable,
-    AnchorSerialize,
-    AnchorDeserialize,
-    Serialize,
-    Deserialize,
-    TS,
-    Default,
-    Debug,
-)]
+#[derive(Clone, Copy, Zeroable, Serialize, Deserialize, TS, Default, Debug)]
 #[repr(C)]
 pub struct WitnessMetadata {
     pub step: u32,
@@ -184,18 +109,7 @@ pub struct WitnessMetadata {
     pub efficency: f32,
 }
 
-#[derive(
-    Clone,
-    Copy,
-    Zeroable,
-    AnchorSerialize,
-    AnchorDeserialize,
-    Serialize,
-    Deserialize,
-    TS,
-    Default,
-    Debug,
-)]
+#[derive(Clone, Copy, Zeroable, Serialize, Deserialize, TS, Default, Debug)]
 #[repr(C)]
 pub struct WitnessEvalResult {
     pub name: FixedString<32>,
@@ -236,9 +150,7 @@ pub type HealthChecks = Vec<(NodeIdentity, CommitteeProof)>;
 
 pub const NUM_STORED_ROUNDS: usize = 4;
 
-#[derive(
-    Clone, Debug, Zeroable, Copy, Serialize, Deserialize, AnchorDeserialize, AnchorSerialize, TS,
-)]
+#[derive(Clone, Debug, Zeroable, Copy, Serialize, Deserialize, TS)]
 #[repr(C)]
 pub struct CoordinatorConfig {
     pub warmup_time: u64,
@@ -262,9 +174,7 @@ pub struct CoordinatorConfig {
     pub waiting_for_members_extra_time: u8,
 }
 
-#[derive(
-    Clone, Debug, Zeroable, Copy, Serialize, Deserialize, AnchorSerialize, AnchorDeserialize, TS,
-)]
+#[derive(Clone, Debug, Zeroable, Copy, Serialize, Deserialize, TS)]
 #[repr(C)]
 pub struct CoordinatorEpochState {
     pub rounds: [Round; NUM_STORED_ROUNDS],
@@ -284,9 +194,7 @@ pub struct CoordinatorEpochState {
     pub cold_start_epoch: SmallBoolean,
 }
 
-#[derive(
-    Clone, Debug, Zeroable, Copy, Serialize, Deserialize, AnchorSerialize, AnchorDeserialize, TS,
-)]
+#[derive(Clone, Debug, Zeroable, Copy, Serialize, Deserialize, TS)]
 #[repr(C)]
 pub struct CoordinatorProgress {
     pub epoch: u16,
@@ -294,9 +202,7 @@ pub struct CoordinatorProgress {
     pub epoch_start_data_index: u64,
 }
 
-#[derive(
-    Clone, Debug, Zeroable, Copy, Serialize, Deserialize, AnchorSerialize, AnchorDeserialize, TS,
-)]
+#[derive(Clone, Debug, Zeroable, Copy, Serialize, Deserialize, TS)]
 #[repr(C)]
 pub struct Coordinator {
     pub run_id: FixedString<{ SOLANA_RUN_ID_MAX_LEN }>,
@@ -896,7 +802,7 @@ impl Coordinator {
         let training_time = self.config.epoch_time - self.config.warmup_time;
         let estimated_training_rounds = training_time / self.config.max_round_train_time;
         if llm.cold_start_warmup_steps as u64 > estimated_training_rounds {
-            msg!(
+            warn!(
                 "cold_start_warmup_steps ({}) exceeds estimated training rounds per epoch ((epoch_time={} - warmup_time={}) / max_round_train_time={} = {})",
                 llm.cold_start_warmup_steps,
                 self.config.epoch_time,

@@ -1,39 +1,17 @@
-#[cfg(not(target_os = "solana"))]
 use sha2::{Digest, Sha256};
 
-#[cfg(target_os = "solana")]
-use anchor_lang::solana_program::hash::{hash, hashv};
-
 pub fn sha256(data: &[u8]) -> [u8; 32] {
-    #[cfg(not(target_os = "solana"))]
-    {
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        hasher.finalize().into()
-    }
-
-    #[cfg(target_os = "solana")]
-    {
-        let hash_result = hash(data);
-        hash_result.to_bytes()
-    }
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
 }
 
 pub fn sha256v(data: &[&[u8]]) -> [u8; 32] {
-    #[cfg(not(target_os = "solana"))]
-    {
-        let mut hasher = Sha256::new();
-        for val in data {
-            hasher.update(val)
-        }
-        hasher.finalize().into()
+    let mut hasher = Sha256::new();
+    for val in data {
+        hasher.update(val)
     }
-
-    #[cfg(target_os = "solana")]
-    {
-        let hash_result = hashv(data);
-        hash_result.to_bytes()
-    }
+    hasher.finalize().into()
 }
 
 #[cfg(test)]

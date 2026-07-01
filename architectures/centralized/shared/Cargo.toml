@@ -7,7 +7,6 @@ edition = "2021"
 psyche-coordinator.workspace = true
 psyche-core.workspace = true
 psyche-watcher.workspace = true
-anchor-lang.workspace = true
 bytemuck.workspace = true
 anyhow.workspace = true
 serde.workspace = true

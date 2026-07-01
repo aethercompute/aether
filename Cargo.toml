@@ -84,16 +84,8 @@ ratatui = "0.28.1"
 indexmap = { version = "2", features = ["serde"] }
 clap-markdown = "0.1.4"
 pyo3 = { version = "0.24" }
-anchor-lang = { git = "https://github.com/coral-xyz/anchor.git", rev = "a7a23eea308440a9fa9cb79cee7bddd30ab163d5" }
-anchor-spl = { git = "https://github.com/coral-xyz/anchor.git", rev = "a7a23eea308440a9fa9cb79cee7bddd30ab163d5" }
-anchor-client = { git = "https://github.com/coral-xyz/anchor.git", rev = "a7a23eea308440a9fa9cb79cee7bddd30ab163d5", features = [
-  "async",
-] }
-anchor-lang-idl = { git = "https://github.com/coral-xyz/anchor.git", rev = "a7a23eea308440a9fa9cb79cee7bddd30ab163d5", features = [
-  "build",
-] }
 
-ts-rs = { git = "https://github.com/arilotter/ts-rs.git", rev = "20c5bef07f3aa8ca3aa1b5cdad11ecdd60c64d34", features = [
+ts-rs = { path = "./vendor/ts-rs", features = [
   "psyche-impl",
 ] }
 rayon = "1.10.0"

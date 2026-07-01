@@ -1,8 +1,7 @@
-use anchor_lang::{prelude::borsh, AnchorDeserialize, AnchorSerialize};
 use bytemuck::Zeroable;
 use serde::{Deserialize, Deserializer, Serialize};
 
-#[derive(Clone, Debug, Zeroable, Copy, AnchorDeserialize, AnchorSerialize)]
+#[derive(Clone, Debug, Zeroable, Copy)]
 #[repr(C)]
 pub struct Commitment {
     pub data_hash: [u8; 32],

@@ -1,10 +1,9 @@
-use anchor_lang::{prelude::borsh, AnchorDeserialize, AnchorSerialize};
 use bytemuck::Zeroable;
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut, Range, RangeFrom, RangeFull, RangeTo};
 use ts_rs::TS;
 
-#[derive(Clone, Copy, Zeroable, AnchorSerialize, AnchorDeserialize, PartialEq, TS)]
+#[derive(Clone, Copy, Zeroable, PartialEq, TS)]
 #[ts(type = "Array<T>", bound = "T: TS")]
 #[repr(C)]
 pub struct FixedVec<T, const N: usize> {
