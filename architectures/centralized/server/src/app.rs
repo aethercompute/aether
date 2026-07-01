@@ -509,7 +509,7 @@ impl App {
         log.insert(
             "train/lr",
             match &self.coordinator.model {
-                Model::LLM(llm) => llm.lr_schedule.get_lr(point.step),
+                Model::LLM(llm) => llm.lr_schedule.get_lr(self.coordinator.effective_lr_step()),
             },
         );
         log.insert("train/tokens_per_sec", point.tokens_per_sec);
@@ -759,7 +759,7 @@ impl App {
             {
                 warn!("Error in on_tick: {err}");
             }
-            if let Some((ref sender, _)) = self.training_data_server {
+            if let Some((ref sender, _)) = &self.training_data_server {
                 sender.send(self.coordinator).await.unwrap();
             }
         }

@@ -768,8 +768,8 @@ impl Coordinator {
     }
 
     /// Returns the global batch size for a round, scaled by the number of
-    /// clients in that round. `global_batch_size_start`/`end` are per-client
-    /// values; the actual batch is `per_client × num_clients`.
+    /// clients in that round. `global_batch_size_start`/`end` in the config
+    /// are per-client values; the actual batch is `per_client × num_clients`.
     pub fn get_target_global_batch_size(&self, round: Option<&Round>) -> u16 {
         let tokens_processed = self.total_tokens_processed(round);
         let per_client = self.config.get_batch_size(tokens_processed);
@@ -777,6 +777,35 @@ impl Coordinator {
             .map(|r| r.clients_len.max(1))
             .unwrap_or(self.epoch_state.clients.len().max(1) as u16);
         per_client.saturating_mul(num_clients)
+    }
+
+    /// Total token budget for the entire training run. Computed from the
+    /// 1-client baseline so it stays constant regardless of how many clients
+    /// participate: `total_steps × per_client_batch × seq_len`.
+    pub fn target_tokens(&self) -> u64 {
+        self.config.total_steps as u64
+            * self.config.global_batch_size_end as u64
+            * self.get_sequence_length() as u64
+    }
+
+    /// Whether the training token budget has been consumed.
+    pub fn is_training_complete(&self) -> bool {
+        self.total_tokens_processed(self.current_round()) >= self.target_tokens()
+    }
+
+    /// Virtual step for LR computation, derived from token progress rather
+    /// than raw step count. This stays continuous when clients join/leave:
+    /// `(tokens_processed / target_tokens) × total_steps`. With 2 clients
+    /// each step advances 2× the tokens, so the virtual step advances 2×
+    /// as fast, keeping the LR decay profile matched to the token budget.
+    pub fn effective_lr_step(&self) -> u32 {
+        let target = self.target_tokens();
+        if target == 0 {
+            return self.progress.step;
+        }
+        let tokens = self.total_tokens_processed(self.current_round());
+        let progress = (tokens as f64 / target as f64).min(1.0);
+        (progress * self.config.total_steps as f64) as u32
     }
 
     pub fn total_tokens_processed(&self, round: Option<&Round>) -> u64 {
@@ -944,7 +973,7 @@ impl Coordinator {
             // we change to Cooldown
             if self.epoch_state.clients.len() < self.config.min_clients as usize
                 || num_witnesses < self.witness_quorum(num_witnesses)
-                || self.progress.step >= self.config.total_steps
+                || self.is_training_complete()
                 || self.pending_pause.is_true()
             {
                 self.start_cooldown(unix_timestamp);
@@ -1038,7 +1067,7 @@ impl Coordinator {
     fn start_waiting_for_members(&mut self, unix_timestamp: u64) {
         self.change_state(
             unix_timestamp,
-            if self.progress.step < self.config.total_steps {
+            if !self.is_training_complete() {
                 RunState::WaitingForMembers
             } else {
                 RunState::Finished

@@ -10,16 +10,17 @@ round_witness_time = 5
 min_clients = 1
 init_min_clients = 1
 
-# Per-client batch size. The actual global batch is this × number of
-# admitted clients, so adding nodes proportionally increases throughput.
-# 64 per client × 2 clients = 128 global batch per round.
+# Per-client batch size. The global batch scales with the number of admitted
+# clients (per_client × num_clients), so each client always does the same
+# amount of work per round. Total training budget is fixed at ~1B tokens
+# regardless of client count: 31,250 × 64 × 512 = 1,024,000,000.
 global_batch_size_start = 64
 global_batch_size_end = 64
 global_batch_size_warmup_tokens = 0
 
 verification_percent = 0
 witness_nodes = 1
-total_steps = 62500
+total_steps = 31250
 waiting_for_members_extra_time = 60
 
 [model.LLM]
@@ -47,9 +48,9 @@ repo_id = "aethercompute/deepseek-v3-dense-250m-1b-exp1"
 
 [model.LLM.lr_schedule.Cosine]
 base_lr = 3.0e-4
-warmup_steps = 1500
+warmup_steps = 750
 warmup_init_lr = 0.0
-total_steps = 62500
+total_steps = 31250
 final_lr = 3.0e-5
 
 [model.LLM.optimizer.Distro]

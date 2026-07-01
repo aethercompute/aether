@@ -79,7 +79,7 @@ impl StatsLogger {
 
         let lr = Trainer::get_lr(
             &self.lr_schedule,
-            state.progress.step,
+            state.effective_lr_step(),
             state.get_cold_start_warmup_bounds(),
         );
         round_log.insert("train/lr", lr);

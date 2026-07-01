@@ -166,7 +166,7 @@ mod tests {
 
     #[test]
     fn test_even_distribution() {
-        // 4 trainers, per-client batch size 25 -> total 100, each gets 25
+        // 4 trainers, per-client batch 25 -> total 100, each gets 25
         let coordinator = create_test_coordinator(4, 25, 10);
 
         let assignments = assign_data_for_state(
@@ -186,8 +186,7 @@ mod tests {
 
     #[test]
     fn test_uneven_distribution_with_remainder() {
-        // 23 trainers, per-client batch size 17 -> total 391 = 17*23
-        // With all clients as trainers, each gets exactly 17 (even split).
+        // 23 trainers, per-client batch 17 -> total 391
         let coordinator = create_test_coordinator(23, 17, 10);
 
         let assignments = assign_data_for_state(
@@ -202,7 +201,7 @@ mod tests {
             .collect();
         sizes.sort();
 
-        // 391 / 23 = 17 exactly, no remainder
+        // 391 / 23 = 17 exactly
         assert_eq!(sizes, vec![17; 23]);
 
         let total: u64 = sizes.iter().sum();
@@ -211,7 +210,7 @@ mod tests {
 
     #[test]
     fn test_larger_remainder() {
-        // 5 trainers, per-client batch size 3 -> total 15, each gets 3
+        // 5 trainers, per-client batch 3 -> total 15
         let coordinator = create_test_coordinator(5, 3, 10);
 
         let assignments = assign_data_for_state(
@@ -226,7 +225,6 @@ mod tests {
             .collect();
         sizes.sort();
 
-        // 15 / 5 = 3 exactly
         assert_eq!(sizes, vec![3, 3, 3, 3, 3]);
 
         let total: u64 = sizes.iter().sum();
