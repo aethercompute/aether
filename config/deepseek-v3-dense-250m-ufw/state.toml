@@ -10,10 +10,9 @@ round_witness_time = 5
 min_clients = 1
 init_min_clients = 1
 
-# 32 sequences per client × 2 clients = 64 global batch.
-# Each client trains 32 sequences per round; adding clients should
-# proportionally increase throughput once Option B (dynamic sizing) lands.
-# 62,500 * 64 * 512 = 2,048,000,000 tokens
+# Per-client batch size. The actual global batch is this × number of
+# admitted clients, so adding nodes proportionally increases throughput.
+# 64 per client × 2 clients = 128 global batch per round.
 global_batch_size_start = 64
 global_batch_size_end = 64
 global_batch_size_warmup_tokens = 0

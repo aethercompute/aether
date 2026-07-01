@@ -767,9 +767,16 @@ impl Coordinator {
         }
     }
 
+    /// Returns the global batch size for a round, scaled by the number of
+    /// clients in that round. `global_batch_size_start`/`end` are per-client
+    /// values; the actual batch is `per_client × num_clients`.
     pub fn get_target_global_batch_size(&self, round: Option<&Round>) -> u16 {
         let tokens_processed = self.total_tokens_processed(round);
-        self.config.get_batch_size(tokens_processed)
+        let per_client = self.config.get_batch_size(tokens_processed);
+        let num_clients = round
+            .map(|r| r.clients_len.max(1))
+            .unwrap_or(self.epoch_state.clients.len().max(1) as u16);
+        per_client.saturating_mul(num_clients)
     }
 
     pub fn total_tokens_processed(&self, round: Option<&Round>) -> u64 {
@@ -813,10 +820,6 @@ impl Coordinator {
             return false;
         }
         true
-    }
-
-    fn get_global_batch_size_for_tokens(&self, tokens_processed: u64) -> u16 {
-        self.config.get_batch_size(tokens_processed)
     }
 
     fn tick_waiting_for_members<'a, 'b>(
@@ -1010,10 +1013,7 @@ impl Coordinator {
                 (0usize, 0u32, self.progress.epoch_start_data_index)
             } else {
                 let prev_round = &self.epoch_state.rounds[self.epoch_state.rounds_head as usize];
-                let prev_round_start_tokens =
-                    prev_round.data_index * self.get_sequence_length() as u64;
-                let prev_round_batch_size =
-                    self.get_global_batch_size_for_tokens(prev_round_start_tokens);
+                let prev_round_batch_size = self.get_target_global_batch_size(Some(prev_round));
                 (
                     (self.epoch_state.rounds_head + 1) as usize % self.epoch_state.rounds.len(),
                     prev_round.height + 1,
