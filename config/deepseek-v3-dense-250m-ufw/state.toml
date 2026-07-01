@@ -2,17 +2,20 @@ run_id = "deepseek-v3-dense-250m-1b-exp1"
 run_state = "WaitingForMembers"
 
 [config]
-warmup_time = 240
+warmup_time = 120
 cooldown_time = 5
 epoch_time = 360
-max_round_train_time = 60
+max_round_train_time = 20
 round_witness_time = 5
 min_clients = 1
 init_min_clients = 1
 
-# 62,500 * 32 * 512 = 1,024,000,000 tokens
-global_batch_size_start = 32
-global_batch_size_end = 32
+# 32 sequences per client × 2 clients = 64 global batch.
+# Each client trains 32 sequences per round; adding clients should
+# proportionally increase throughput once Option B (dynamic sizing) lands.
+# 62,500 * 64 * 512 = 2,048,000,000 tokens
+global_batch_size_start = 64
+global_batch_size_end = 64
 global_batch_size_warmup_tokens = 0
 
 verification_percent = 0
