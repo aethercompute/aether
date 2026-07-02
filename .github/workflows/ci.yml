@@ -48,7 +48,7 @@ jobs:
           cargo clippy -p psyche-core -p psyche-coordinator -p psyche-event-sourcing
           -p psyche-metrics -p psyche-tui -p psyche-watcher -p psyche-data-provider
           -p psyche-centralized-shared -p psyche-centralized-volunteer
-          -p psyche-centralized-local-testnet --all-targets
+          -p psyche-centralized-local-testnet -p psyche-test-support --all-targets
 
   test-fast:
     runs-on: ubuntu-latest
@@ -59,7 +59,7 @@ jobs:
           cargo test -p psyche-core -p psyche-coordinator -p psyche-event-sourcing
           -p psyche-metrics -p psyche-tui -p psyche-watcher -p psyche-data-provider
           -p psyche-centralized-shared -p psyche-centralized-volunteer
-          -p psyche-centralized-local-testnet
+          -p psyche-centralized-local-testnet -p psyche-test-support
 
   # ── advisory: known vulnerabilities (informational until deps are upgraded) ─
   deny-advisories:

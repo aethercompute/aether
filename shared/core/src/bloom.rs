@@ -257,4 +257,105 @@ mod tests {
         let non_existing = vec![1, 4, 7];
         assert!(!bloom.contains(&non_existing));
     }
+
+    use crate::lcg::LCG;
+
+    // A bloom filter MUST never produce a false negative: every inserted item is
+    // always reported as present. This is the correctness contract the witness
+    // voting layer relies on.
+    #[test]
+    fn no_false_negatives_across_many_items() {
+        let mut bloom = Bloom::<32, 7>::new(Bloom::<32, 7>::max_bits(), &[1, 2, 3, 4, 5, 6, 7]);
+        let mut rng = LCG::new(0xBEEF);
+
+        let items: Vec<Vec<u8>> = (0..512)
+            .map(|_| {
+                let mut v = Vec::with_capacity(16);
+                v.extend_from_slice(&rng.next_u64().to_le_bytes());
+                v.extend_from_slice(&rng.next_u64().to_le_bytes());
+                v
+            })
+            .collect();
+        for item in &items {
+            bloom.add(item);
+        }
+        for item in &items {
+            assert!(bloom.contains(item), "false negative for inserted item");
+        }
+    }
+
+    // The measured false-positive rate must be in the right ballpark for the
+    // chosen parameters. We use a generous upper bound so the test is robust to
+    // hash variance (FNV here) and never flaky.
+    #[test]
+    fn measured_false_positive_rate_is_bounded() {
+        // m = U*64 = 2048 bits, k = 7 hashes, n = 100 items.
+        // Theoretical FPR ≈ (1 - e^(-k*n/m))^k ≈ 0.3%. Assert < 5% for headroom.
+        const U: usize = 32;
+        const K: usize = 7;
+        let mut bloom = Bloom::<U, K>::new(Bloom::<U, K>::max_bits(), &[1, 2, 3, 4, 5, 6, 7]);
+
+        // Insert items derived from a small key space (distinct 8-byte vectors).
+        let inserted: Vec<Vec<u8>> = (0..100u64).map(|i| i.to_le_bytes().to_vec()).collect();
+        for item in &inserted {
+            bloom.add(item);
+        }
+
+        // Probe disjoint items derived from a different key space: none were inserted.
+        let mut rng = LCG::new(0xC0FFEE);
+        let mut false_positives = 0usize;
+        let probes = 20_000usize;
+        for _ in 0..probes {
+            // High 32 bits set -> never collides with the 0..100 inserted range.
+            let probe = (rng.next_u64() | (1u64 << 63)).to_le_bytes().to_vec();
+            if bloom.contains(&probe) {
+                false_positives += 1;
+            }
+        }
+        let rate = false_positives as f64 / probes as f64;
+        assert!(
+            rate < 0.05,
+            "measured FPR {rate:.4} unexpectedly high (k={K}, m={})",
+            U * 64
+        );
+    }
+
+    // `clear()` must reset every bit; no previously-added item may remain present.
+    #[test]
+    fn clear_resets_all_bits_for_many_items() {
+        let mut bloom = Bloom::<8, 3>::new(Bloom::<8, 3>::max_bits(), &[1, 2, 3]);
+        let mut rng = LCG::new(0x1234);
+        let items: Vec<Vec<u8>> = (0..64)
+            .map(|_| {
+                let a = rng.next_u64().to_le_bytes();
+                let b = rng.next_u64().to_le_bytes();
+                a.iter().chain(b.iter()).copied().collect()
+            })
+            .collect();
+        for item in &items {
+            bloom.add(item);
+        }
+        for item in &items {
+            assert!(bloom.contains(item));
+        }
+        bloom.clear();
+        for item in &items {
+            assert!(!bloom.contains(item), "item still present after clear()");
+        }
+    }
+
+    // Postcard round-trip must preserve keys and bits exactly.
+    #[test]
+    fn serde_roundtrip_preserves_membership() {
+        let mut bloom = Bloom::<16, 4>::new(Bloom::<16, 4>::max_bits(), &[10, 20, 30, 40]);
+        let items: Vec<Vec<u8>> = (0..32u64).map(|i| i.to_le_bytes().to_vec()).collect();
+        for item in &items {
+            bloom.add(item);
+        }
+        let back = psyche_test_support::postcard_roundtrip(&bloom);
+        for item in &items {
+            assert!(back.contains(item));
+        }
+        assert!(!back.contains(&999u64.to_le_bytes()));
+    }
 }

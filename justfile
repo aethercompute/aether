@@ -6,7 +6,7 @@ default:
 # Everything else (modeling/eval/network/client/centralized-*/python) pulls in
 # `tch` unconditionally and needs the torch toolchain — see the *-torch recipes.
 # ─────────────────────────────────────────────────────────────────────────────
-torch-free-crates := "psyche-core psyche-coordinator psyche-event-sourcing psyche-metrics psyche-tui psyche-watcher psyche-data-provider psyche-centralized-shared psyche-centralized-volunteer psyche-centralized-local-testnet"
+torch-free-crates := "psyche-core psyche-coordinator psyche-event-sourcing psyche-metrics psyche-tui psyche-watcher psyche-data-provider psyche-centralized-shared psyche-centralized-volunteer psyche-centralized-local-testnet psyche-test-support"
 
 # Build the centralized training server used by the root Dockerfile.
 build-server:

@@ -1,0 +1,17 @@
+[package]
+name = "psyche-test-support"
+version.workspace = true
+license.workspace = true
+edition = "2021"
+publish = false
+description = "Shared test helpers for the psyche workspace (deterministic RNG, serde/postcard round-trip asserts)."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+postcard.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+
+[lints]
+workspace = true

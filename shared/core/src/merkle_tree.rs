@@ -120,8 +120,10 @@ impl<'a> From<Proof<'a>> for OwnedProof {
 impl OwnedProof {
     pub fn verify(&self, candidate: HashWrapper) -> bool {
         let result = self.entries.iter().try_fold(candidate, |candidate, pe| {
-            let lsib = pe.right_sibling.unwrap_or(candidate);
-            let rsib = pe.left_sibling.unwrap_or(candidate);
+            // The parent is H(prefix ‖ left ‖ right). `candidate` is whichever
+            // child we're currently proving; the sibling occupies the other slot.
+            let lsib = pe.left_sibling.unwrap_or(candidate);
+            let rsib = pe.right_sibling.unwrap_or(candidate);
             let hash = HashWrapper::new(hash_intermediate!(lsib, rsib));
 
             if hash == pe.target {
@@ -389,5 +391,109 @@ mod tests {
             Some(&HashWrapper::default()),
             Some(&HashWrapper::default()),
         );
+    }
+
+    // ── exhaustive verification: for every tree size and every leaf, the proof
+    //    verifies AND its root matches the tree root. Odd sizes (which trigger
+    //    the "duplicate last node" branch) are the most bug-prone. ───────────────
+    #[test]
+    fn every_leaf_proof_verifies_and_matches_root() {
+        for size in 1..=64usize {
+            let items: Vec<Vec<u8>> = (0..size)
+                .map(|i| (i as u32).to_le_bytes().to_vec())
+                .collect();
+            let mt = MerkleTree::new(&items);
+            let root = mt.get_root().expect("non-empty tree has a root");
+            for (i, item) in items.iter().enumerate() {
+                let proof = mt.find_path(i).expect("valid leaf index");
+                let item_bytes = item.as_slice();
+                let leaf_hash = HashWrapper::new(hash_leaf!(item_bytes));
+                assert!(
+                    proof.verify(leaf_hash),
+                    "proof failed for size={size} leaf={i}"
+                );
+                // A single-leaf tree has a trivial (empty) proof: its root *is* the
+                // leaf, so the proof carries no entries. For every larger tree the
+                // proof's reconstructed root must match the tree's root.
+                if size == 1 {
+                    assert!(proof.get_root().is_none(), "size-1 proof should be empty");
+                    assert_eq!(
+                        *root, leaf_hash,
+                        "single-leaf root must equal the leaf hash"
+                    );
+                } else {
+                    assert_eq!(
+                        proof.get_root(),
+                        Some(root),
+                        "proof root != tree root for size={size} leaf={i}"
+                    );
+                }
+            }
+        }
+    }
+
+    // A proof must NOT verify for an item that was tampered with.
+    #[test]
+    fn proof_rejects_tampered_item() {
+        let items: Vec<&[u8]> = vec![b"alpha", b"beta", b"gamma", b"delta"];
+        let mt = MerkleTree::new(&items);
+        let proof = mt.find_path(1).unwrap();
+        assert!(!proof.verify_item(&b"beta!"));
+        assert!(!proof.verify_item(&b"BETA"));
+        assert!(proof.verify_item(&b"beta"));
+    }
+
+    // The leaf/intermediate prefixes are what defend against second-preimage
+    // attacks. An attacker must not be able to pass off an interior node's
+    // children as a leaf (or vice versa). The two hash functions must therefore
+    // produce different digests for the same bytes.
+    #[test]
+    fn leaf_and_intermediate_prefixes_diverge() {
+        let payload = b"same-bytes";
+        let leaf = HashWrapper::new(hash_leaf! {payload});
+        // An intermediate node hashing the payload against itself.
+        let inter = HashWrapper::new(hash_intermediate!(leaf, leaf));
+        assert_ne!(
+            leaf.inner, inter.inner,
+            "leaf and intermediate hashes must differ (prefix defense)"
+        );
+        assert_ne!(
+            LEAF_PREFIX, INTERMEDIATE_PREFIX,
+            "prefixes must be distinct bytes"
+        );
+    }
+
+    // OwnedProof (the serializable form) must verify identically to the borrowed
+    // Proof and survive a postcard round-trip.
+    #[test]
+    fn owned_proof_roundtrips_and_verifies() {
+        let items: Vec<&[u8]> = vec![b"a", b"b", b"c", b"d", b"e"];
+        let mt = MerkleTree::new(&items);
+        for (i, item) in items.iter().enumerate() {
+            let proof = mt.find_path(i).unwrap();
+            let owned: OwnedProof = proof.into();
+            let leaf_hash = HashWrapper::new(hash_leaf!(item));
+            assert!(
+                owned.verify(leaf_hash),
+                "owned proof verify failed at leaf {i}"
+            );
+
+            let roundtripped = psyche_test_support::postcard_roundtrip(&owned);
+            assert!(
+                roundtripped.verify(leaf_hash),
+                "roundtripped owned proof failed at leaf {i}"
+            );
+            assert!(roundtripped.verify_item(item));
+            assert!(!roundtripped.verify_item(&b"not-a-leaf"));
+        }
+    }
+
+    // Determinism: identical inputs always produce the identical root.
+    #[test]
+    fn root_is_deterministic() {
+        let items: Vec<&[u8]> = vec![b"x", b"y", b"z"];
+        let r1 = MerkleTree::new(&items).get_root().copied();
+        let r2 = MerkleTree::new(&items).get_root().copied();
+        assert_eq!(r1, r2);
     }
 }
