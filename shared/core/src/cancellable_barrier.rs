@@ -168,4 +168,18 @@ mod tests {
         t1.join().unwrap();
         t2.join().unwrap();
     }
+
+    #[test]
+    fn barrier_can_be_reused_across_generations() {
+        let barrier = Arc::new(CancellableBarrier::new(2));
+
+        for _ in 0..8 {
+            let other = barrier.clone();
+            let t = thread::spawn(move || other.wait());
+
+            assert!(barrier.wait().is_ok());
+            assert!(t.join().unwrap().is_ok());
+            assert!(!barrier.is_cancelled());
+        }
+    }
 }

@@ -10,3 +10,31 @@ pub enum Shuffle {
     DontShuffle,
     Seeded([u8; 32]),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_is_dont_shuffle() {
+        assert_eq!(Shuffle::default(), Shuffle::DontShuffle);
+    }
+
+    #[test]
+    fn seeded_shuffle_preserves_entire_seed() {
+        let seed = [7u8; 32];
+        let shuffle = Shuffle::Seeded(seed);
+        match shuffle {
+            Shuffle::Seeded(actual) => assert_eq!(actual, seed),
+            Shuffle::DontShuffle => panic!("seeded shuffle lost its seed"),
+        }
+    }
+
+    #[test]
+    fn postcard_roundtrip_preserves_shuffle_mode() {
+        for shuffle in [Shuffle::DontShuffle, Shuffle::Seeded([0xab; 32])] {
+            let decoded = psyche_test_support::postcard_roundtrip(&shuffle);
+            assert_eq!(decoded, shuffle);
+        }
+    }
+}
