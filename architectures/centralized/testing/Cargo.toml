@@ -2,6 +2,7 @@
 name = "psyche-centralized-testing"
 edition = "2021"
 version.workspace = true
+license.workspace = true
 
 [dependencies]
 psyche-centralized-client = { path = "../client" }
@@ -23,3 +24,6 @@ clap.workspace = true
 
 [dev-dependencies]
 test-log.workspace = true
+
+[lints]
+workspace = true

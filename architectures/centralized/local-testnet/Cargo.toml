@@ -2,6 +2,7 @@
 name = "psyche-centralized-local-testnet"
 edition = "2021"
 version.workspace = true
+license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
@@ -15,3 +16,6 @@ psyche-python-extension-impl = { workspace = true, optional = true }
 
 [features]
 python = ["psyche-python-extension-impl"]
+
+[lints]
+workspace = true

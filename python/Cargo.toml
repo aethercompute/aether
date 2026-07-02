@@ -1,6 +1,7 @@
 [package]
 name = "psyche-python-extension"
 version.workspace = true
+license.workspace = true
 edition = "2021"
 build = "build.rs"
 
@@ -13,3 +14,6 @@ psyche-python-extension-impl.workspace = true
 
 [features]
 parallelism = ["psyche-python-extension-impl/parallelism"]
+
+[lints]
+workspace = true

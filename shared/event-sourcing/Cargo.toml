@@ -1,6 +1,7 @@
 [package]
 name = "psyche-event-sourcing"
 version.workspace = true
+license.workspace = true
 edition = "2021"
 
 [dependencies]
@@ -35,3 +36,6 @@ tokio = { workspace = true, features = [
   "rt-multi-thread",
   "macros",
 ] }
+
+[lints]
+workspace = true

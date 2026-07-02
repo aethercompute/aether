@@ -1,0 +1,135 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-C debuginfo=0"
+  TORCH_VERSION: "2.9.1"
+  TORCH_INDEX_URL: https://download.pytorch.org/whl/cpu
+
+jobs:
+  # ── fast lane: formatting, lint, supply chain, torch-free tests ─────────────
+  # These run on every PR and finish in a few minutes. A green fast lane is the
+  # primary merge gate; the torch lane below is the secondary gate.
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-binstall
+      - run: cargo binstall -y cargo-deny
+      - run: cargo deny --workspace check bans licenses sources
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      # Member crates inherit `warnings = deny` from [workspace.lints]; vendored
+      # crates do not, so their pre-existing warnings stay non-fatal.
+      - run: >
+          cargo clippy -p psyche-core -p psyche-coordinator -p psyche-event-sourcing
+          -p psyche-metrics -p psyche-tui -p psyche-watcher -p psyche-data-provider
+          -p psyche-centralized-shared -p psyche-centralized-volunteer
+          -p psyche-centralized-local-testnet --all-targets
+
+  test-fast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: >
+          cargo test -p psyche-core -p psyche-coordinator -p psyche-event-sourcing
+          -p psyche-metrics -p psyche-tui -p psyche-watcher -p psyche-data-provider
+          -p psyche-centralized-shared -p psyche-centralized-volunteer
+          -p psyche-centralized-local-testnet
+
+  # ── advisory: known vulnerabilities (informational until deps are upgraded) ─
+  deny-advisories:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-binstall
+      - run: cargo binstall -y cargo-deny
+      # 21 advisories live in transitive deps (hickory / rustls / pyo3 / quick-xml).
+      # Make this blocking once the dependency graph is upgraded to clear them.
+      - run: cargo deny --workspace check advisories
+
+  # ── torch lane: lint + test the torch-bound crates + integration suite ───────
+  # Uses PyTorch-as-libtorch (same pattern as the root Dockerfile). Slower.
+  test-torch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            clang cmake protobuf-compiler libssl-dev pkg-config
+      - name: Install PyTorch (CPU)
+        run: pip install torch==${TORCH_VERSION} --index-url ${TORCH_INDEX_URL}
+      - name: Configure libtorch env
+        run: |
+          echo "LIBTORCH_USE_PYTORCH=1" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$(python -c 'import torch, os; print(os.path.join(os.path.dirname(torch.__file__), "lib"))')" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+      - name: clippy (torch-bound crates)
+        run: >
+          cargo clippy --workspace
+          --exclude psyche-python-extension
+          --exclude psyche-python-extension-impl
+          --exclude psyche-inference
+          --all-targets
+      # Inference/vLLM tests need a live vLLM runtime (gated behind the
+      # `vllm-tests` feature); the python cdylib has no unit tests. Everything
+      # else with torch is exercised here.
+      - name: test (torch-bound crates)
+        run: >
+          cargo test --workspace
+          --exclude psyche-python-extension
+          --exclude psyche-python-extension-impl
+          --exclude psyche-inference
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            clang cmake protobuf-compiler libssl-dev pkg-config
+      - name: Install PyTorch (CPU)
+        run: pip install torch==${TORCH_VERSION} --index-url ${TORCH_INDEX_URL}
+      - name: Configure libtorch env
+        run: |
+          echo "LIBTORCH_USE_PYTORCH=1" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$(python -c 'import torch, os; print(os.path.join(os.path.dirname(torch.__file__), "lib"))')" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+      - name: centralized integration tests
+        run: cargo test --release -p psyche-centralized-testing --test integration_tests

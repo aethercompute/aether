@@ -12,6 +12,7 @@ name = "psyche-workspace"
 
 [workspace.package]
 version = "0.2.0"
+license = "Apache-2.0"
 
 [workspace.dependencies]
 psyche-coordinator = { path = "./shared/coordinator" }
@@ -111,6 +112,21 @@ opt-level = 1
 [profile.test]
 opt-level = 1
 
+[workspace.lints.rust]
+# Treat every warning as an error — but ONLY in our own crates. Workspace lints
+# are inherited exclusively by members that opt in via `[lints] workspace = true`;
+# the vendored crates under `vendor/` do not, so their pre-existing warnings stay
+# non-fatal and a clean build stays green.
+warnings = "deny"
+# `unsafe` discipline: no silent unsafe operations inside `unsafe fn`.
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+# `correctness` lints are genuine bugs; make that explicit even though
+# `warnings = "deny"` already covers them.
+correctness = { level = "deny", priority = -1 }
+# No `dbg!()` leftovers in committed code.
+dbg_macro = "deny"
 
 [workspace.metadata.release]
 tag-name = "v{{version}}"

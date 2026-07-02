@@ -1,6 +1,7 @@
 [package]
 name = "psyche-coordinator"
 version.workspace = true
+license.workspace = true
 edition = "2021"
 
 [dependencies]
@@ -12,3 +13,6 @@ serde.workspace = true
 tracing.workspace = true
 cfg_eval = "0.1.2"
 ts-rs.workspace = true
+
+[lints]
+workspace = true

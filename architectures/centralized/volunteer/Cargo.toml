@@ -1,6 +1,7 @@
 [package]
 name = "psyche-centralized-volunteer"
 version.workspace = true
+license.workspace = true
 edition = "2021"
 
 [[bin]]
@@ -11,3 +12,6 @@ path = "src/main.rs"
 ratatui.workspace = true
 crossterm = "0.28.1"
 anyhow.workspace = true
+
+[lints]
+workspace = true

@@ -1,6 +1,7 @@
 [package]
 name = "psyche-data-provider"
 version.workspace = true
+license.workspace = true
 edition = "2021"
 
 [dependencies]
@@ -46,3 +47,6 @@ static-web-server = { git = "https://github.com/arilotter/static-web-server", re
 [[example]]
 name = "tcp"
 required-features = ["remote"]
+
+[lints]
+workspace = true

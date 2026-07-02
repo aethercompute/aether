@@ -1,6 +1,7 @@
 [package]
 name = "psyche-client"
 version.workspace = true
+license.workspace = true
 edition = "2021"
 
 [dependencies]
@@ -41,3 +42,6 @@ iroh-blobs.workspace = true
 [features]
 parallelism = ["psyche-modeling/parallelism"]
 python = ["psyche-python-extension-impl"]
+
+[lints]
+workspace = true

@@ -1,0 +1,91 @@
+# cargo-deny configuration.
+#
+# Run locally with:  cargo deny check
+# (install once with `cargo install cargo-deny --locked` or `cargo binstall -y cargo-deny`)
+#
+# Philosophy: be strict about what matters — copyleft/proprietary licenses
+# sneaking in, and known vulnerabilities — and lenient about the noise the deep
+# iroh/torch dependency graph generates (duplicate versions, git sources) until
+# that noise is worth chasing down.
+
+[graph]
+all-features = false
+# `wandb` and its derive-helper sub-crate `impl_from_tuple` are same-org
+# (NousResearch) git dependencies. Their manifests carry no `license` field and
+# the repo ships no LICENSE file, so cargo-deny reports them as "unlicensed".
+# They are treated as effectively first-party code; excluded from the *license*
+# graph only. All other license/advisory checks still apply to everything else.
+exclude = [
+    "wandb",
+    "impl_from_tuple",
+]
+
+[output]
+feature-depth = 1
+
+# Advisories are denied by default: any RUSTSEC vulnerability or officially
+# unsound crate fails the check. Add narrow `ignore` entries only with a reason.
+[advisories]
+db-urls = ["https://github.com/rustsec/advisory-db"]
+ignore = [
+    # "RUSTSEC-0000-0000", { id = "RUSTSEC-0000-0000", reason = "..." },
+]
+
+# Licenses: only the allow-list below is permitted. Anything else (copyleft,
+# proprietary, unknown) is denied by default — no separate `copyleft`/`default`
+# flag needed in the current schema.
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "MPL-2.0",
+    "OpenSSL",
+    "BSL-1.0",
+    "Unlicense",
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.93
+exceptions = [
+    # Add per-crate license exceptions here as cargo-deny flags them, e.g.
+    # { allow = ["Zlib"], crate = "adler32" },
+]
+
+[licenses.private]
+# Workspace/path crates that aren't published are ignored for license checks.
+ignore = true
+
+[bans]
+# Duplicate versions are extremely common in the iroh + tch graph; warn for now
+# rather than maintain a large `skip` list. Tighten to "deny" later.
+multiple-versions = "warn"
+wildcards = "warn"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow = []
+deny = []
+skip = []
+skip-tree = []
+
+[sources]
+# We depend on several git repos (hf-hub, tch, wandb, logfire, ts-rs, ...).
+# Warn rather than block on unknown git sources; the licenses/advisories checks
+# above are the real gate.
+unknown-registry = "warn"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[sources.allow-org]
+# github.com organizations whose repos we pull from by git ref.
+github = ["NousResearch", "arilotter"]
+gitlab = []
+bitbucket = []

@@ -1,6 +1,7 @@
 [package]
 name = "psyche-inference"
 version.workspace = true
+license.workspace = true
 edition = "2021"
 
 [features]
@@ -21,3 +22,6 @@ postcard.workspace = true
 [dev-dependencies]
 # For integration tests
 serial_test = "3.2"
+
+[lints]
+workspace = true
