@@ -47,7 +47,7 @@ repo_id = "aethercompute/deepseek-v3-dense-250m-1b-exp1"
 
 [model.LLM.lr_schedule.Cosine]
 base_lr = 3.0e-4
-warmup_steps = 125
+warmup_steps = 64
 warmup_init_lr = 0.0
 total_steps = 2604
 final_lr = 3.0e-5
