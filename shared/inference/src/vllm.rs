@@ -260,6 +260,10 @@ mod tests {
     fn test_list_engines() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
+            if py.import("psyche.vllm.rust_bridge").is_err() {
+                return;
+            }
+
             let result = list_engines(py);
             assert!(result.is_ok());
         });

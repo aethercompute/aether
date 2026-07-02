@@ -18,9 +18,9 @@ env:
   TORCH_INDEX_URL: https://download.pytorch.org/whl/cpu
 
 jobs:
-  # ── fast lane: formatting, lint, supply chain, torch-free tests ─────────────
-  # These run on every PR and finish in a few minutes. A green fast lane is the
-  # primary merge gate; the torch lane below is the secondary gate.
+  # Fast lane: formatting, lint, supply chain, torch-free tests.
+  # These run on every PR and finish quickly. A green fast lane is the primary
+  # merge gate; the torch lane below is the secondary gate for GPU/model code.
   fmt:
     runs-on: ubuntu-latest
     steps:
@@ -44,27 +44,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
       - uses: Swatinem/rust-cache@v2
       # Member crates inherit `warnings = deny` from [workspace.lints]; vendored
       # crates do not, so their pre-existing warnings stay non-fatal.
       - run: >
           cargo clippy -p psyche-core -p psyche-coordinator -p psyche-event-sourcing
           -p psyche-metrics -p psyche-tui -p psyche-watcher -p psyche-data-provider
-          -p psyche-centralized-shared -p psyche-centralized-volunteer
-          -p psyche-centralized-local-testnet -p psyche-test-support --all-targets
+          -p psyche-inference -p psyche-centralized-shared -p psyche-centralized-volunteer
+          -p psyche-centralized-local-testnet -p psyche-test-support --all-targets -- -D warnings
 
   test-fast:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
       - uses: Swatinem/rust-cache@v2
       - run: >
           cargo test -p psyche-core -p psyche-coordinator -p psyche-event-sourcing
           -p psyche-metrics -p psyche-tui -p psyche-watcher -p psyche-data-provider
-          -p psyche-centralized-shared -p psyche-centralized-volunteer
+          -p psyche-inference -p psyche-centralized-shared -p psyche-centralized-volunteer
           -p psyche-centralized-local-testnet -p psyche-test-support
 
-  # ── torch lane: lint + test the torch-bound crates + integration suite ───────
+  # Torch lane: lint + test the torch-bound crates + integration suite.
   # Uses PyTorch-as-libtorch (same pattern as the root Dockerfile). Slower.
   test-torch:
     runs-on: ubuntu-latest
