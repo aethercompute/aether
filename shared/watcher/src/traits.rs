@@ -18,6 +18,25 @@ impl OpportunisticData {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn witness_step_kind_is_witness() {
+        let dummy_witness = Witness::default();
+        let data = OpportunisticData::WitnessStep(dummy_witness, WitnessMetadata::default());
+        assert_eq!(data.kind(), "witness");
+    }
+
+    #[test]
+    fn warmup_step_kind_is_warmup() {
+        let dummy_witness = Witness::default();
+        let data = OpportunisticData::WarmupStep(dummy_witness);
+        assert_eq!(data.kind(), "warmup");
+    }
+}
+
 #[async_trait::async_trait]
 pub trait Backend: Send + Sync {
     /// # Cancel safety

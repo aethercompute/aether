@@ -5671,6 +5671,7 @@ dependencies = [
  "psyche-core",
  "psyche-tui",
  "serde",
+ "tokio",
 ]
 
 [[package]]
