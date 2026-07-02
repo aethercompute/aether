@@ -60,15 +60,10 @@ test-torch:
     cargo test --workspace
 
 # ── supply chain ─────────────────────────────────────────────────────────────
-# Blocking gate: licenses, bans, sources. (cargo-deny: `cargo binstall -y cargo-deny`)
+# Full gate: advisories + bans + licenses + sources. (cargo-deny: `cargo binstall -y cargo-deny`)
+# Transitive advisories needing major-version bumps are acknowledged in deny.toml.
 deny:
-    cargo deny --workspace check bans licenses sources
-
-# Informational: known advisories in the dependency graph. Non-blocking until the
-# dependency graph is upgraded to clear the transitive hickory/rustls/pyo3/quick-xml
-# advisories — then this becomes a blocking gate.
-deny-advisories:
-    cargo deny --workspace check advisories
+    cargo deny --workspace check
 
 # ── meta ─────────────────────────────────────────────────────────────────────
 # Everything the fast CI lane runs, in one command.

@@ -35,7 +35,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@cargo-binstall
       - run: cargo binstall -y cargo-deny
-      - run: cargo deny --workspace check bans licenses sources
+      # Full supply-chain gate: advisories + bans + licenses + sources.
+      # Transitive advisories that need major-version bumps (iroh/pyo3) are
+      # acknowledged with reasons in deny.toml; any new advisory fails.
+      - run: cargo deny --workspace check
 
   lint:
     runs-on: ubuntu-latest
@@ -60,19 +63,6 @@ jobs:
           -p psyche-metrics -p psyche-tui -p psyche-watcher -p psyche-data-provider
           -p psyche-centralized-shared -p psyche-centralized-volunteer
           -p psyche-centralized-local-testnet -p psyche-test-support
-
-  # ── advisory: known vulnerabilities (informational until deps are upgraded) ─
-  deny-advisories:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@cargo-binstall
-      - run: cargo binstall -y cargo-deny
-      # 21 advisories live in transitive deps (hickory / rustls / pyo3 / quick-xml).
-      # Make this blocking once the dependency graph is upgraded to clear them.
-      - run: cargo deny --workspace check advisories
 
   # ── torch lane: lint + test the torch-bound crates + integration suite ───────
   # Uses PyTorch-as-libtorch (same pattern as the root Dockerfile). Slower.

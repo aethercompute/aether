@@ -6,6 +6,14 @@ members = [
   "shared/*",
 ]
 resolver = "2"
+# `ts-rs` and `ts-rs-macros` are vendored path dependencies, NOT workspace
+# members. Their own integration tests under `vendor/ts-rs/tests/` don't compile
+# under the `psyche-impl` feature we enable (the `TS` derive then re-imports
+# `bytemuck::Zeroable`, colliding with the test files' imports). Explicitly
+# excluding them keeps `cargo {test,clippy} --workspace --all-targets` from
+# trying to build those vendored test targets; the libraries still compile as
+# normal dependencies.
+exclude = ["vendor/ts-rs", "vendor/ts-rs-macros"]
 
 [workspace.metadata.crane]
 name = "psyche-workspace"
