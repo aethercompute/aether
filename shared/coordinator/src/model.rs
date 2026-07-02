@@ -284,3 +284,170 @@ impl Model {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixed<const N: usize>(value: &str) -> FixedString<N> {
+        FixedString::try_from(value).unwrap()
+    }
+
+    fn adamw() -> OptimizerDefinition {
+        OptimizerDefinition::AdamW {
+            betas: [0.9, 0.95],
+            weight_decay: 0.1,
+            eps: 1e-8,
+            clip_grad_norm: Some(1.0),
+        }
+    }
+
+    fn hub_repo() -> HubRepo {
+        HubRepo {
+            repo_id: fixed("org/model"),
+            revision: Some(fixed("main")),
+        }
+    }
+
+    fn valid_llm() -> LLM {
+        LLM {
+            max_seq_len: 2048,
+            cold_start_warmup_steps: 0,
+            architecture: LLMArchitecture::HfLlama,
+            checkpoint: Checkpoint::Hub(hub_repo()),
+            data_type: LLMTrainingDataType::Pretraining,
+            data_location: LLMTrainingDataLocation::Dummy,
+            lr_schedule: LearningRateSchedule::Constant(ConstantLR::default()),
+            optimizer: adamw(),
+        }
+    }
+
+    #[test]
+    fn valid_llm_model_passes_check() {
+        assert!(Model::LLM(valid_llm()).check());
+    }
+
+    #[test]
+    fn model_check_rejects_zero_sequence_length() {
+        let mut llm = valid_llm();
+        llm.max_seq_len = 0;
+
+        assert!(!Model::LLM(llm).check());
+    }
+
+    #[test]
+    fn model_check_rejects_empty_data_locations() {
+        let empty_locations = [
+            LLMTrainingDataLocation::Server(FixedString::default()),
+            LLMTrainingDataLocation::Local(LocalLLMTrainingDataLocation::default()),
+            LLMTrainingDataLocation::Http(HttpLLMTrainingDataLocation {
+                location: HttpTrainingDataLocation::SingleUrl(FixedString::default()),
+                token_size_in_bytes: TokenSize::TwoBytes,
+                shuffle: Shuffle::DontShuffle,
+            }),
+            LLMTrainingDataLocation::Http(HttpLLMTrainingDataLocation {
+                location: HttpTrainingDataLocation::NumberedFiles {
+                    url_template: FixedString::default(),
+                    start_index: 0,
+                    n_left_pad_zeros: 0,
+                    num_files: 1,
+                },
+                token_size_in_bytes: TokenSize::TwoBytes,
+                shuffle: Shuffle::DontShuffle,
+            }),
+            LLMTrainingDataLocation::Http(HttpLLMTrainingDataLocation {
+                location: HttpTrainingDataLocation::Gcp {
+                    bucket_name: FixedString::default(),
+                    filter_directory: FixedString::default(),
+                },
+                token_size_in_bytes: TokenSize::TwoBytes,
+                shuffle: Shuffle::DontShuffle,
+            }),
+            LLMTrainingDataLocation::WeightedHttp(FixedString::default()),
+            LLMTrainingDataLocation::Preprocessed(FixedString::default()),
+        ];
+
+        for data_location in empty_locations {
+            let mut llm = valid_llm();
+            llm.data_location = data_location;
+            assert!(!Model::LLM(llm).check(), "accepted {data_location:?}");
+        }
+    }
+
+    #[test]
+    fn model_check_rejects_numbered_http_location_with_zero_files() {
+        let mut llm = valid_llm();
+        llm.data_location = LLMTrainingDataLocation::Http(HttpLLMTrainingDataLocation {
+            location: HttpTrainingDataLocation::NumberedFiles {
+                url_template: fixed("https://example.com/data-{i}.bin"),
+                start_index: 0,
+                n_left_pad_zeros: 0,
+                num_files: 0,
+            },
+            token_size_in_bytes: TokenSize::TwoBytes,
+            shuffle: Shuffle::DontShuffle,
+        });
+
+        assert!(!Model::LLM(llm).check());
+    }
+
+    #[test]
+    fn model_check_rejects_bad_checkpoints() {
+        let bad_checkpoints = [
+            Checkpoint::Ephemeral,
+            Checkpoint::Hub(HubRepo::dummy()),
+            Checkpoint::P2P(HubRepo::dummy()),
+            Checkpoint::Gcs(GcsRepo::dummy()),
+            Checkpoint::P2PGcs(GcsRepo::dummy()),
+        ];
+
+        for checkpoint in bad_checkpoints {
+            let mut llm = valid_llm();
+            llm.checkpoint = checkpoint;
+            assert!(!Model::LLM(llm).check(), "accepted {checkpoint:?}");
+        }
+    }
+
+    #[test]
+    fn model_check_rejects_dummy_optimizer() {
+        let mut llm = valid_llm();
+        llm.optimizer = OptimizerDefinition::Dummy;
+
+        assert!(!Model::LLM(llm).check());
+    }
+
+    #[test]
+    fn checkpoint_display_is_stable() {
+        assert_eq!(Checkpoint::Dummy(hub_repo()).to_string(), "Dummy");
+        assert_eq!(Checkpoint::Ephemeral.to_string(), "Ephemeral");
+        assert_eq!(Checkpoint::Hub(hub_repo()).to_string(), "org/model");
+        assert_eq!(
+            Checkpoint::P2P(hub_repo()).to_string(),
+            "P2P - Hub repo: org/model"
+        );
+        assert_eq!(
+            Checkpoint::Gcs(GcsRepo {
+                bucket: fixed("bucket"),
+                prefix: Some(fixed("prefix/path")),
+            })
+            .to_string(),
+            "gs://bucket/prefix/path"
+        );
+        assert_eq!(
+            Checkpoint::P2PGcs(GcsRepo {
+                bucket: fixed("bucket"),
+                prefix: None,
+            })
+            .to_string(),
+            "gs://bucket"
+        );
+    }
+
+    #[test]
+    fn llm_architecture_display_is_stable() {
+        assert_eq!(LLMArchitecture::HfLlama.to_string(), "HfLlama");
+        assert_eq!(LLMArchitecture::HfDeepseek.to_string(), "HfDeepseek");
+        assert_eq!(LLMArchitecture::HfAuto.to_string(), "HfAuto");
+        assert_eq!(LLMArchitecture::Torchtitan.to_string(), "Torchtitan");
+    }
+}
