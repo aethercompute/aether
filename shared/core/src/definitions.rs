@@ -282,6 +282,12 @@ impl From<ConstantLR> for LearningRateSchedule {
     }
 }
 
+impl From<WarmupStableDecayLR> for LearningRateSchedule {
+    fn from(value: WarmupStableDecayLR) -> Self {
+        Self::WarmupStableDecay(value)
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS)]
 #[repr(C)]
 pub enum OptimizerDefinition {
@@ -408,5 +414,93 @@ mod tests {
         // zero-step schedule (edge case)
         let scheduler = WarmupStableDecayLR::new(0.01, 0, 0.001, 0, 0, 0.001, 0, 0.001);
         assert_relative_eq!(scheduler.get_lr(0), 0.001);
+    }
+
+    // ── numerical invariants that catch subtle math regressions ────────────────
+    fn assert_finite(x: f64) {
+        assert!(x.is_finite(), "lr was not finite: {x}");
+    }
+
+    #[test]
+    fn lrs_never_produce_nan_or_inf() {
+        let schedulers: Vec<LearningRateSchedule> = vec![
+            ConstantLR::new(0.01, 10, 0.001).into(),
+            LinearLR::new(0.01, 10, 0.001, 100, 0.0001).into(),
+            CosineLR::new(0.01, 10, 0.001, 110, 0.0).into(),
+            WarmupStableDecayLR::new(0.01, 10, 0.001, 60, 110, 0.001, 20, 0.0).into(),
+        ];
+        for s in &schedulers {
+            for step in 0..=300 {
+                assert_finite(s.get_lr(step));
+            }
+        }
+    }
+
+    // Warmup ramps up from warmup_init_lr to base_lr: strictly non-decreasing.
+    #[test]
+    fn warmup_is_monotonic_non_decreasing() {
+        let cases = [
+            LearningRateSchedule::from(ConstantLR::new(0.01, 20, 0.001)),
+            LearningRateSchedule::from(LinearLR::new(0.01, 20, 0.001, 100, 0.0001)),
+            LearningRateSchedule::from(CosineLR::new(0.01, 20, 0.001, 110, 0.0)),
+        ];
+        for s in &cases {
+            let mut prev = f64::MIN;
+            for step in 0..20 {
+                let lr = s.get_lr(step);
+                assert!(
+                    lr >= prev,
+                    "warmup decreased at step {step}: {prev} -> {lr}"
+                );
+                prev = lr;
+            }
+        }
+    }
+
+    // After warmup, Linear and Cosine decays must be non-increasing down to
+    // their final lr. A bug that increases the lr mid-decay is caught here.
+    #[test]
+    fn decay_is_monotonic_non_increasing() {
+        let linear = LearningRateSchedule::from(LinearLR::new(0.01, 10, 0.001, 100, 0.0001));
+        let cosine = LearningRateSchedule::from(CosineLR::new(0.01, 10, 0.001, 110, 0.0));
+        for s in [&linear, &cosine] {
+            let mut prev = s.get_lr(10);
+            for step in 11..=110 {
+                let lr = s.get_lr(step);
+                assert!(
+                    lr <= prev + 1e-12,
+                    "decay increased at step {step}: {prev} -> {lr}"
+                );
+                prev = lr;
+            }
+        }
+    }
+
+    // The enum dispatch must agree with the concrete scheduler for every step.
+    #[test]
+    fn enum_dispatch_matches_inner() {
+        let inner = CosineLR::new(0.01, 10, 0.001, 110, 0.0);
+        let outer: LearningRateSchedule = inner.into();
+        for step in 0..=110 {
+            assert_relative_eq!(outer.get_lr(step), inner.get_lr(step));
+        }
+        assert_eq!(outer.get_warmup_steps(), inner.get_warmup_steps());
+        assert_relative_eq!(outer.get_warmup_init_lr(), inner.get_warmup_init_lr());
+    }
+
+    #[test]
+    fn scheduler_serde_roundtrip() {
+        // CosineLR is the concrete scheduler that derives PartialEq+Debug, so it
+        // can use the equality-checking roundtrip helper.
+        let inner = CosineLR::new(0.01, 10, 0.001, 110, 0.0);
+        psyche_test_support::assert_postcard_roundtrip(&inner);
+        // Also confirm the enum form survives a postcard round-trip byte-for-byte
+        // and dispatches identically afterwards.
+        let outer: LearningRateSchedule = CosineLR::new(0.01, 10, 0.001, 110, 0.0).into();
+        let bytes = postcard::to_allocvec(&outer).unwrap();
+        let back: LearningRateSchedule = postcard::from_bytes(&bytes).unwrap();
+        for step in 0..=110 {
+            assert_relative_eq!(outer.get_lr(step), back.get_lr(step));
+        }
     }
 }

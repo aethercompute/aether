@@ -222,4 +222,69 @@ mod tests {
         assert_eq!(iter.next(), Some((&ClosedInterval::new(7, 10), &"B")));
         assert_eq!(iter.next(), None);
     }
+
+    // `overlaps` must be symmetric: a.overlaps(b) == b.overlaps(a).
+    #[test]
+    fn overlaps_is_symmetric() {
+        let a = ClosedInterval::new(1, 5);
+        let b = ClosedInterval::new(4, 9);
+        let c = ClosedInterval::new(6, 9);
+        assert_eq!(a.overlaps(&b), b.overlaps(&a));
+        assert!(a.overlaps(&b));
+        assert_eq!(a.overlaps(&c), c.overlaps(&a));
+        assert!(!a.overlaps(&c));
+    }
+
+    // Two intervals that share an endpoint (e.g. [1,5] and [5,8]) DO overlap,
+    // because ClosedInterval is inclusive on both ends. The tree must therefore
+    // reject inserting a touching interval.
+    #[test]
+    fn touching_endpoints_overlap_and_are_rejected_by_insert() {
+        let mut tree = IntervalTree::new();
+        tree.insert(ClosedInterval::new(1, 5), "A").unwrap();
+        // [5,8] shares point 5 with [1,5] -> overlap -> insert fails.
+        assert!(tree.insert(ClosedInterval::new(5, 8), "B").is_err());
+        // [6,8] does not touch -> ok.
+        assert!(tree.insert(ClosedInterval::new(6, 8), "B").is_ok());
+    }
+
+    // Inserting an interval fully inside a gap, and verifying no-overlap
+    // invariant holds across a sequence of operations.
+    #[test]
+    fn insert_then_remove_preserves_no_overlap() {
+        let mut tree = IntervalTree::new();
+        for (s, e, v) in [(1, 3, "a"), (5, 7, "b"), (10, 12, "c")] {
+            tree.insert(ClosedInterval::new(s, e), v).unwrap();
+        }
+        // trying to insert anything overlapping must fail
+        assert!(tree.insert(ClosedInterval::new(2, 6), "x").is_err());
+        assert!(tree.insert(ClosedInterval::new(11, 13), "x").is_err());
+        // removing the middle opens a gap
+        assert_eq!(tree.remove(&ClosedInterval::new(5, 7)), Some("b"));
+        assert!(tree.insert(ClosedInterval::new(4, 9), "x").is_ok());
+    }
+
+    #[test]
+    fn from_tuple_constructors() {
+        let from_owned: ClosedInterval<u32> = (1u32, 9u32).into();
+        assert_eq!(from_owned, ClosedInterval::new(1, 9));
+        let pair = (2u32, 4u32);
+        let from_ref: ClosedInterval<u32> = (&pair).into();
+        assert_eq!(from_ref, ClosedInterval::new(2, 4));
+    }
+
+    #[test]
+    fn clear_empties_tree() {
+        let mut tree = IntervalTree::new();
+        tree.insert(ClosedInterval::new(1, 5), "A").unwrap();
+        tree.clear();
+        assert_eq!(tree.get(3), None);
+        assert!(tree.iter().next().is_none());
+    }
+
+    #[test]
+    fn default_is_empty() {
+        let tree: IntervalTree<u64, &str> = IntervalTree::default();
+        assert!(tree.iter().next().is_none());
+    }
 }

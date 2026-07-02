@@ -234,4 +234,107 @@ mod tests {
         let total: u64 = sizes.iter().sum();
         assert_eq!(total, 13);
     }
+
+    // ── partition invariant: assigned batches must be contiguous, non-overlapping
+    //    and cover exactly [data_index, data_index + total_size). A gap or
+    //    overlap here would silently starve or duplicate training data. ─────────
+    fn assert_is_clean_partition(assignments: &BTreeMap<BatchId, NodeIdentity>) {
+        let mut intervals: Vec<(u64, u64)> =
+            assignments.keys().map(|b| (b.0.start, b.0.end)).collect();
+        intervals.sort();
+        for w in intervals.windows(2) {
+            // no overlap and no gap: prev.end + 1 == next.start
+            assert_eq!(
+                w[0].1 + 1,
+                w[1].0,
+                "batches are not contiguous/non-overlapping: {:?}",
+                intervals
+            );
+        }
+    }
+
+    #[test]
+    fn assign_data_for_state_is_clean_partition_across_shapes() {
+        for (num_nodes, batch_size) in [
+            (1, 1),
+            (1, 100),
+            (2, 3),
+            (3, 10),
+            (5, 13),
+            (7, 1000),
+            (23, 384),
+            (16, 256),
+        ] {
+            let coordinator = create_test_coordinator(num_nodes, batch_size, 10);
+            let assignments = assign_data_for_state(
+                &coordinator,
+                &CommitteeSelection::from_coordinator(&coordinator, 0).unwrap(),
+            );
+            assert_eq!(
+                assignments.len(),
+                num_nodes,
+                "expected {num_nodes} assignments for batch_size={batch_size}"
+            );
+            assert_is_clean_partition(&assignments);
+
+            // total coverage equals the global batch size
+            let total: u64 = assignments.keys().map(|b| b.0.end - b.0.start + 1).sum();
+            assert_eq!(
+                total, batch_size as u64,
+                "total coverage for ({num_nodes}, {batch_size})"
+            );
+        }
+    }
+
+    #[test]
+    fn assign_data_for_state_starts_at_round_data_index() {
+        let mut coordinator = create_test_coordinator(4, 100, 10);
+        coordinator.current_round_mut().unwrap().data_index = 1234;
+        let assignments = assign_data_for_state(
+            &coordinator,
+            &CommitteeSelection::from_coordinator(&coordinator, 0).unwrap(),
+        );
+        let first_start = assignments.keys().next().unwrap().0.start;
+        assert_eq!(first_start, 1234);
+    }
+
+    // get_batch_ids_for_round produces the same clean partition as the assignment.
+    #[test]
+    fn get_batch_ids_for_round_covers_full_range() {
+        let coordinator = create_test_coordinator(6, 100, 10);
+        let round = *coordinator.current_round().unwrap();
+        let batch_ids = get_batch_ids_for_round(&round, &coordinator, 6);
+
+        let total: u64 = batch_ids.iter().map(|b| b.0.end - b.0.start + 1).sum();
+        assert_eq!(total, 100);
+        // sorted + contiguous
+        for w in batch_ids.windows(2) {
+            assert_eq!(w[0].0.end + 1, w[1].0.start);
+        }
+    }
+
+    // get_data_index_for_step: 0 before the schedule starts and after it ends,
+    // and strictly non-decreasing across steps.
+    #[test]
+    fn get_data_index_for_step_bounds_and_monotonicity() {
+        let coordinator = create_test_coordinator(4, 32, 10);
+        // step 0 / 1 -> 0
+        assert_eq!(get_data_index_for_step(&coordinator, 0), 0);
+        assert_eq!(get_data_index_for_step(&coordinator, 1), 0);
+        // past total_steps -> 0
+        assert_eq!(get_data_index_for_step(&coordinator, 11), 0);
+
+        // monotonic non-decreasing across the schedule
+        let mut prev = 0u64;
+        for step in 1..=10 {
+            let idx = get_data_index_for_step(&coordinator, step);
+            assert!(
+                idx >= prev,
+                "data index decreased at step {step}: {prev} -> {idx}"
+            );
+            prev = idx;
+        }
+        // the last step's index is the cumulative sum of all prior batch sizes
+        assert!(prev > 0);
+    }
 }

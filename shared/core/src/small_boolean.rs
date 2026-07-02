@@ -70,3 +70,72 @@ impl Default for SmallBoolean {
         Self::FALSE
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_maps_bool_correctly() {
+        assert_eq!(SmallBoolean::new(true), SmallBoolean::TRUE);
+        assert_eq!(SmallBoolean::new(false), SmallBoolean::FALSE);
+        assert_eq!(SmallBoolean::TRUE.0, 1);
+        assert_eq!(SmallBoolean::FALSE.0, 0);
+    }
+
+    // The wire-format contract: only 0 is false; ANY nonzero byte is true.
+    // This matters because `#[repr(transparent)]` lets a raw byte reinterpret
+    // land here, and the consensus layer relies on the nonzero==true reading.
+    #[test]
+    fn any_nonzero_byte_is_true() {
+        for b in [1u8, 2, 7, 42, 128, 255] {
+            let sb = SmallBoolean(b);
+            assert!(sb.is_true(), "{b} should be true");
+            assert!(!sb.is_false());
+        }
+        assert!(SmallBoolean(0).is_false());
+        assert!(!SmallBoolean(0).is_true());
+    }
+
+    #[test]
+    fn bool_roundtrip() {
+        for b in [false, true] {
+            let sb: SmallBoolean = b.into();
+            let back: bool = sb.into();
+            assert_eq!(back, b);
+        }
+    }
+
+    #[test]
+    fn not_works() {
+        assert_eq!(!SmallBoolean::TRUE, SmallBoolean::FALSE);
+        assert_eq!(!SmallBoolean::FALSE, SmallBoolean::TRUE);
+        // not of an arbitrary nonzero is FALSE (since nonzero is true).
+        assert_eq!(!SmallBoolean(42), SmallBoolean::FALSE);
+    }
+
+    #[test]
+    fn default_is_false() {
+        assert_eq!(SmallBoolean::default(), SmallBoolean::FALSE);
+    }
+
+    #[test]
+    fn display_matches_bool() {
+        assert_eq!(SmallBoolean::TRUE.to_string(), "true");
+        assert_eq!(SmallBoolean::FALSE.to_string(), "false");
+    }
+
+    #[test]
+    fn debug_rendering_is_human_readable() {
+        assert!(format!("{:?}", SmallBoolean::TRUE).contains("true"));
+        assert!(format!("{:?}", SmallBoolean::FALSE).contains("false"));
+    }
+
+    #[test]
+    fn serde_roundtrip_preserves_truthiness() {
+        for sb in [SmallBoolean::FALSE, SmallBoolean::TRUE, SmallBoolean(7)] {
+            let back = psyche_test_support::postcard_roundtrip(&sb);
+            assert_eq!(back.is_true(), sb.is_true());
+        }
+    }
+}

@@ -1205,8 +1205,9 @@ impl CoordinatorProgress {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{HubRepo, LLM};
     use bytemuck::Zeroable;
-    use psyche_core::{FixedVec, NodeIdentity};
+    use psyche_core::{sha256, FixedVec, NodeIdentity, OptimizerDefinition};
 
     fn identity(n: u8) -> NodeIdentity {
         let mut key = [0u8; 32];
@@ -1245,5 +1246,331 @@ mod tests {
             ClientState::Dropped
         );
         assert_eq!(coordinator.epoch_state.exited_clients[0].exited_height, 7);
+    }
+
+    // ── RunState <-> usize roundtrip ───────────────────────────────────────────
+    #[test]
+    fn runstate_usize_roundtrip() {
+        for v in 0..=7 {
+            let state = RunState::try_from(v).unwrap();
+            let back: usize = state.into();
+            assert_eq!(back, v);
+        }
+        assert!(RunState::try_from(8).is_err());
+        assert!(RunState::try_from(255).is_err());
+    }
+
+    #[test]
+    fn runstate_default_is_uninitialized() {
+        assert_eq!(RunState::default(), RunState::Uninitialized);
+    }
+
+    // ── witness_quorum table ───────────────────────────────────────────────────
+    // Quorum is the 2/3 ratio with small-N special cases. A bug here either
+    // stalls consensus (quorum too high) or accepts forged results (too low).
+    #[test]
+    fn witness_quorum_special_cases_and_ratio() {
+        let mut c = Coordinator::zeroed();
+        // config.witness_nodes == 0 -> use the passed num_witnesses.
+        c.config.witness_nodes = 0;
+        assert_eq!(c.witness_quorum(1), 1);
+        assert_eq!(c.witness_quorum(2), 2);
+        assert_eq!(c.witness_quorum(3), 2);
+        // floor(n * 2/3) for n >= 4
+        assert_eq!(c.witness_quorum(4), 2); // 2.66 -> 2
+        assert_eq!(c.witness_quorum(6), 4); // 4.0
+        assert_eq!(c.witness_quorum(9), 6); // 6.0
+        assert_eq!(c.witness_quorum(12), 8); // 8.0
+    }
+
+    #[test]
+    fn witness_quorum_uses_config_when_set() {
+        let mut c = Coordinator::zeroed();
+        c.config.witness_nodes = 5; // (5 * 2/3) as u16 = 3
+                                    // num_witnesses arg is ignored when config.witness_nodes != 0.
+        assert_eq!(c.witness_quorum(1), 3);
+        assert_eq!(c.witness_quorum(100), 3);
+        c.config.witness_nodes = 1;
+        assert_eq!(c.witness_quorum(99), 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn witness_quorum_zero_panics() {
+        let mut c = Coordinator::zeroed();
+        c.config.witness_nodes = 0;
+        c.witness_quorum(0);
+    }
+
+    // ── batch-size ramp (CoordinatorConfig::get_batch_size) ────────────────────
+    fn ramp_config(start: u16, end: u16, warmup_tokens: u64) -> CoordinatorConfig {
+        let mut cfg = CoordinatorConfig::zeroed();
+        cfg.global_batch_size_start = start;
+        cfg.global_batch_size_end = end;
+        cfg.global_batch_size_warmup_tokens = warmup_tokens;
+        cfg
+    }
+
+    #[test]
+    fn batch_size_ramp_endpoints_and_midpoint() {
+        let cfg = ramp_config(10, 100, 1000);
+        assert_eq!(cfg.get_batch_size(0), 10);
+        assert_eq!(cfg.get_batch_size(1000), 100);
+        assert_eq!(cfg.get_batch_size(500), 55); // 10 + 90*0.5
+                                                 // past warmup -> clamps to end
+        assert_eq!(cfg.get_batch_size(10_000), 100);
+    }
+
+    #[test]
+    fn batch_size_ramp_is_monotonic_non_decreasing() {
+        let cfg = ramp_config(10, 100, 1000);
+        let mut prev = 0u16;
+        for tokens in (0..1000).step_by(25) {
+            let b = cfg.get_batch_size(tokens);
+            assert!(b >= prev, "batch size decreased at {tokens}: {prev} -> {b}");
+            prev = b;
+        }
+    }
+
+    // ── ring buffer: previous_round / previous_previous_round ──────────────────
+    // The most bug-prone logic in the crate. The rounds[] array is a ring; at
+    // rounds_head == 0 the "previous" slot wraps to the end. A wrong wrap reads
+    // a stale round and corrupts committee verification across epochs.
+    fn ring_buf_coordinator(head: u32, heights: [u32; NUM_STORED_ROUNDS]) -> Coordinator {
+        let mut c = Coordinator::zeroed();
+        for (i, &h) in heights.iter().enumerate() {
+            c.epoch_state.rounds[i].height = h;
+        }
+        c.epoch_state.rounds_head = head;
+        c
+    }
+
+    #[test]
+    fn previous_round_returns_slot_before_head() {
+        let c = ring_buf_coordinator(2, [10, 20, 30, 40]);
+        // head=2 -> current is rounds[2], previous is rounds[1].
+        assert_eq!(c.current_round().unwrap().height, 30);
+        assert_eq!(c.previous_round().unwrap().height, 20);
+    }
+
+    #[test]
+    fn previous_round_wraps_at_head_zero() {
+        // head=0 with a non-zero current height wraps to the last slot.
+        let c = ring_buf_coordinator(0, [100, 20, 30, 400]);
+        assert_eq!(c.current_round().unwrap().height, 100);
+        assert_eq!(c.previous_round().unwrap().height, 400); // rounds[N-1]
+    }
+
+    #[test]
+    fn previous_round_none_at_epoch_start() {
+        // head=0 and current height 0 -> there is no previous round.
+        let c = ring_buf_coordinator(0, [0, 20, 30, 40]);
+        assert!(c.previous_round().is_none());
+    }
+
+    #[test]
+    fn previous_previous_round_wrap_cases() {
+        // head=0, current height > 1 -> rounds[N-2] = rounds[2]
+        let c = ring_buf_coordinator(0, [5, 20, 300, 40]);
+        assert_eq!(c.previous_previous_round().unwrap().height, 300);
+        // head=1 -> rounds[N-1] = rounds[3]
+        let c = ring_buf_coordinator(1, [10, 20, 30, 400]);
+        assert_eq!(c.previous_previous_round().unwrap().height, 400);
+        // head=2 -> rounds[0]
+        let c = ring_buf_coordinator(2, [100, 20, 30, 40]);
+        assert_eq!(c.previous_previous_round().unwrap().height, 100);
+        // head=3 -> rounds[1]
+        let c = ring_buf_coordinator(3, [10, 200, 30, 40]);
+        assert_eq!(c.previous_previous_round().unwrap().height, 200);
+    }
+
+    #[test]
+    fn previous_previous_round_none_when_height_le_one_at_head_zero() {
+        let c = ring_buf_coordinator(0, [1, 20, 30, 40]); // height 1 <= 1
+        assert!(c.previous_previous_round().is_none());
+        let c = ring_buf_coordinator(0, [0, 20, 30, 40]); // height 0 <= 1
+        assert!(c.previous_previous_round().is_none());
+    }
+
+    // ── trainer_healthy_score_by_witnesses ─────────────────────────────────────
+    #[test]
+    fn health_score_counts_witnesses_containing_id() {
+        let id = identity(7);
+        let hash = sha256(id.signer());
+
+        let mut bloom_with = WitnessBloom::default();
+        bloom_with.add(&hash);
+        let witness_with = Witness {
+            proof: WitnessProof {
+                position: 0,
+                index: 0,
+                witness: Default::default(),
+            },
+            participant_bloom: bloom_with,
+            broadcast_bloom: Default::default(),
+            broadcast_merkle: Default::default(),
+        };
+        let witness_without = Witness {
+            participant_bloom: Default::default(),
+            ..witness_with
+        };
+
+        let witnesses = [witness_with, witness_without, witness_with];
+        // two of three contain the id
+        assert_eq!(
+            Coordinator::trainer_healthy_score_by_witnesses(&id, &witnesses),
+            2
+        );
+        // a different id scores 0
+        assert_eq!(
+            Coordinator::trainer_healthy_score_by_witnesses(&identity(8), &witnesses),
+            0
+        );
+    }
+
+    // ── select_consensus_commitment_by_witnesses ───────────────────────────────
+    fn commitment_with_hash(byte: u8) -> Commitment {
+        Commitment {
+            data_hash: [byte; 32],
+            signature: [0u8; 64],
+        }
+    }
+
+    fn witness_containing(byte: u8) -> Witness {
+        let mut bloom = WitnessBloom::default();
+        bloom.add(&[byte; 32]);
+        Witness {
+            proof: WitnessProof {
+                position: 0,
+                index: 0,
+                witness: Default::default(),
+            },
+            participant_bloom: Default::default(),
+            broadcast_bloom: bloom,
+            broadcast_merkle: Default::default(),
+        }
+    }
+
+    #[test]
+    fn consensus_returns_none_below_quorum() {
+        let commitments = [commitment_with_hash(1), commitment_with_hash(2)];
+        // only 1 witness votes for commitment 0; quorum is 2 -> None
+        let witnesses = [witness_containing(1)];
+        assert_eq!(
+            Coordinator::select_consensus_commitment_by_witnesses(&commitments, &witnesses, 2),
+            None
+        );
+    }
+
+    #[test]
+    fn consensus_picks_commitment_reaching_quorum() {
+        let commitments = [commitment_with_hash(1), commitment_with_hash(2)];
+        // 3 witnesses all contain commitment[1]'s hash
+        let witnesses = [
+            witness_containing(2),
+            witness_containing(2),
+            witness_containing(2),
+        ];
+        assert_eq!(
+            Coordinator::select_consensus_commitment_by_witnesses(&commitments, &witnesses, 2),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn consensus_tiebreak_picks_highest_score() {
+        let commitments = [commitment_with_hash(1), commitment_with_hash(2)];
+        let witnesses = [
+            witness_containing(1),
+            witness_containing(1),
+            witness_containing(2),
+            witness_containing(2),
+            witness_containing(2),
+        ];
+        // both reach quorum 2; commitment[1] has score 3 > 2 -> index 1
+        assert_eq!(
+            Coordinator::select_consensus_commitment_by_witnesses(&commitments, &witnesses, 2),
+            Some(1)
+        );
+    }
+
+    // ── withdraw ───────────────────────────────────────────────────────────────
+    #[test]
+    fn withdraw_marks_healthy_client_and_rejects_others() {
+        let mut c = Coordinator::zeroed();
+        c.epoch_state.clients =
+            FixedVec::from_iter([Client::new(identity(1)), Client::new(identity(2))]);
+        // index 0 is healthy -> ok
+        assert!(c.withdraw(0).is_ok());
+        assert_eq!(c.epoch_state.clients[0].state, ClientState::Withdrawn);
+        // withdrawing the same client again -> already withdrawn -> Err
+        assert!(c.withdraw(0).is_err());
+        // out-of-range index -> Err
+        assert!(c.withdraw(99).is_err());
+        // index 1 still healthy, untouched
+        assert_eq!(c.epoch_state.clients[1].state, ClientState::Healthy);
+    }
+
+    // ── Model::check validator ─────────────────────────────────────────────────
+    fn good_llm() -> LLM {
+        let mut l = LLM::dummy();
+        // LLM::dummy() uses the Dummy optimizer, which Model::check rejects.
+        l.optimizer = OptimizerDefinition::AdamW {
+            betas: [0.9, 0.999],
+            weight_decay: 0.0,
+            eps: 1e-8,
+            clip_grad_norm: None,
+        };
+        l
+    }
+
+    #[test]
+    fn model_check_accepts_valid_model() {
+        let model = Model::LLM(good_llm());
+        assert!(model.check());
+    }
+
+    #[test]
+    fn model_check_rejects_zero_seq_len() {
+        let mut llm = good_llm();
+        llm.max_seq_len = 0;
+        assert!(!Model::LLM(llm).check());
+    }
+
+    #[test]
+    fn model_check_rejects_dummy_optimizer() {
+        // LLM::dummy() has the Dummy optimizer.
+        assert!(!Model::LLM(LLM::dummy()).check());
+    }
+
+    #[test]
+    fn model_check_rejects_ephemeral_checkpoint() {
+        let mut llm = good_llm();
+        llm.checkpoint = Checkpoint::Ephemeral;
+        assert!(!Model::LLM(llm).check());
+    }
+
+    #[test]
+    fn model_check_rejects_empty_hub_checkpoint() {
+        let mut llm = good_llm();
+        llm.checkpoint = Checkpoint::Hub(HubRepo::dummy()); // repo_id empty
+        assert!(!Model::LLM(llm).check());
+    }
+
+    // ── Coordinator Pod validity ───────────────────────────────────────────────
+    // Coordinator is `unsafe impl Pod` and gets reinterpreted from raw bytes by
+    // the on-disk timeline. A zeroed Coordinator must round-trip through bytes
+    // losslessly (the cross-crate COORD_RECORD_SIZE guard lives in event-sourcing).
+    #[test]
+    fn coordinator_round_trips_through_bytes() {
+        let c = Coordinator::zeroed();
+        let bytes = bytemuck::bytes_of(&c);
+        let back: &Coordinator = bytemuck::from_bytes(bytes);
+        // bytes are identical
+        assert_eq!(bytes, bytemuck::bytes_of(back));
+        // size is non-zero and a multiple of the u64 word (Pod repr(C) invariant)
+        let sz = std::mem::size_of::<Coordinator>();
+        assert!(sz > 0);
+        assert_eq!(sz % std::mem::size_of::<u64>(), 0);
     }
 }

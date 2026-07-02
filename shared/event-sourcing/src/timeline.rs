@@ -706,3 +706,55 @@ impl Default for ClusterTimeline {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── on-disk format stability guard ─────────────────────────────────────────
+    // Coordinator is `unsafe impl Pod` and the timeline reinterprets it straight
+    // from disk as fixed-size records (`COORD_RECORD_SIZE`). Adding or removing
+    // ANY field on Coordinator (or its nested structs) silently changes this size
+    // and makes every existing timeline file unreadable. This test pins the
+    // numeric size so such a change is a deliberate, visible act: update the
+    // constant and document the migration when it changes.
+    #[test]
+    fn coordinator_record_size_is_pinned() {
+        let coord_size = std::mem::size_of::<Coordinator>();
+        // Sanity: the COORD_RECORD_SIZE constant really is ts + Coordinator.
+        assert_eq!(
+            COORD_RECORD_SIZE,
+            std::mem::size_of::<i64>() + coord_size,
+            "COORD_RECORD_SIZE definition drifted from size_of::<Coordinator>()"
+        );
+        // Pinned size (bytes). Update deliberately + note the on-disk breakage.
+        let expected = 94048;
+        assert_eq!(
+            coord_size, expected,
+            "Coordinator size changed ({coord_size} != {expected}); \
+             the on-disk timeline record format (COORD_RECORD_SIZE) is affected."
+        );
+        // The record must stay 8-byte aligned for the i64 timestamp + Pod bytes.
+        assert_eq!(coord_size % 8, 0);
+    }
+
+    // decode_coordinator_records walks fixed-size records; a trailing partial
+    // record (fewer than COORD_RECORD_SIZE bytes) must be ignored, not panic.
+    #[test]
+    fn decode_coordinator_records_ignores_partial_trailing_record() {
+        // One full record of zeros + a few trailing bytes (partial record).
+        let mut data = vec![0u8; COORD_RECORD_SIZE];
+        data.extend_from_slice(&[0u8; 7]); // 7 < COORD_RECORD_SIZE
+        let records = decode_coordinator_records(&data);
+        assert_eq!(
+            records.len(),
+            1,
+            "partial trailing record should be ignored"
+        );
+    }
+
+    #[test]
+    fn decode_coordinator_records_empty_input() {
+        assert!(decode_coordinator_records(&[]).is_empty());
+    }
+}

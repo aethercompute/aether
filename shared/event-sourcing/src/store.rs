@@ -312,6 +312,84 @@ mod tests {
         BatchId(ClosedInterval::new(1, 1))
     }
 
+    // ── try_decode_cobs_frame: crash-safe streaming decode ─────────────────────
+    // The event log is appended continuously and may be truncated mid-write by a
+    // crash. The decoder must (a) skip corrupted frames, (b) stop cleanly on a
+    // partial trailing frame, (c) recover the valid frames around the damage.
+    fn cobs_encoded(event: &RunStarted) -> Vec<u8> {
+        postcard::to_stdvec_cobs(event).unwrap()
+    }
+
+    #[test]
+    fn cobs_decodes_a_valid_frame() {
+        let event = test_run_context();
+        let encoded = cobs_encoded(&event);
+        let mut cursor = 0;
+        let decoded: RunStarted = try_decode_cobs_frame(&encoded, &mut cursor).unwrap();
+        assert_eq!(decoded.run_id, event.run_id);
+        // cursor consumed the whole frame
+        assert_eq!(cursor, encoded.len());
+    }
+
+    #[test]
+    fn cobs_empty_stream_returns_none() {
+        let mut cursor = 0;
+        assert!(try_decode_cobs_frame::<RunStarted>(&[], &mut cursor).is_none());
+        assert_eq!(cursor, 0);
+    }
+
+    // A partial trailing frame (no 0x00 delimiter) is the crash tail: it must be
+    // ignored without panicking, and the cursor lands at EOF so the reader stops.
+    #[test]
+    fn cobs_truncated_trailing_frame_is_ignored() {
+        let event = test_run_context();
+        let mut stream = cobs_encoded(&event);
+        // append bytes with no delimiter -> incomplete frame
+        stream.extend_from_slice(&[0x11, 0x22, 0x33]);
+        let mut cursor = 0;
+        let decoded: RunStarted = try_decode_cobs_frame(&stream, &mut cursor).unwrap();
+        assert_eq!(decoded.run_id, event.run_id);
+        // second call hits the truncated tail -> None, cursor at EOF
+        assert!(try_decode_cobs_frame::<RunStarted>(&stream, &mut cursor).is_none());
+        assert_eq!(cursor, stream.len());
+    }
+
+    // A corrupted frame in the middle is transparently skipped and decoding
+    // resumes at the next valid frame.
+    #[test]
+    fn cobs_skips_corrupted_frame_and_recovers_next() {
+        let event = test_run_context();
+        let good = cobs_encoded(&event);
+        let mut stream = cobs_encoded(&event); // frame 1 (valid)
+                                               // a corrupted frame: junk bytes terminated by a 0x00 delimiter
+        stream.extend_from_slice(&[0xfe, 0xed, 0xfa, 0xce, 0x00]);
+        stream.extend_from_slice(&good); // frame 3 (valid)
+
+        let mut cursor = 0;
+        let first: RunStarted = try_decode_cobs_frame(&stream, &mut cursor).unwrap();
+        // The next call skips the corrupted frame and returns frame 3.
+        let after_corruption: RunStarted = try_decode_cobs_frame(&stream, &mut cursor).unwrap();
+        assert_eq!(first.run_id, event.run_id);
+        assert_eq!(after_corruption.run_id, event.run_id);
+        assert!(try_decode_cobs_frame::<RunStarted>(&stream, &mut cursor).is_none());
+    }
+
+    #[test]
+    fn cobs_decodes_a_sequence_of_valid_frames() {
+        let event = test_run_context();
+        let mut stream = Vec::new();
+        for _ in 0..5 {
+            stream.extend_from_slice(&cobs_encoded(&event));
+        }
+        let mut cursor = 0;
+        let mut count = 0;
+        while try_decode_cobs_frame::<RunStarted>(&stream, &mut cursor).is_some() {
+            count += 1;
+        }
+        assert_eq!(count, 5);
+        assert_eq!(cursor, stream.len());
+    }
+
     #[test]
     #[serial]
     fn test_inmemory_backend_basic() {
