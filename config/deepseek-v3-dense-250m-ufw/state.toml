@@ -46,11 +46,12 @@ Server = "167.233.75.197:39406"
 repo_id = "aethercompute/deepseek-v3-dense-250m-1b-exp1"
 
 [model.LLM.lr_schedule.Cosine]
-base_lr = 3.0e-4
+# Sqrt-scaled from old batch 64 LR: 3.0e-4 * sqrt(768/64) = 3.0e-4 * 3.46 ~= 1.0e-3
+base_lr = 1.0e-3
 warmup_steps = 64
 warmup_init_lr = 0.0
 total_steps = 2604
-final_lr = 3.0e-5
+final_lr = 1.0e-4
 
 [model.LLM.optimizer.Distro]
 clip_grad_norm = 1.0
