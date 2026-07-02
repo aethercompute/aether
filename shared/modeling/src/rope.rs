@@ -60,7 +60,7 @@ fn yarn_find_correction_range(
         yarn_find_correction_dim(low_rot, dim, base, max_position_embeddings).floor() as usize;
     let high =
         yarn_find_correction_dim(high_rot, dim, base, max_position_embeddings).ceil() as usize;
-    (low.max(0), high.min(dim - 1))
+    (low, high.min(dim - 1))
 }
 
 fn yarn_linear_ramp_mask(min: usize, max: usize, dim: usize, device: Device) -> Tensor {

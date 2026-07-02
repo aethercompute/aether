@@ -506,6 +506,7 @@ impl TrainingStepMetadata {
         })
     }
 
+    #[allow(clippy::type_complexity)] // inherent to spawning a typed JoinHandle
     fn apply_results(
         &mut self,
         trainers: Vec<Trainer>,

@@ -213,7 +213,7 @@ impl CooldownStepMetadata {
                 // Throttle checkpointing to every N epochs. The P2P model share
                 // above still happens every epoch; only the local save + HF/GCS
                 // upload is skipped on off-interval epochs.
-                if epoch_interval > 1 && epoch % epoch_interval != 0 {
+                if epoch_interval > 1 && !epoch.is_multiple_of(epoch_interval) {
                     return Ok((evals, None));
                 }
 

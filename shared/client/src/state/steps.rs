@@ -958,17 +958,20 @@ enum ActiveStep {
 
 impl ActiveStep {
     pub fn allowed_in_run_state(&self, run_state: RunState) -> bool {
-        match (self, run_state) {
-            (ActiveStep::Intermediate, _) => true,
-            (
-                ActiveStep::Warmup(..),
-                RunState::Warmup | RunState::WaitingForMembers | RunState::Paused,
-            ) => true,
-            (ActiveStep::Cooldown(..), RunState::Cooldown | RunState::Finished) => true,
-            (ActiveStep::Training(..), RunState::RoundTrain) => true,
-            (ActiveStep::Witness(..), RunState::RoundWitness) => true,
-            _ => false,
-        }
+        matches!(
+            (self, run_state),
+            (ActiveStep::Intermediate, _)
+                | (
+                    ActiveStep::Warmup(..),
+                    RunState::Warmup | RunState::WaitingForMembers | RunState::Paused,
+                )
+                | (
+                    ActiveStep::Cooldown(..),
+                    RunState::Cooldown | RunState::Finished
+                )
+                | (ActiveStep::Training(..), RunState::RoundTrain)
+                | (ActiveStep::Witness(..), RunState::RoundWitness)
+        )
     }
 }
 
