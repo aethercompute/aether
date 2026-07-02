@@ -10,15 +10,16 @@ round_witness_time = 14
 min_clients = 1
 init_min_clients = 1
 
-# Fixed global batch size.
-# 62,500 * 64 * 512 = 2,048,000,000 tokens
-global_batch_size_start = 64
-global_batch_size_end = 64
+# Fixed global batch size: 768 sequences * 512 tokens = 393,216 tokens/step.
+# The loaded dataset is 2,000,000 sequences = 1,024,000,000 tokens; 2,604
+# full steps consume 1,999,872 sequences, leaving 128 sequences unused.
+global_batch_size_start = 768
+global_batch_size_end = 768
 global_batch_size_warmup_tokens = 0
 
 verification_percent = 0
 witness_nodes = 1
-total_steps = 62500
+total_steps = 2604
 waiting_for_members_extra_time = 120
 
 [model.LLM]
@@ -46,9 +47,9 @@ repo_id = "aethercompute/deepseek-v3-dense-250m-1b-exp1"
 
 [model.LLM.lr_schedule.Cosine]
 base_lr = 3.0e-4
-warmup_steps = 1500
+warmup_steps = 100
 warmup_init_lr = 0.0
-total_steps = 62500
+total_steps = 2604
 final_lr = 3.0e-5
 
 [model.LLM.optimizer.Distro]
