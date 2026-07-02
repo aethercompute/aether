@@ -712,7 +712,8 @@ impl ClusterProjection {
             // has advanced to the new step.
             self.snapshot.prev_step_batches = std::mem::take(&mut self.snapshot.step_batches);
             self.snapshot.prev_applied_by = std::mem::take(&mut self.snapshot.applied_by);
-            self.snapshot.blob_to_batch.clear();
+            // Keep blob->batch correlations so late previous-step blob download /
+            // deserialization events can still update prev_step_batches.
             self.snapshot.step_witnesses.clear();
             for (batch_id, node_id) in &update.batch_assignments {
                 self.snapshot.step_batches.insert(
@@ -768,6 +769,33 @@ mod tests {
         Event {
             timestamp: Utc::now(),
             data,
+        }
+    }
+
+    fn make_event_at(timestamp: chrono::DateTime<Utc>, data: EventData) -> Event {
+        Event { timestamp, data }
+    }
+
+    fn batch(start: u64, end: u64) -> BatchId {
+        BatchId(psyche_core::ClosedInterval { start, end })
+    }
+
+    fn coordinator_update(
+        step: u64,
+        assignments: impl IntoIterator<Item = (BatchId, &'static str)>,
+    ) -> CoordinatorStateSnapshot {
+        CoordinatorStateSnapshot {
+            timestamp: Utc::now(),
+            run_state: RunState::RoundTrain,
+            epoch: 0,
+            step,
+            checkpoint: psyche_coordinator::model::Checkpoint::Ephemeral,
+            client_ids: vec![],
+            min_clients: 1,
+            batch_assignments: assignments
+                .into_iter()
+                .map(|(batch_id, node_id)| (batch_id, node_id.to_string()))
+                .collect(),
         }
     }
 
@@ -1140,5 +1168,247 @@ mod tests {
             )),
         );
         assert!(proj.snapshot().applied_by.contains("node-B"));
+    }
+
+    #[test]
+    fn test_previous_step_late_events_still_update_old_batches() {
+        let mut proj = ClusterProjection::new();
+        let old_batch = batch(0, 4);
+        let new_batch = batch(5, 9);
+        let old_blob = iroh_blobs::Hash::from_bytes([1u8; 32]);
+
+        proj.apply_coordinator(coordinator_update(1, [(old_batch, "node-A")]));
+        proj.apply_node_event(
+            "node-B",
+            &make_event(EventData::P2P(
+                crate::events::P2P::GossipTrainingResultReceived(
+                    p2p::GossipTrainingResultReceived {
+                        blob: old_blob,
+                        batch_id: old_batch,
+                    },
+                ),
+            )),
+        );
+        proj.apply_node_event(
+            "node-B",
+            &make_event(EventData::Train(
+                crate::events::Train::ApplyDistroResultsComplete(
+                    train::ApplyDistroResultsComplete(Ok(())),
+                ),
+            )),
+        );
+
+        proj.apply_coordinator(coordinator_update(2, [(new_batch, "node-C")]));
+        assert!(proj.snapshot().step_batches.contains_key(&new_batch));
+        assert!(proj.snapshot().prev_step_batches.contains_key(&old_batch));
+        assert!(proj.snapshot().applied_by.is_empty());
+        assert!(proj.snapshot().prev_applied_by.contains("node-B"));
+
+        proj.apply_node_event(
+            "node-B",
+            &make_event(EventData::P2P(crate::events::P2P::BlobDownloadCompleted(
+                p2p::BlobDownloadCompleted {
+                    blob: old_blob,
+                    result: Err("download failed".to_string()),
+                },
+            ))),
+        );
+        assert_eq!(
+            proj.snapshot().prev_step_batches[&old_batch].node_status["node-B"].download,
+            DownloadStatus::Failed
+        );
+
+        proj.apply_node_event(
+            "node-A",
+            &make_event(EventData::Train(crate::events::Train::TrainingFinished(
+                train::TrainingFinished {
+                    batch_id: old_batch,
+                    step: 1,
+                    loss: None,
+                },
+            ))),
+        );
+        assert!(proj.snapshot().prev_step_batches[&old_batch].trained);
+        assert!(!proj.snapshot().step_batches[&new_batch].trained);
+    }
+
+    #[test]
+    fn test_witness_rpc_submission_and_result_are_tracked() {
+        let mut proj = ClusterProjection::new();
+        let node_id = "witness-node";
+
+        proj.apply_node_event(
+            node_id,
+            &make_event(EventData::Train(crate::events::Train::WitnessElected(
+                train::WitnessElected {
+                    step: 7,
+                    round: 3,
+                    epoch: 2,
+                    index: 5,
+                    committee_position: 1,
+                    is_witness: true,
+                },
+            ))),
+        );
+        let witness = &proj.snapshot().step_witnesses[node_id];
+        assert_eq!(witness.info.step, 7);
+        assert!(!witness.submitted);
+        assert_eq!(witness.rpc_result, None);
+
+        proj.apply_node_event(
+            node_id,
+            &make_event(EventData::CoordinatorEvent(
+                crate::events::CoordinatorEvent::RpcCallSubmitted(
+                    crate::coordinator::RpcCallSubmitted {
+                        call_type: RpcCallType::Witness,
+                    },
+                ),
+            )),
+        );
+        assert!(proj.snapshot().step_witnesses[node_id].submitted);
+
+        proj.apply_node_event(
+            node_id,
+            &make_event(EventData::CoordinatorEvent(
+                crate::events::CoordinatorEvent::RpcCallResult(crate::coordinator::RpcCallResult {
+                    call_type: RpcCallType::Witness,
+                    result: Err("rpc failed".to_string()),
+                }),
+            )),
+        );
+        assert_eq!(
+            proj.snapshot().step_witnesses[node_id].rpc_result,
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn test_resource_snapshots_compute_network_throughput() {
+        let mut proj = ClusterProjection::new();
+        let node_id = "node-resource";
+        let ts = Utc::now();
+
+        proj.apply_node_event(
+            node_id,
+            &make_event_at(
+                ts,
+                EventData::ResourceSnapshot(crate::events::ResourceSnapshot {
+                    gpu_mem_used_bytes: None,
+                    gpu_utilization_percent: None,
+                    cpu_mem_used_bytes: 100,
+                    cpu_utilization_percent: 10.0,
+                    network_bytes_sent_total: 1_000,
+                    network_bytes_recv_total: 2_000,
+                    disk_space_available_bytes: 10_000,
+                }),
+            ),
+        );
+        assert_eq!(proj.snapshot().nodes[node_id].network_tx_bps, None);
+
+        proj.apply_node_event(
+            node_id,
+            &make_event_at(
+                ts + chrono::Duration::seconds(4),
+                EventData::ResourceSnapshot(crate::events::ResourceSnapshot {
+                    gpu_mem_used_bytes: None,
+                    gpu_utilization_percent: None,
+                    cpu_mem_used_bytes: 200,
+                    cpu_utilization_percent: 20.0,
+                    network_bytes_sent_total: 1_400,
+                    network_bytes_recv_total: 2_800,
+                    disk_space_available_bytes: 9_000,
+                }),
+            ),
+        );
+        let node = &proj.snapshot().nodes[node_id];
+        assert_eq!(node.network_tx_bps, Some(100));
+        assert_eq!(node.network_rx_bps, Some(200));
+    }
+
+    #[test]
+    fn test_cooldown_successful_upload_resets_warmup_but_failure_keeps_it() {
+        let mut proj = ClusterProjection::new();
+        let node_id = "node-cooldown";
+
+        proj.apply_node_event(
+            node_id,
+            &make_event(EventData::Warmup(crate::events::Warmup::ModelLoadComplete(
+                warmup::ModelLoadComplete,
+            ))),
+        );
+        proj.apply_node_event(
+            node_id,
+            &make_event(EventData::Cooldown(
+                crate::events::Cooldown::CheckpointUploadFinished(
+                    cooldown::CheckpointUploadFinished {
+                        success: false,
+                        error_string: Some("upload failed".to_string()),
+                    },
+                ),
+            )),
+        );
+        let node = &proj.snapshot().nodes[node_id];
+        assert_eq!(node.warmup.phase, WarmupPhase::Complete);
+        assert_eq!(node.cooldown.upload_ok, Some(false));
+        assert_eq!(node.cooldown.upload_error.as_deref(), Some("upload failed"));
+
+        proj.apply_node_event(
+            node_id,
+            &make_event(EventData::Cooldown(
+                crate::events::Cooldown::CheckpointUploadFinished(
+                    cooldown::CheckpointUploadFinished {
+                        success: true,
+                        error_string: None,
+                    },
+                ),
+            )),
+        );
+        assert_eq!(
+            proj.snapshot().nodes[node_id].warmup.phase,
+            WarmupPhase::Idle
+        );
+        assert_eq!(
+            proj.snapshot().nodes[node_id].cooldown.upload_ok,
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn test_batch_download_completion_marks_only_pending_assigned_batches() {
+        let mut proj = ClusterProjection::new();
+        let node_id = "trainer";
+        let first = batch(0, 0);
+        let second = batch(1, 1);
+
+        for batch_id in [first, second] {
+            proj.apply_node_event(
+                node_id,
+                &make_event(EventData::Train(crate::events::Train::BatchAssigned(
+                    train::BatchAssigned { batch_id },
+                ))),
+            );
+        }
+
+        proj.snapshot
+            .nodes
+            .get_mut(node_id)
+            .unwrap()
+            .train
+            .batch_downloads
+            .get_mut(&first)
+            .unwrap()
+            .result = Some(Ok(()));
+
+        proj.apply_node_event(
+            node_id,
+            &make_event(EventData::Train(
+                crate::events::Train::BatchDataDownloadComplete(train::BatchDataDownloadComplete {
+                    result: Err(()),
+                }),
+            )),
+        );
+        let downloads = &proj.snapshot().nodes[node_id].train.batch_downloads;
+        assert_eq!(downloads[&first].result, Some(Ok(())));
+        assert_eq!(downloads[&second].result, Some(Err(())));
     }
 }

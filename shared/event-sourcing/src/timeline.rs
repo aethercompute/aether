@@ -710,6 +710,29 @@ impl Default for ClusterTimeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client;
+    use crate::events::{Client, EventData};
+    use std::io::Write;
+
+    fn client_error_at(timestamp: DateTime<Utc>, message: &str) -> Event {
+        Event {
+            timestamp,
+            data: EventData::Client(Client::Error(client::Error {
+                message: message.to_string(),
+            })),
+        }
+    }
+
+    fn write_event(root: &Path, node_id: &str, event: &Event) -> io::Result<()> {
+        let node_dir = root.join(node_id);
+        std::fs::create_dir_all(&node_dir)?;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(node_dir.join("events.postcard"))?;
+        let encoded = postcard::to_stdvec_cobs(event).map_err(io::Error::other)?;
+        file.write_all(&encoded)
+    }
 
     // ── on-disk format stability guard ─────────────────────────────────────────
     // Coordinator is `unsafe impl Pod` and the timeline reinterprets it straight
@@ -756,5 +779,62 @@ mod tests {
     #[test]
     fn decode_coordinator_records_empty_input() {
         assert!(decode_coordinator_records(&[]).is_empty());
+    }
+
+    #[test]
+    fn refresh_merges_older_new_events_and_rebuilds_indexes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let base = Utc::now();
+
+        write_event(root, "node-late", &client_error_at(base, "loaded first")).unwrap();
+        let mut timeline = ClusterTimeline::from_events_dir(root).unwrap();
+        assert_eq!(timeline.len(), 1);
+        assert_eq!(timeline.all_entity_ids(), &["node-late".to_string()]);
+
+        // This file appears after the initial load, but its event timestamp is
+        // older than the existing newest entry, forcing refresh() down the merge
+        // path rather than the simple append path.
+        write_event(
+            root,
+            "node-early",
+            &client_error_at(base - chrono::Duration::seconds(5), "merged first"),
+        )
+        .unwrap();
+
+        assert!(timeline.refresh().unwrap());
+        assert_eq!(timeline.len(), 2);
+        assert_eq!(
+            timeline
+                .entries()
+                .iter()
+                .map(TimelineEntry::node_id)
+                .collect::<Vec<_>>(),
+            vec![Some("node-early"), Some("node-late")]
+        );
+        assert_eq!(
+            timeline.all_entity_ids(),
+            &["node-early".to_string(), "node-late".to_string()]
+        );
+
+        let first = timeline.snapshot_at(0);
+        assert!(first.nodes.contains_key("node-early"));
+        assert!(!first.nodes.contains_key("node-late"));
+        let second = timeline.snapshot_at(1);
+        assert_eq!(
+            second.nodes["node-early"].last_error.as_deref(),
+            Some("merged first")
+        );
+        assert_eq!(
+            second.nodes["node-late"].last_error.as_deref(),
+            Some("loaded first")
+        );
+
+        let ranges = timeline.node_timestamp_ranges();
+        assert_eq!(
+            ranges["node-early"].first,
+            base - chrono::Duration::seconds(5)
+        );
+        assert_eq!(ranges["node-late"].last, base);
     }
 }
