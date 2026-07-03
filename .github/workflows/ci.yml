@@ -78,8 +78,7 @@ jobs:
         with:
           python-version: "3.13"
       - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@cargo-binstall
-      - run: cargo binstall -y cargo-tarpaulin
+      - uses: taiki-e/install-action@cargo-tarpaulin
       - run: >
           cargo tarpaulin --out Xml --out Html
           --output-dir ./coverage

@@ -80,5 +80,4 @@ mod tests {
         let result: Result<Commitment, _> = postcard::from_bytes(&encoded);
         assert!(result.is_err());
     }
-
 }

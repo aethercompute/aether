@@ -377,10 +377,7 @@ mod tests {
                 matches!(
                     (&msg, &back),
                     (InferenceMessage::Request(_), InferenceMessage::Request(_))
-                        | (
-                            InferenceMessage::Response(_),
-                            InferenceMessage::Response(_)
-                        )
+                        | (InferenceMessage::Response(_), InferenceMessage::Response(_))
                         | (
                             InferenceMessage::StreamChunk { .. },
                             InferenceMessage::StreamChunk { .. }
