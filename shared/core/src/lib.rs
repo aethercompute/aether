@@ -29,8 +29,8 @@ pub use bounded_queue::BoundedQueue;
 pub use cancellable_barrier::{Barrier, CancellableBarrier, CancelledBarrier};
 pub use data_shuffle::Shuffle;
 pub use definitions::{
-    ConstantLR, CosineLR, DistroOptimizerDefinition, LearningRateSchedule, LearningRateScheduler,
-    LinearLR, OptimizerDefinition,
+    ConstantLR, CosineLR, LearningRateSchedule, LearningRateScheduler, LinearLR,
+    OptimizerDefinition,
 };
 pub use deterministic_shuffle::deterministic_shuffle;
 pub use fixed_string::FixedString;

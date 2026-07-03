@@ -1,8 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use psyche_core::{
-    Barrier, BatchId, CancellableBarrier, ClosedInterval, CosineLR, DistroOptimizerDefinition,
-    OptimizerDefinition, Shuffle,
+    Barrier, BatchId, CancellableBarrier, ClosedInterval, CosineLR, OptimizerDefinition, Shuffle,
 };
 use psyche_data_provider::{
     download_model_repo_sync, DataProvider, LengthKnownDataProvider, LocalDataProvider,
@@ -24,14 +23,6 @@ enum AttnImpl {
     Sdpa,
     #[cfg(feature = "parallelism")]
     FlashAttention2,
-}
-
-#[derive(ValueEnum, Clone, Copy, Debug)]
-enum DistroOptimizerArg {
-    #[value(name = "sgd")]
-    Sgd,
-    #[value(name = "adamw")]
-    AdamW,
 }
 
 impl From<AttnImpl> for AttentionImplementation {
@@ -137,12 +128,6 @@ struct RunArgs {
 
     #[arg(long, default_value_t = false)]
     distro: bool,
-
-    #[arg(long, default_value = "sgd")]
-    distro_optimizer: DistroOptimizerArg,
-
-    #[arg(long, default_value_t = 100)]
-    distro_adamw_mask_stats_every: u32,
 
     #[arg(long, default_value_t = false)]
     distro_quantization: bool,
@@ -261,17 +246,6 @@ async fn main() -> Result<()> {
 
     let optimizer = match args.distro {
         true => OptimizerDefinition::Distro {
-            algorithm: match args.distro_optimizer {
-                DistroOptimizerArg::Sgd => DistroOptimizerDefinition::SGD,
-                DistroOptimizerArg::AdamW => DistroOptimizerDefinition::AdamW {
-                    betas: [args.beta1, args.beta2],
-                    eps: args.eps,
-                    mask_stats_every: match args.distro_adamw_mask_stats_every {
-                        0 => None,
-                        value => Some(value),
-                    },
-                },
-            },
             clip_grad_norm,
             compression_decay: args.compression_decay,
             compression_topk: args.compression_topk,

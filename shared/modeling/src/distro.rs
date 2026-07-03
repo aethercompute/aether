@@ -1,5 +1,4 @@
 use crate::{CausalLM, StableVariableIterator, Variable};
-use psyche_core::DistroOptimizerDefinition;
 
 use std::{cmp::Ordering, collections::HashMap, f64::consts::PI};
 use tch::{COptimizer, Device, Kind, Tensor};
@@ -294,18 +293,8 @@ impl TransformDCT {
             let n2 = x_shape[ndim - 1];
             let device = x.device();
 
-            let n1w = self
-                .b_dict
-                .get(&n1)
-                .unwrap()
-                .to_device(device)
-                .to_kind(x.kind());
-            let n2w = self
-                .b_dict
-                .get(&n2)
-                .unwrap()
-                .to_device(device)
-                .to_kind(x.kind());
+            let n1w = self.b_dict.get(&n1).unwrap().to_device(device);
+            let n2w = self.b_dict.get(&n2).unwrap().to_device(device);
 
             self.b_dict.insert(n1, n1w.copy());
             self.b_dict.insert(n2, n2w.copy());
@@ -325,12 +314,7 @@ impl TransformDCT {
             let n1 = x_shape[1];
             let device = x.device();
 
-            let n1w = self
-                .b_dict
-                .get(&n1)
-                .unwrap()
-                .to_device(device)
-                .to_kind(x.kind());
+            let n1w = self.b_dict.get(&n1).unwrap().to_device(device);
             self.b_dict.insert(n1, n1w.copy());
 
             let x = Self::einsum_2d_t(x, &n1w, None);
@@ -423,22 +407,6 @@ impl CompressDCT {
         // Call the decompress method
         Self::decompress(&idx_concat, &val_concat, xshape, totalk, kind, device)
     }
-
-    pub fn batch_survival_mask(
-        idx: &[Tensor],
-        xshape: &[i64],
-        totalk: i64,
-        kind: Kind,
-        device: Device,
-    ) -> Tensor {
-        let ones = idx
-            .iter()
-            .map(|idx| Tensor::ones(idx.size(), (kind, device)))
-            .collect::<Vec<_>>();
-        Self::batch_decompress(idx, &ones, xshape, totalk, kind, device)
-            .gt(0.0)
-            .to_kind(kind)
-    }
 }
 
 fn compress_idx(max_value: i64, idx: &Tensor) -> Tensor {
@@ -468,9 +436,6 @@ fn decompress_idx(max_value: i64, idx: &Tensor) -> Tensor {
 
 struct State {
     delta: Box<dyn Variable>,
-    adam_m: Option<Tensor>,
-    adam_v: Option<Tensor>,
-    adam_observations: Option<Tensor>,
 }
 
 #[derive(Debug)]
@@ -495,97 +460,12 @@ impl Clone for DistroResult {
 }
 
 pub struct Distro {
-    optimizer: DistroOptimizer,
-    optimizer_definition: DistroOptimizerDefinition,
+    sgd: COptimizer,
     compression_decay: f64,
     compression_topk: i64,
     weight_decay: f64,
     state: Vec<State>,
     transform: TransformDCT,
-}
-
-enum DistroOptimizer {
-    Sgd(COptimizer),
-    AdamW {
-        betas: [f64; 2],
-        eps: f64,
-        mask_stats_every: Option<u32>,
-        apply_step: u64,
-    },
-}
-
-impl DistroOptimizer {
-    fn new(definition: DistroOptimizerDefinition) -> Self {
-        match definition {
-            DistroOptimizerDefinition::SGD => {
-                Self::Sgd(COptimizer::sgd(0.1, 0.0, 0.0, 0.0, false).unwrap())
-            }
-            DistroOptimizerDefinition::AdamW {
-                betas,
-                eps,
-                mask_stats_every,
-            } => Self::AdamW {
-                betas: [betas[0] as f64, betas[1] as f64],
-                eps: eps as f64,
-                mask_stats_every,
-                apply_step: 0,
-            },
-        }
-    }
-
-    fn add_parameters(&mut self, tensor: &Tensor) {
-        if let Self::Sgd(optimizer) = self {
-            optimizer.add_parameters(tensor, 0).unwrap();
-        }
-    }
-
-    fn sgd_step(&mut self, lr: f64) {
-        if let Self::Sgd(optimizer) = self {
-            optimizer.set_learning_rate(lr).unwrap();
-            optimizer.step().unwrap();
-            optimizer.zero_grad().unwrap();
-        }
-    }
-
-    fn adamw_config(&self) -> Option<([f64; 2], f64, Option<u32>, u64)> {
-        match self {
-            Self::AdamW {
-                betas,
-                eps,
-                mask_stats_every,
-                apply_step,
-            } => Some((*betas, *eps, *mask_stats_every, *apply_step)),
-            Self::Sgd(_) => None,
-        }
-    }
-
-    fn finish_adamw_step(&mut self) {
-        if let Self::AdamW { apply_step, .. } = self {
-            *apply_step += 1;
-        }
-    }
-
-    fn is_sgd(&self) -> bool {
-        matches!(self, Self::Sgd(_))
-    }
-}
-
-fn kind_size_bytes(kind: Kind) -> u64 {
-    match kind {
-        Kind::Bool | Kind::Int8 | Kind::Uint8 => 1,
-        Kind::Half | Kind::BFloat16 | Kind::Int16 | Kind::UInt16 => 2,
-        Kind::Float | Kind::Int | Kind::UInt32 => 4,
-        Kind::Double | Kind::Int64 => 8,
-        _ => 4,
-    }
-}
-
-fn shape_bytes(shape: &[i64], kind: Kind) -> u64 {
-    shape
-        .iter()
-        .map(|dim| *dim as u64)
-        .product::<u64>()
-        .saturating_mul(kind_size_bytes(kind))
 }
 
 impl Distro {
@@ -595,66 +475,25 @@ impl Distro {
         compression_chunk: i64,
         compression_topk: i64,
         weight_decay: f64,
-        optimizer_definition: DistroOptimizerDefinition,
     ) -> Self {
         let _no_grad = tch::no_grad_guard();
-        let mut optimizer = DistroOptimizer::new(optimizer_definition);
-        let mut transform = TransformDCT::new(vs.variables(), compression_chunk);
-        let adamw = optimizer.adamw_config().is_some();
+        let mut sgd = COptimizer::sgd(0.1, 0.0, 0.0, 0.0, false).unwrap();
 
         let mut state = Vec::new();
-        let mut baseline_delta_bytes = 0_u64;
-        let mut adamw_extra_bytes = 0_u64;
         for variable in vs.variables() {
-            let logical_tensor = variable.logical_tensor();
-            let delta = variable.zeros_like(format!("{}.delta", variable.name()));
-            baseline_delta_bytes = baseline_delta_bytes.saturating_add(shape_bytes(
-                &delta.logical_tensor().size(),
-                logical_tensor.kind(),
-            ));
-
-            let (adam_m, adam_v, adam_observations) = match adamw {
-                true => {
-                    let encoded_shape = transform.encode(&logical_tensor).size();
-                    let state_bytes = shape_bytes(&encoded_shape, Kind::Float);
-                    adamw_extra_bytes = adamw_extra_bytes.saturating_add(state_bytes * 3);
-                    let state_options = (Kind::Float, logical_tensor.device());
-                    (
-                        Some(Tensor::zeros(&encoded_shape, state_options)),
-                        Some(Tensor::zeros(&encoded_shape, state_options)),
-                        Some(Tensor::zeros(&encoded_shape, state_options)),
-                    )
-                }
-                false => (None, None, None),
-            };
-
             state.push(State {
-                delta,
-                adam_m,
-                adam_v,
-                adam_observations,
+                delta: variable.zeros_like(format!("{}.delta", variable.name())),
             });
 
-            optimizer.add_parameters(&logical_tensor);
+            let logical_tensor = variable.logical_tensor();
+            sgd.add_parameters(&logical_tensor, 0).unwrap();
             variable.zero_grad();
         }
 
-        if adamw {
-            let extra_vs_sgd_delta = match baseline_delta_bytes {
-                0 => 0.0,
-                baseline => adamw_extra_bytes as f64 / baseline as f64,
-            };
-            tracing::info!(
-                baseline_delta_bytes,
-                adamw_extra_bytes,
-                extra_vs_sgd_delta,
-                "Distro AdamW optimizer state memory overhead"
-            );
-        }
+        let transform = TransformDCT::new(vs.variables(), compression_chunk);
 
         Self {
-            optimizer,
-            optimizer_definition,
+            sgd,
             compression_decay,
             compression_topk,
             weight_decay,
@@ -691,9 +530,7 @@ impl Distro {
             let delta_var = &mut self.state.get_mut(index).unwrap().delta;
             let mut delta = delta_var.logical_tensor();
 
-            if self.optimizer.is_sgd() {
-                let _t = variable.g_add_(&delta.sign().multiply_scalar(prev_lr));
-            }
+            let _t = variable.g_add_(&delta.sign().multiply_scalar(prev_lr));
 
             if !prev_self_results.is_empty() {
                 let device = variable.device();
@@ -731,7 +568,7 @@ impl Distro {
             }
 
             // weight decay
-            if self.optimizer.is_sgd() && self.weight_decay != 0.0 {
+            if self.weight_decay != 0.0 {
                 let _t = variable.g_mul_scalar_(1.0 - lr * self.weight_decay);
             }
 
@@ -741,12 +578,7 @@ impl Distro {
             }
 
             // add delta to new gradient
-            let grad = variable.grad();
-            let grad = match self.optimizer.is_sgd() {
-                true => grad.multiply_scalar(lr),
-                false => grad,
-            };
-            let _t = delta.g_add_(&grad);
+            let _t = delta.g_add_(&variable.grad().multiply_scalar(lr));
 
             // Compress delta
             let full_delta = delta_var.gather_full_tensor();
@@ -788,20 +620,16 @@ impl Distro {
         if results.is_empty() {
             return;
         }
-        let adamw_config = self.optimizer.adamw_config();
 
         for (index, var) in vars.variables().enumerate() {
-            let mut variable = var.logical_tensor();
+            let variable = var.logical_tensor();
             let device = variable.device();
             let indicies = results
                 .iter()
                 .map(|x| x[index].sparse_idx.to_device(device))
                 .collect::<Vec<_>>();
 
-            let val_kind: Kind = match adamw_config.is_some() {
-                true => Kind::Float,
-                false => variable.kind(),
-            };
+            let val_kind: Kind = variable.kind();
             let values = results
                 .iter()
                 .map(|x| {
@@ -814,7 +642,7 @@ impl Distro {
                 })
                 .collect::<Vec<_>>();
 
-            // Decode post-sync DCT-coefficient delta from all nodes.
+            // Decode grad from all nodes
             let decompressed = CompressDCT::batch_decompress(
                 &indicies,
                 &values,
@@ -824,85 +652,21 @@ impl Distro {
                 device,
             );
 
-            if adamw_config.is_none() {
-                var.set_grad(self.transform.decode(&decompressed));
-                let _t = variable.grad().sign_();
-                continue;
-            }
+            // Set the gradients!!!
+            var.set_grad(self.transform.decode(&decompressed));
 
-            let (betas, eps, mask_stats_every, apply_step) = adamw_config.unwrap();
-            let mask = CompressDCT::batch_survival_mask(
-                &indicies,
-                &results[0][index].xshape,
-                results[0][index].totalk,
-                Kind::Float,
-                device,
-            );
-
-            let state = self.state.get_mut(index).unwrap();
-            let m = state.adam_m.as_mut().unwrap();
-            let v = state.adam_v.as_mut().unwrap();
-            let observations = state.adam_observations.as_mut().unwrap();
-
-            // δ has already been compression-decayed in generate(); beta1 is a
-            // second EMA on top of that, so sweep them together deliberately.
-            let beta1 = betas[0];
-            let beta2 = betas[1];
-            let updated_m = &*m * beta1 + &decompressed * (1.0 - beta1);
-            let updated_v = &*v * beta2 + decompressed.pow_tensor_scalar(2) * (1.0 - beta2);
-            let inv_mask = Tensor::ones_like(&mask) - &mask;
-            m.copy_(&((&*m * &inv_mask) + (updated_m * &mask)));
-            v.copy_(&((&*v * &inv_mask) + (updated_v * &mask)));
-            let _t = observations.g_add_(&mask);
-
-            let observed = observations.gt(0.0).to_kind(Kind::Float);
-            let unobserved = Tensor::ones_like(&observed) - observed;
-            let bias_correction1 = Tensor::ones_like(observations)
-                - observations.multiply_scalar(beta1.ln()).exp()
-                + &unobserved;
-            let bias_correction2 = Tensor::ones_like(observations)
-                - observations.multiply_scalar(beta2.ln()).exp()
-                + &unobserved;
-            let update_coeff =
-                ((&*m / bias_correction1) / ((&*v / bias_correction2).sqrt() + eps)) * lr * &mask;
-
-            if self.weight_decay != 0.0 {
-                let _t = variable.g_mul_scalar_(1.0 - lr * self.weight_decay);
-            }
-
-            let update = self
-                .transform
-                .decode(&update_coeff)
-                .to_kind(variable.kind());
-            let _t = variable.g_sub_(&update);
-
-            if let Some(every) = mask_stats_every {
-                if every > 0 && apply_step % every as u64 == 0 {
-                    let current_skip_fraction =
-                        1.0 - f64::try_from(mask.mean(Kind::Float)).unwrap_or(0.0);
-                    let cumulative_survival = f64::try_from(observations.mean(Kind::Float))
-                        .unwrap_or(0.0)
-                        / (apply_step + 1) as f64;
-                    tracing::info!(
-                        parameter = var.name(),
-                        current_skip_fraction,
-                        cumulative_skip_fraction = 1.0 - cumulative_survival,
-                        "Distro AdamW masked moment update stats"
-                    );
-                }
-            }
+            // Sign-SGD
+            let _t = variable.grad().sign_();
         }
-        match adamw_config {
-            Some(_) => self.optimizer.finish_adamw_step(),
-            None => self.optimizer.sgd_step(lr),
+        // SGD step
+        self.sgd.set_learning_rate(lr).unwrap();
+        let _ = self.sgd.step();
+        for var in vars.variables() {
+            var.zero_grad();
         }
     }
 
     pub fn error_correction(&mut self, vars: &dyn CausalLM, prev_lr: f64) {
-        if !self.optimizer.is_sgd() {
-            return;
-        }
-
         let _no_grad = tch::no_grad_guard();
         for (index, var) in vars.variables().enumerate() {
             let mut variable = var.logical_tensor();
@@ -914,24 +678,9 @@ impl Distro {
         }
     }
 
-    pub fn zero_optim(&mut self, vars: &dyn CausalLM) {
+    pub fn zero_optim(&mut self) {
         for state in &mut self.state {
             let _ = state.delta.logical_tensor().zero_();
-            if let Some(m) = &mut state.adam_m {
-                let _ = m.zero_();
-            }
-            if let Some(v) = &mut state.adam_v {
-                let _ = v.zero_();
-            }
-            if let Some(observations) = &mut state.adam_observations {
-                let _ = observations.zero_();
-            }
-        }
-
-        self.optimizer = DistroOptimizer::new(self.optimizer_definition);
-        for variable in vars.variables() {
-            let logical_tensor = variable.logical_tensor();
-            self.optimizer.add_parameters(&logical_tensor);
         }
     }
 

@@ -321,8 +321,8 @@ mod tests {
 
     #[test]
     fn closed_interval_hash_is_consistent() {
-        use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
 
         let a = ClosedInterval::new(1, 5);
         let b = ClosedInterval::new(1, 5);

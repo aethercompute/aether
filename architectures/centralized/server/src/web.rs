@@ -3,7 +3,7 @@ use psyche_coordinator::{
     model::{Checkpoint, LLMArchitecture, LLMTrainingDataType, Model},
     ClientState, Coordinator, RunState, NUM_STORED_ROUNDS,
 };
-use psyche_core::{DistroOptimizerDefinition, LearningRateSchedule, OptimizerDefinition};
+use psyche_core::{LearningRateSchedule, OptimizerDefinition};
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -399,7 +399,6 @@ fn format_optimizer(opt: &OptimizerDefinition) -> String {
             )
         }
         OptimizerDefinition::Distro {
-            algorithm,
             clip_grad_norm,
             weight_decay,
             compression_decay,
@@ -413,31 +412,9 @@ fn format_optimizer(opt: &OptimizerDefinition) -> String {
             let wd = weight_decay
                 .map(|v| v.to_string())
                 .unwrap_or_else(|| "None".into());
-            let algorithm = match algorithm {
-                DistroOptimizerDefinition::SGD => "SGD".into(),
-                DistroOptimizerDefinition::AdamW {
-                    betas,
-                    eps,
-                    mask_stats_every,
-                } => {
-                    let mask_stats = mask_stats_every
-                        .map(|v| v.to_string())
-                        .unwrap_or_else(|| "None".into());
-                    format!(
-                        "AdamW(betas=[{},{}], eps={}, mask_stats_every={})",
-                        betas[0], betas[1], eps, mask_stats
-                    )
-                }
-            };
             format!(
-                "Distro(algorithm={}, clip={}, wd={}, comp_decay={}, topk={}, chunk={}, quantize_1bit={})",
-                algorithm,
-                clip,
-                wd,
-                compression_decay,
-                compression_topk,
-                compression_chunk,
-                quantize_1bit
+                "Distro(clip={}, wd={}, comp_decay={}, topk={}, chunk={}, quantize_1bit={})",
+                clip, wd, compression_decay, compression_topk, compression_chunk, quantize_1bit
             )
         }
     }

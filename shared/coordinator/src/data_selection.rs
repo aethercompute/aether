@@ -324,14 +324,7 @@ mod tests {
         let first_node = *assignments.values().next().unwrap();
         let ids = get_batch_ids_for_node(&assignments, &first_node);
         assert_eq!(ids.len(), 1);
-        assert_eq!(
-            ids[0],
-            *assignments
-                .iter()
-                .find(|(_, v)| **v == first_node)
-                .unwrap()
-                .0
-        );
+        assert_eq!(ids[0], *assignments.iter().find(|(_, v)| **v == first_node).unwrap().0);
     }
 
     #[test]
