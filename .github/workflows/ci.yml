@@ -87,6 +87,7 @@ jobs:
           cache-all-crates: true
       - name: Generate coverage
         run: |
+          mkdir -p ./coverage
           cargo llvm-cov --no-report \
             -p psyche-core -p psyche-coordinator -p psyche-event-sourcing \
             -p psyche-metrics -p psyche-tui -p psyche-watcher -p psyche-data-provider \
