@@ -121,6 +121,29 @@ def model_marker_path() -> Path:
     return marker_dir() / "model-push.json"
 
 
+def read_model_markers() -> dict[str, float]:
+    marker = model_marker_path()
+    if not marker.exists():
+        return {}
+    try:
+        data = json.loads(marker.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    if isinstance(data.get("repos"), dict):
+        return {str(repo): float(timestamp) for repo, timestamp in data["repos"].items()}
+    if data.get("repo"):
+        return {str(data["repo"]): float(data.get("timestamp", 0))}
+    return {}
+
+
+def mark_model_repos(repos: list[str]) -> None:
+    markers = read_model_markers()
+    now = time.time()
+    for repo in repos:
+        markers[repo] = now
+    model_marker_path().write_text(json.dumps({"repos": markers}, indent=2) + "\n", encoding="utf-8")
+
+
 def dataset_status(config: dict) -> tuple[bool, str]:
     dataset = config.get("dataset", {})
     output_dir = repo_root() / dataset.get("output_dir", "")
@@ -153,17 +176,55 @@ def model_status(config: dict) -> tuple[bool, str]:
     model = config.get("model", {})
     if not model.get("enabled", True):
         return True, "disabled"
-    marker = model_marker_path()
-    if not marker.exists():
+    markers = read_model_markers()
+    if not markers:
         return False, "no successful push recorded by this dashboard"
-    try:
-        data = json.loads(marker.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return False, "push marker is invalid"
     repo = model.get("repo", "")
-    if data.get("repo") != repo:
-        return False, f"last push was for {data.get('repo', '<unknown>')}"
-    return True, f"last pushed {time.ctime(data.get('timestamp', 0))}"
+    if repo not in markers:
+        return False, f"no successful push recorded for {repo}"
+    return True, f"last pushed {time.ctime(markers[repo])}"
+
+
+def experiment_state_paths(config: dict) -> list[Path]:
+    experiment_path = repo_root() / config.get("server", {}).get(
+        "experiment_path", "config/experiment-run.toml"
+    )
+    with experiment_path.open("rb") as f:
+        experiment = tomllib.load(f)
+    base_dir = experiment_path.parent
+    paths = []
+    for run in experiment.get("runs", []):
+        state = Path(run["state"])
+        paths.append(state if state.is_absolute() else base_dir / state)
+    return paths
+
+
+def state_checkpoint_repo(state_path: Path) -> str:
+    text = state_path.read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if line.strip().startswith("repo_id"):
+            return line.split("=", 1)[1].strip().strip('"')
+    raise RuntimeError(f"checkpoint repo not found in {state_path}")
+
+
+def experiment_model_repos(config: dict) -> list[str]:
+    repos: list[str] = []
+    for state_path in experiment_state_paths(config):
+        repo = state_checkpoint_repo(state_path)
+        if repo not in repos:
+            repos.append(repo)
+    return repos
+
+
+def experiment_model_status(config: dict) -> tuple[bool, str]:
+    if not config.get("model", {}).get("enabled", True):
+        return True, "disabled"
+    repos = experiment_model_repos(config)
+    markers = read_model_markers()
+    missing = [repo for repo in repos if repo not in markers]
+    if missing:
+        return False, f"missing init model pushes for: {', '.join(missing)}"
+    return True, f"ready: {len(repos)} experiment repos pushed"
 
 
 def state_checkpoint(config: dict) -> str:
@@ -307,6 +368,68 @@ def push_model_command(config: dict) -> list[str]:
     return command
 
 
+def push_model_command_for_repo(config: dict, repo: str) -> list[str]:
+    model = dict(config["model"])
+    model["repo"] = repo
+    next_config = dict(config)
+    next_config["model"] = model
+    return push_model_command(next_config)
+
+
+def run_background_sequence(name: str, commands: list[list[str]], on_success=None) -> Job:
+    if not commands:
+        raise RuntimeError("no commands to run")
+    with STATE.lock:
+        active = STATE.job
+        if active and active.running:
+            raise RuntimeError(f"{active.name} is already running")
+        job = Job(name=name, command=[" && ".join(shell_join(command) for command in commands)])
+        STATE.job = job
+
+    def worker() -> None:
+        try:
+            env = os.environ.copy()
+            env["PYTHONUNBUFFERED"] = "1"
+            for command in commands:
+                STATE.append_log(job, f"$ {shell_join(command)}")
+                process = subprocess.Popen(
+                    command,
+                    cwd=repo_root(),
+                    env=env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                )
+                with STATE.lock:
+                    job.process = process
+                assert process.stdout is not None
+                for line in process.stdout:
+                    STATE.append_log(job, line)
+                returncode = process.wait()
+                if returncode != 0:
+                    with STATE.lock:
+                        job.returncode = returncode
+                        job.finished_at = time.time()
+                        job.process = None
+                    return
+            with STATE.lock:
+                job.returncode = 0
+                job.finished_at = time.time()
+                job.process = None
+            if on_success is not None:
+                on_success()
+        except Exception as exc:
+            with STATE.lock:
+                job.log.append(f"ERROR: {exc}")
+                job.returncode = -1
+                job.finished_at = time.time()
+                job.process = None
+
+    threading.Thread(target=worker, daemon=True).start()
+    return job
+
+
 def validate_command(config: dict) -> list[str]:
     return [
         "psyche-centralized-server",
@@ -369,6 +492,15 @@ def ensure_training_prereqs(config: dict) -> None:
         raise RuntimeError(f"init model is not ready: {model_message}")
 
 
+def ensure_experiment_training_prereqs(config: dict) -> None:
+    data_ready, data_message = dataset_status(config)
+    if config.get("dataset", {}).get("enabled", True) and not data_ready:
+        raise RuntimeError(f"dataset is not ready: {data_message}")
+    model_ready, model_message = experiment_model_status(config)
+    if config.get("model", {}).get("enabled", True) and not model_ready:
+        raise RuntimeError(f"experiment init models are not ready: {model_message}")
+
+
 def stop_server_job() -> str:
     with STATE.lock:
         server = STATE.server
@@ -395,6 +527,10 @@ def html_page(message: str | None = None) -> str:
     config = load_config()
     data_ready, data_message = dataset_status(config)
     model_ready, model_message = model_status(config)
+    try:
+        experiment_model_ready, experiment_model_message = experiment_model_status(config)
+    except Exception as err:
+        experiment_model_ready, experiment_model_message = False, str(err)
     checkpoint = state_checkpoint(config)
     with STATE.lock:
         job = STATE.job
@@ -467,6 +603,7 @@ def html_page(message: str | None = None) -> str:
     <section data-panel="status">
       <p>Dataset: <span class="{'ok' if data_ready else 'bad'}">{html.escape(data_message)}</span></p>
       <p>Init model: <span class="{'ok' if model_ready else 'warn'}">{html.escape(model_message)}</span></p>
+      <p>Experiment init models: <span class="{'ok' if experiment_model_ready else 'warn'}">{html.escape(experiment_model_message)}</span></p>
       <p>State checkpoint: <code>{html.escape(checkpoint)}</code></p>
       <p>Training server: {render_job_status(server, live=True)}</p>
       <p>Live dashboard: <a href="http://{html.escape(os.environ.get('PUBLIC_HOST', 'localhost'))}:{config['server']['live_web_port']}/">port {config['server']['live_web_port']}</a></p>
@@ -481,6 +618,7 @@ def html_page(message: str | None = None) -> str:
       <div class="actions">
         <form method="post" action="/prepare-dataset"><button type="submit">Prepare dataset</button></form>
         <form method="post" action="/push-model"><button type="submit">Push init model</button></form>
+        <form method="post" action="/push-experiment-models"><button type="submit">Push experiment init models</button></form>
         <form method="post" action="/validate"><button type="submit">Validate state config</button></form>
         <form method="post" action="/start-server"><button type="submit">Start training server</button></form>
         <form method="post" action="/stop-server"><button type="submit">Stop training server</button></form>
@@ -568,13 +706,23 @@ class Handler(BaseHTTPRequestHandler):
                 command = push_model_command(config)
 
                 def mark_model() -> None:
-                    model_marker_path().write_text(
-                        json.dumps({"repo": config["model"]["repo"], "timestamp": time.time()}, indent=2) + "\n",
-                        encoding="utf-8",
-                    )
+                    mark_model_repos([config["model"]["repo"]])
 
                 run_background("push init model", command, on_success=mark_model)
                 message = "Init model push started."
+            elif path == "/push-experiment-models":
+                repos = experiment_model_repos(config)
+                commands = [push_model_command_for_repo(config, repo) for repo in repos]
+
+                def mark_experiment_models() -> None:
+                    mark_model_repos(repos)
+
+                run_background_sequence(
+                    "push experiment init models",
+                    commands,
+                    on_success=mark_experiment_models,
+                )
+                message = f"Experiment init model pushes started for {len(repos)} repos."
             elif path == "/validate":
                 run_background("validate config", validate_command(config))
                 message = "Config validation started."
@@ -585,7 +733,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/stop-server":
                 message = stop_server_job()
             elif path == "/start-experiment-server":
-                ensure_training_prereqs(config)
+                ensure_experiment_training_prereqs(config)
                 experiment_path = repo_root() / config.get("server", {}).get(
                     "experiment_path", "config/experiment-run.toml"
                 )
