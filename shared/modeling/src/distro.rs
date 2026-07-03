@@ -471,7 +471,7 @@ pub struct Distro {
 }
 
 enum DistroOptimizer {
-    SGD(COptimizer),
+    Sgd(COptimizer),
     AdamW(COptimizer),
 }
 
@@ -479,7 +479,7 @@ impl DistroOptimizer {
     fn new(definition: DistroOptimizerDefinition, weight_decay: f64) -> Self {
         match definition {
             DistroOptimizerDefinition::SGD => {
-                Self::SGD(COptimizer::sgd(0.1, 0.0, 0.0, 0.0, false).unwrap())
+                Self::Sgd(COptimizer::sgd(0.1, 0.0, 0.0, 0.0, false).unwrap())
             }
             DistroOptimizerDefinition::AdamW { betas, eps } => Self::AdamW(
                 COptimizer::adamw(
@@ -497,7 +497,7 @@ impl DistroOptimizer {
 
     fn add_parameters(&mut self, tensor: &Tensor) {
         match self {
-            Self::SGD(optimizer) | Self::AdamW(optimizer) => {
+            Self::Sgd(optimizer) | Self::AdamW(optimizer) => {
                 optimizer.add_parameters(tensor, 0).unwrap();
             }
         }
@@ -505,7 +505,7 @@ impl DistroOptimizer {
 
     fn step(&mut self, lr: f64) {
         match self {
-            Self::SGD(optimizer) | Self::AdamW(optimizer) => {
+            Self::Sgd(optimizer) | Self::AdamW(optimizer) => {
                 optimizer.set_learning_rate(lr).unwrap();
                 optimizer.step().unwrap();
             }
@@ -514,12 +514,12 @@ impl DistroOptimizer {
 
     fn zero_grad(&mut self) {
         match self {
-            Self::SGD(optimizer) | Self::AdamW(optimizer) => optimizer.zero_grad().unwrap(),
+            Self::Sgd(optimizer) | Self::AdamW(optimizer) => optimizer.zero_grad().unwrap(),
         }
     }
 
     fn is_sgd(&self) -> bool {
-        matches!(self, Self::SGD(_))
+        matches!(self, Self::Sgd(_))
     }
 }
 

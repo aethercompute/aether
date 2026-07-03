@@ -29,7 +29,7 @@ enum AttnImpl {
 #[derive(ValueEnum, Clone, Copy, Debug)]
 enum DistroOptimizerArg {
     #[value(name = "sgd")]
-    SGD,
+    Sgd,
     #[value(name = "adamw")]
     AdamW,
 }
@@ -259,7 +259,7 @@ async fn main() -> Result<()> {
     let optimizer = match args.distro {
         true => OptimizerDefinition::Distro {
             algorithm: match args.distro_optimizer {
-                DistroOptimizerArg::SGD => DistroOptimizerDefinition::SGD,
+                DistroOptimizerArg::Sgd => DistroOptimizerDefinition::SGD,
                 DistroOptimizerArg::AdamW => DistroOptimizerDefinition::AdamW {
                     betas: [args.beta1, args.beta2],
                     eps: args.eps,

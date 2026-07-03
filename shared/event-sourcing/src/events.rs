@@ -319,8 +319,8 @@ impl From<ResourceSnapshot> for EventData {
 #[cfg(test)]
 mod tests {
     use super::{
-        client, cooldown, coordinator, train, warmup, BatchId, Client, Cooldown, Event,
-        EventData, ResourceSnapshot, RpcCallType, RunStarted, SubscriptionStatus, Train, Warmup,
+        client, cooldown, coordinator, train, warmup, BatchId, Client, Cooldown, Event, EventData,
+        ResourceSnapshot, RpcCallType, RunStarted, SubscriptionStatus, Train, Warmup,
     };
     use chrono::Utc;
     use psyche_core::ClosedInterval;
@@ -395,13 +395,13 @@ mod tests {
 
     #[test]
     fn coordinator_state_changed_roundtrip() {
-        let event = make_event(
-            EventData::CoordinatorEvent(super::CoordinatorEvent::CoordinatorStateChanged(
+        let event = make_event(EventData::CoordinatorEvent(
+            super::CoordinatorEvent::CoordinatorStateChanged(
                 coordinator::CoordinatorStateChanged {
                     new_state_hash: "abc123".to_string(),
                 },
-            )),
-        );
+            ),
+        ));
         let back = psyche_test_support::postcard_roundtrip(&event);
         match &back.data {
             EventData::CoordinatorEvent(ce) => {
@@ -455,14 +455,17 @@ mod tests {
             warmup::ModelLoadComplete,
         )));
         let back = psyche_test_support::postcard_roundtrip(&event);
-        assert!(matches!(back.data, EventData::Warmup(Warmup::ModelLoadComplete(_))));
+        assert!(matches!(
+            back.data,
+            EventData::Warmup(Warmup::ModelLoadComplete(_))
+        ));
     }
 
     #[test]
     fn cooldown_model_serialization_started_roundtrip() {
-        let event = make_event(EventData::Cooldown(
-            Cooldown::ModelSerializationStarted(cooldown::ModelSerializationStarted),
-        ));
+        let event = make_event(EventData::Cooldown(Cooldown::ModelSerializationStarted(
+            cooldown::ModelSerializationStarted,
+        )));
         let back = psyche_test_support::postcard_roundtrip(&event);
         assert!(matches!(
             back.data,
