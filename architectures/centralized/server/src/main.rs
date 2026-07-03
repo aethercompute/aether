@@ -10,6 +10,7 @@ use psyche_tui::{
     logging::{MetricsDestination, OpenTelemetry, RemoteLogsDestination, TraceDestination},
     LogOutput, ServiceInfo,
 };
+use serde::Deserialize;
 use std::{
     path::{Path, PathBuf},
     time::Duration,
@@ -52,8 +53,12 @@ enum Commands {
 #[derive(Parser, Debug, Clone)]
 struct RunArgs {
     /// Path to TOML of Coordinator state
+    #[clap(long, required_unless_present = "experiment")]
+    state: Option<PathBuf>,
+
+    /// Path to an experiment TOML listing state.toml files to run sequentially.
     #[clap(long)]
-    state: PathBuf,
+    experiment: Option<PathBuf>,
 
     /// Port for the server, which clients will use to connect. if not specified, a random free port will be chosen.
     #[clap(short, long)]
@@ -118,6 +123,16 @@ struct RunArgs {
     pub oltp_logs_url: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct ExperimentConfig {
+    runs: Vec<ExperimentRun>,
+}
+
+#[derive(Deserialize)]
+struct ExperimentRun {
+    state: PathBuf,
+}
+
 fn load_config_state(
     state_path: PathBuf,
     data_config_path: Option<PathBuf>,
@@ -156,6 +171,42 @@ fn load_config_state(
     Ok((coordinator, data_server_config))
 }
 
+fn load_experiment(
+    path: PathBuf,
+    data_config_path: Option<PathBuf>,
+) -> Result<(Coordinator, Option<DataServerInfo>, Vec<Coordinator>)> {
+    let experiment: ExperimentConfig = toml::from_str(std::str::from_utf8(
+        &std::fs::read(&path)
+            .with_context(|| format!("failed to read experiment toml file {path:?}"))?,
+    )?)
+    .with_context(|| format!("failed to parse experiment toml file {path:?}"))?;
+
+    let base_dir = path.parent().unwrap_or(Path::new(""));
+    let mut states: Vec<PathBuf> = experiment
+        .runs
+        .into_iter()
+        .map(|run| {
+            if run.state.is_absolute() {
+                run.state
+            } else {
+                base_dir.join(run.state)
+            }
+        })
+        .collect();
+
+    if states.is_empty() {
+        bail!("experiment must contain at least one [[runs]] entry");
+    }
+
+    let first_state = states.remove(0);
+    let (first, data_config) = load_config_state(first_state, data_config_path)?;
+    let remaining = states
+        .into_iter()
+        .map(|state_path| load_config_state(state_path, None).map(|(coordinator, _)| coordinator))
+        .collect::<Result<Vec<_>>>()?;
+    Ok((first, data_config, remaining))
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     #[cfg(feature = "python")]
@@ -180,7 +231,17 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Run { run_args } => {
-            let config = load_config_state(run_args.state, run_args.data_config);
+            let experiment = match run_args.experiment.clone() {
+                Some(path) => Some(load_experiment(path, run_args.data_config.clone())),
+                None => None,
+            };
+            let config = match (experiment, run_args.state.clone()) {
+                (Some(Ok(config)), _) => Ok(config),
+                (Some(Err(err)), _) => Err(err),
+                (None, Some(state)) => load_config_state(state, run_args.data_config.clone())
+                    .map(|(coordinator, data)| (coordinator, data, Vec::new())),
+                (None, None) => bail!("either --state or --experiment must be provided"),
+            };
             let logger = psyche_tui::logging::logging()
                 .with_output(if run_args.tui {
                     LogOutput::TUI
@@ -223,6 +284,7 @@ async fn main() -> Result<()> {
                         run_args.tui,
                         config.0,
                         config.1,
+                        config.2,
                         run_args.server_port,
                         run_args.save_state_dir,
                         run_args.events_dir,

@@ -999,7 +999,10 @@ pub enum InitStage {
     Running(Box<StepStateMachine>),
 }
 
-pub struct RunManager(InitStage);
+pub struct RunManager {
+    stage: InitStage,
+    init_config: RunInitConfigAndIO,
+}
 
 #[derive(Error, Debug)]
 pub enum ApplyStateError {
@@ -1012,11 +1015,14 @@ pub enum ApplyStateError {
 
 impl RunManager {
     pub fn new(config: RunInitConfigAndIO) -> Self {
-        Self(InitStage::NotYetInitialized(Some(config.into())))
+        Self {
+            stage: InitStage::NotYetInitialized(Some(Box::new(config.clone()))),
+            init_config: config,
+        }
     }
 
     pub fn coordinator_state(&self) -> Option<&Coordinator> {
-        match &self.0 {
+        match &self.stage {
             InitStage::NotYetInitialized(..) => None,
             InitStage::Initializing(init_state) => Some(&init_state.1),
             InitStage::Running(step_state_machine) => Some(&step_state_machine.coordinator_state),
@@ -1026,13 +1032,13 @@ impl RunManager {
     pub async fn try_send_opportunistic_witness(
         &mut self,
     ) -> Result<(), OpportunisticWitnessError> {
-        if let InitStage::Initializing(init) = &mut self.0 {
+        if let InitStage::Initializing(init) = &mut self.stage {
             let (_init_future, init_state) = &**init;
             // if we're still initializing, check to see if we're done
             let init_state = *init_state;
             self.apply_state(init_state).await?;
         }
-        if let InitStage::Running(state_machine) = &mut self.0 {
+        if let InitStage::Running(state_machine) = &mut self.stage {
             state_machine.try_send_opportunistic_witness()?;
         }
         Ok(())
@@ -1043,7 +1049,7 @@ impl RunManager {
         from_client_id: NodeIdentity,
         training_result: Broadcast,
     ) -> Result<ApplyMessageOutcome, ApplyMessageError> {
-        match &mut self.0 {
+        match &mut self.stage {
             InitStage::Running(state_machine) => {
                 state_machine.apply_message(from_client_id, training_result)
             }
@@ -1060,7 +1066,7 @@ impl RunManager {
         distro_result: TransmittableDistroResult,
         self_result: Option<Vec<DistroResult>>,
     ) {
-        match &mut self.0 {
+        match &mut self.stage {
             InitStage::Running(state_machine) => {
                 state_machine.apply_distro_result(hash, distro_result, self_result);
             }
@@ -1071,7 +1077,32 @@ impl RunManager {
     }
 
     pub async fn apply_state(&mut self, state: Coordinator) -> Result<(), ApplyStateError> {
-        let new_state = match &mut self.0 {
+        if let InitStage::Running(state_machine) = &self.stage {
+            if state.run_state == RunState::WaitingForMembers
+                && state.run_id != state_machine.coordinator_state.run_id
+            {
+                info!(
+                    old_run_id = %state_machine.coordinator_state.run_id,
+                    new_run_id = %state.run_id,
+                    "switching client to next experiment run"
+                );
+                self.stage = InitStage::NotYetInitialized(Some(Box::new(self.init_config.clone())));
+            }
+        }
+        if let InitStage::Initializing(init) = &mut self.stage {
+            let (init_future, init_state) = &mut **init;
+            if state.run_state == RunState::WaitingForMembers && state.run_id != init_state.run_id {
+                info!(
+                    old_run_id = %init_state.run_id,
+                    new_run_id = %state.run_id,
+                    "aborting stale initialization for next experiment run"
+                );
+                init_future.abort();
+                self.stage = InitStage::NotYetInitialized(Some(Box::new(self.init_config.clone())));
+            }
+        }
+
+        let new_state = match &mut self.stage {
             // Start initialization early for non-P2P checkpoints (Hub, GCS,
             // Dummy) — but ONLY when the coordinator is at WaitingForMembers
             // (an epoch boundary). This ensures we download the correct
@@ -1133,11 +1164,11 @@ impl RunManager {
         };
 
         if let Some(new_state) = new_state {
-            self.0 = new_state;
+            self.stage = new_state;
         }
 
         // yay ok new state! let's go!
-        if let InitStage::Running(state_machine) = &mut self.0 {
+        if let InitStage::Running(state_machine) = &mut self.stage {
             state_machine
                 .apply_state(state)
                 .instrument(trace_span!("StepStateMachine::apply_state"))
@@ -1148,21 +1179,21 @@ impl RunManager {
     }
 
     pub fn stats(&self) -> Option<Arc<Mutex<StatsLogger>>> {
-        match &self.0 {
+        match &self.stage {
             InitStage::Running(run) => Some(run.stats_logger.clone()),
             _ => None,
         }
     }
 
     pub fn set_endpoint_info(&mut self, endpoint_info: Vec<P2PEndpointInfo>) -> anyhow::Result<()> {
-        if let InitStage::Running(run) = &mut self.0 {
+        if let InitStage::Running(run) = &mut self.stage {
             run.set_endpoint_info(endpoint_info)?;
         }
         Ok(())
     }
 
     pub fn doing_checkpoint(&self) -> bool {
-        match &self.0 {
+        match &self.stage {
             InitStage::Running(step_state_machine) => {
                 let has_pending_uploads = step_state_machine
                     .pending_upload_handles
@@ -1187,7 +1218,7 @@ fn checkpoint_needs_p2p(state: &Coordinator) -> bool {
 
 impl From<&RunManager> for ClientTUIState {
     fn from(run: &RunManager) -> Self {
-        match &run.0 {
+        match &run.stage {
             InitStage::Running(state_machine) => {
                 let coordinator = &state_machine.coordinator_state;
                 let committee = state_machine

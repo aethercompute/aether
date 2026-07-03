@@ -77,6 +77,57 @@ pub struct RunInitConfig {
     pub sidecar_port: Option<u16>,
 }
 
+impl Clone for RunInitConfig {
+    fn clone(&self) -> Self {
+        Self {
+            identity: self.identity,
+            p2p_secret_key: self.p2p_secret_key.clone(),
+            max_concurrent_parameter_requests: self.max_concurrent_parameter_requests,
+            device: self.device.clone(),
+            hub_read_token: self.hub_read_token.clone(),
+            hub_max_concurrent_downloads: self.hub_max_concurrent_downloads,
+            data_parallelism: self.data_parallelism,
+            tensor_parallelism: self.tensor_parallelism,
+            micro_batch_size: self.micro_batch_size,
+            optim_stats_every_n_steps: self.optim_stats_every_n_steps,
+            grad_accum_in_fp32: self.grad_accum_in_fp32,
+            eval_task_max_docs: self.eval_task_max_docs,
+            eval_tasks: Vec::new(),
+            prompt_task: self.prompt_task,
+            wandb_info: self.wandb_info.clone(),
+            write_gradients_dir: self.write_gradients_dir.clone(),
+            checkpoint_config: self.checkpoint_config.clone(),
+            dummy_training_delay_secs: self.dummy_training_delay_secs,
+            sidecar_port: self.sidecar_port,
+        }
+    }
+}
+
+impl RunInitConfig {
+    pub fn apply_run_templates(&mut self, run_id: &str) {
+        if let Some(wandb_info) = &mut self.wandb_info {
+            wandb_info.run = wandb_info.run.replace("{run_id}", run_id);
+            if let Some(group) = &mut wandb_info.group {
+                *group = group.replace("{run_id}", run_id);
+            }
+        }
+
+        if let Some(checkpoint_config) = &mut self.checkpoint_config {
+            if let Some(crate::state::UploadInfo::Hub(hub_info)) =
+                &mut checkpoint_config.upload_info
+            {
+                hub_info.hub_repo = hub_info.hub_repo.replace("{run_id}", run_id);
+            }
+            checkpoint_config.checkpoint_dir = PathBuf::from(
+                checkpoint_config
+                    .checkpoint_dir
+                    .to_string_lossy()
+                    .replace("{run_id}", run_id),
+            );
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum InitRunError {
     #[error("No model provided in Coordinator state, nothing to do.")]
@@ -155,6 +206,7 @@ struct RawLoadedModel {
 type OneshotModelParameterSender = oneshot::Sender<HashMap<String, Tensor>>;
 type OneShotModelConfigSender = oneshot::Sender<(String, Tokenizer, Vec<String>)>;
 
+#[derive(Clone)]
 pub struct RunInitConfigAndIO {
     pub init_config: RunInitConfig,
 
@@ -181,7 +233,7 @@ impl RunInitConfigAndIO {
     /// Call this on first warmup - when we need to enter the run, we have to load the model, connect to the data server, etc
     pub async fn init_run(self, state: Coordinator) -> Result<StepStateMachine, InitRunError> {
         let Self {
-            init_config,
+            mut init_config,
             tx_witness,
             tx_health_check,
             tx_checkpoint,
@@ -195,6 +247,9 @@ impl RunInitConfigAndIO {
             tx_ready_for_epoch,
             metrics,
         } = self;
+
+        let run_id = String::from(&state.run_id);
+        init_config.apply_run_templates(&run_id);
 
         tch::manual_seed(1337);
 
@@ -712,7 +767,6 @@ impl RunInitConfigAndIO {
         };
 
         let wandb_future: JoinHandle<Result<Option<wandb::Run>, wandb::ApiError>> = tokio::spawn({
-            let run_id = String::from(&state.run_id);
             async move {
                 match init_config.wandb_info {
                     Some(wandb_info) => {

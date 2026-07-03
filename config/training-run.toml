@@ -1,5 +1,6 @@
 [server]
 state_path = "config/deepseek-v3-dense-250m-ufw/state.toml"
+experiment_path = "config/experiment-run.toml"
 server_port = 39405
 live_web_port = 8081
 tui = false

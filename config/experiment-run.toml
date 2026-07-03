@@ -1,0 +1,11 @@
+[[runs]]
+state = "deepseek-v3-dense-250m-ufw/state_lr_0.toml"
+
+[[runs]]
+state = "deepseek-v3-dense-250m-ufw/state_lr_1.toml"
+
+[[runs]]
+state = "deepseek-v3-dense-250m-ufw/state_lr_2.toml"
+
+[[runs]]
+state = "deepseek-v3-dense-250m-ufw/state_lr_3.toml"

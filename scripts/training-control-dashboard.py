@@ -64,6 +64,7 @@ def update_config_from_form(form: dict[str, list[str]]) -> None:
     schema = {
         "server": {
             "state_path": str,
+            "experiment_path": str,
             "server_port": int_value,
             "live_web_port": int_value,
             "tui": bool_value,
@@ -338,6 +339,45 @@ def server_command(config: dict) -> list[str]:
     return command
 
 
+def experiment_server_command(config: dict) -> list[str]:
+    server = config["server"]
+    experiment_path = server.get("experiment_path", "config/experiment-run.toml")
+    command = [
+        "psyche-centralized-server",
+        "run",
+        "--experiment",
+        experiment_path,
+        "--server-port",
+        str(server["server_port"]),
+        "--web-port",
+        str(server["live_web_port"]),
+    ]
+    data_config = Path(server["state_path"]).with_name("data.toml")
+    if data_config.exists():
+        command.extend(["--data-config", str(data_config)])
+    if not server.get("tui", False):
+        command.extend(["--tui=false"])
+    return command
+
+
+def ensure_training_prereqs(config: dict) -> None:
+    data_ready, data_message = dataset_status(config)
+    if config.get("dataset", {}).get("enabled", True) and not data_ready:
+        raise RuntimeError(f"dataset is not ready: {data_message}")
+    model_ready, model_message = model_status(config)
+    if config.get("model", {}).get("enabled", True) and not model_ready:
+        raise RuntimeError(f"init model is not ready: {model_message}")
+
+
+def stop_server_job() -> str:
+    with STATE.lock:
+        server = STATE.server
+    if server and server.running and server.process:
+        server.process.send_signal(signal.SIGTERM)
+        return "Stop signal sent."
+    return "Training server is not running."
+
+
 TAB_SCRIPT = """
 <script>
 const t = document.querySelectorAll('.tabs button.tab');
@@ -444,6 +484,8 @@ def html_page(message: str | None = None) -> str:
         <form method="post" action="/validate"><button type="submit">Validate state config</button></form>
         <form method="post" action="/start-server"><button type="submit">Start training server</button></form>
         <form method="post" action="/stop-server"><button type="submit">Stop training server</button></form>
+        <form method="post" action="/start-experiment-server"><button type="submit">Start experiment server</button></form>
+        <form method="post" action="/stop-experiment-server"><button type="submit">Stop experiment server</button></form>
       </div>
     </section>
     <section data-panel="logs" hidden>
@@ -537,22 +579,26 @@ class Handler(BaseHTTPRequestHandler):
                 run_background("validate config", validate_command(config))
                 message = "Config validation started."
             elif path == "/start-server":
-                data_ready, data_message = dataset_status(config)
-                if config.get("dataset", {}).get("enabled", True) and not data_ready:
-                    raise RuntimeError(f"dataset is not ready: {data_message}")
-                model_ready, model_message = model_status(config)
-                if config.get("model", {}).get("enabled", True) and not model_ready:
-                    raise RuntimeError(f"init model is not ready: {model_message}")
+                ensure_training_prereqs(config)
                 run_background("training server", server_command(config), long_running=True)
                 message = "Training server started."
             elif path == "/stop-server":
-                with STATE.lock:
-                    server = STATE.server
-                if server and server.running and server.process:
-                    server.process.send_signal(signal.SIGTERM)
-                    message = "Stop signal sent."
-                else:
-                    message = "Training server is not running."
+                message = stop_server_job()
+            elif path == "/start-experiment-server":
+                ensure_training_prereqs(config)
+                experiment_path = repo_root() / config.get("server", {}).get(
+                    "experiment_path", "config/experiment-run.toml"
+                )
+                if not experiment_path.exists():
+                    raise RuntimeError(f"experiment config is missing: {experiment_path}")
+                run_background(
+                    "experiment server",
+                    experiment_server_command(config),
+                    long_running=True,
+                )
+                message = "Experiment server started."
+            elif path == "/stop-experiment-server":
+                message = stop_server_job()
             else:
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return

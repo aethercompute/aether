@@ -112,6 +112,7 @@ pub struct App {
     coordinator: Coordinator,
     backend: Backend,
     training_data_server: Option<(Sender<Coordinator>, DataServer)>,
+    experiment_queue: Vec<Coordinator>,
     save_state_dir: Option<PathBuf>,
     coordinator_writer: Option<UnboundedSender<Coordinator>>,
     last_coordinator_hash: u64,
@@ -197,6 +198,7 @@ impl App {
         tui: bool,
         mut coordinator: Coordinator,
         data_server_config: Option<DataServerInfo>,
+        experiment_queue: Vec<Coordinator>,
         coordinator_server_port: Option<u16>,
         save_state_dir: Option<PathBuf>,
         events_dir: Option<PathBuf>,
@@ -207,45 +209,16 @@ impl App {
         async {
             Self::reset_ephemeral(&mut coordinator);
 
+            Self::prepare_model_checkpoint(&coordinator).await?;
+
             debug!("potentially launching data server...");
 
             let training_data_server = match &coordinator.model {
                 Model::LLM(LLM {
                     data_location,
-                    checkpoint,
                     ..
                 }) => {
                     if let LLMTrainingDataLocation::Server(url) = data_location {
-                        match checkpoint {
-                            Checkpoint::Hub(hub_repo) => {
-                                let repo_id = String::from(&hub_repo.repo_id);
-                                let revision = hub_repo.revision.map(|bytes| (&bytes).into());
-                                if revision.is_some()
-                                    || !tokio::fs::try_exists(PathBuf::from(repo_id.clone()))
-                                        .await
-                                        .unwrap_or_default()
-                                {
-                                    download_model_repo_async(&repo_id, revision, None, None, None, true)
-                                        .await?;
-                                }
-                            }
-                            Checkpoint::Ephemeral => {
-                                bail!("Can't start up a run with an Ephemeral checkpoint.")
-                            }
-                            Checkpoint::Dummy(_) => {
-                                // ok!
-                            }
-                            Checkpoint::P2P(_) | Checkpoint::P2PGcs(_) => {
-                                bail!("Can't start up a run with a P2P checkpoint.")
-                            }
-                            Checkpoint::Gcs(gcs_repo) => {
-                                let bucket: String = (&gcs_repo.bucket).into();
-                                let prefix: Option<String> =
-                                    gcs_repo.prefix.map(|p| (&p).into());
-                                download_model_from_gcs_async(&bucket, prefix.as_deref()).await?;
-                            }
-                        }
-
                         // The data server URL is "host:port". The server only needs the port
                         // (it binds 0.0.0.0); clients resolve the host themselves via DNS, so
                         // accept hostnames as well as IP literals — SocketAddr::from_str
@@ -391,6 +364,7 @@ impl App {
             Ok(Self {
                 cancel,
                 training_data_server,
+                experiment_queue,
                 tx_tui_state,
                 tick_interval,
                 update_tui_interval,
@@ -674,6 +648,11 @@ impl App {
 
     async fn on_tick(&mut self) {
         self.kick_unhealthy_clients();
+        if self.coordinator.run_state == RunState::Finished {
+            if let Err(err) = self.try_start_next_experiment_run().await {
+                warn!("experiment transition failed: {err:#}");
+            }
+        }
         // Only admit clients that have signalled ReadyForEpoch (checkpoint
         // loaded). Syncing clients stay in `pending_clients` and join at a
         // later epoch boundary once they finish downloading — this prevents
@@ -793,6 +772,62 @@ impl App {
         for elem in coordinator.epoch_state.exited_clients.iter_mut() {
             *elem = Client::default();
         }
+    }
+
+    async fn prepare_model_checkpoint(coordinator: &Coordinator) -> Result<()> {
+        let Model::LLM(LLM { checkpoint, .. }) = coordinator.model;
+        match checkpoint {
+            Checkpoint::Hub(hub_repo) => {
+                let repo_id = String::from(&hub_repo.repo_id);
+                let revision = hub_repo.revision.map(|bytes| (&bytes).into());
+                if revision.is_some()
+                    || !tokio::fs::try_exists(PathBuf::from(repo_id.clone()))
+                        .await
+                        .unwrap_or_default()
+                {
+                    download_model_repo_async(&repo_id, revision, None, None, None, true).await?;
+                }
+            }
+            Checkpoint::Ephemeral => bail!("Can't start up a run with an Ephemeral checkpoint."),
+            Checkpoint::Dummy(_) => {}
+            Checkpoint::P2P(_) | Checkpoint::P2PGcs(_) => {
+                bail!("Can't start up a run with a P2P checkpoint.")
+            }
+            Checkpoint::Gcs(gcs_repo) => {
+                let bucket: String = (&gcs_repo.bucket).into();
+                let prefix: Option<String> = gcs_repo.prefix.map(|p| (&p).into());
+                download_model_from_gcs_async(&bucket, prefix.as_deref()).await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn try_start_next_experiment_run(&mut self) -> Result<()> {
+        if self.experiment_queue.is_empty() {
+            return Ok(());
+        }
+
+        let mut next = self.experiment_queue.remove(0);
+        Self::reset_ephemeral(&mut next);
+        Self::prepare_model_checkpoint(&next).await?;
+
+        let run_id = String::from(&next.run_id);
+        info!(run_id, "starting next experiment run");
+        self.coordinator = next;
+        self.original_warmup_time = self.coordinator.config.warmup_time;
+        self.loss_history.clear();
+        self.last_admission_change_unix_timestamp = Self::get_timestamp();
+        self.backend
+            .pending_clients
+            .extend(self.backend.ready_clients.drain());
+        let (wandb_run, wandb_info) = match init_wandb(&run_id).await {
+            Some((run, info)) => (Some(run), Some(info)),
+            None => (None, None),
+        };
+        self.wandb_run = wandb_run;
+        self.wandb_info = wandb_info;
+        self.post_state_change(true).await;
+        Ok(())
     }
 
     fn kick_unhealthy_clients(&mut self) {
