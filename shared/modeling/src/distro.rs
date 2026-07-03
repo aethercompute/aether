@@ -1,4 +1,5 @@
 use crate::{CausalLM, StableVariableIterator, Variable};
+use psyche_core::DistroOptimizerDefinition;
 
 use std::{cmp::Ordering, collections::HashMap, f64::consts::PI};
 use tch::{COptimizer, Device, Kind, Tensor};
@@ -460,12 +461,66 @@ impl Clone for DistroResult {
 }
 
 pub struct Distro {
-    sgd: COptimizer,
+    optimizer: DistroOptimizer,
+    optimizer_definition: DistroOptimizerDefinition,
     compression_decay: f64,
     compression_topk: i64,
     weight_decay: f64,
     state: Vec<State>,
     transform: TransformDCT,
+}
+
+enum DistroOptimizer {
+    SGD(COptimizer),
+    AdamW(COptimizer),
+}
+
+impl DistroOptimizer {
+    fn new(definition: DistroOptimizerDefinition, weight_decay: f64) -> Self {
+        match definition {
+            DistroOptimizerDefinition::SGD => {
+                Self::SGD(COptimizer::sgd(0.1, 0.0, 0.0, 0.0, false).unwrap())
+            }
+            DistroOptimizerDefinition::AdamW { betas, eps } => Self::AdamW(
+                COptimizer::adamw(
+                    0.1,
+                    betas[0] as f64,
+                    betas[1] as f64,
+                    weight_decay,
+                    eps as f64,
+                    false,
+                )
+                .unwrap(),
+            ),
+        }
+    }
+
+    fn add_parameters(&mut self, tensor: &Tensor) {
+        match self {
+            Self::SGD(optimizer) | Self::AdamW(optimizer) => {
+                optimizer.add_parameters(tensor, 0).unwrap();
+            }
+        }
+    }
+
+    fn step(&mut self, lr: f64) {
+        match self {
+            Self::SGD(optimizer) | Self::AdamW(optimizer) => {
+                optimizer.set_learning_rate(lr).unwrap();
+                optimizer.step().unwrap();
+            }
+        }
+    }
+
+    fn zero_grad(&mut self) {
+        match self {
+            Self::SGD(optimizer) | Self::AdamW(optimizer) => optimizer.zero_grad().unwrap(),
+        }
+    }
+
+    fn is_sgd(&self) -> bool {
+        matches!(self, Self::SGD(_))
+    }
 }
 
 impl Distro {
@@ -475,9 +530,10 @@ impl Distro {
         compression_chunk: i64,
         compression_topk: i64,
         weight_decay: f64,
+        optimizer_definition: DistroOptimizerDefinition,
     ) -> Self {
         let _no_grad = tch::no_grad_guard();
-        let mut sgd = COptimizer::sgd(0.1, 0.0, 0.0, 0.0, false).unwrap();
+        let mut optimizer = DistroOptimizer::new(optimizer_definition, weight_decay);
 
         let mut state = Vec::new();
         for variable in vs.variables() {
@@ -486,14 +542,15 @@ impl Distro {
             });
 
             let logical_tensor = variable.logical_tensor();
-            sgd.add_parameters(&logical_tensor, 0).unwrap();
+            optimizer.add_parameters(&logical_tensor);
             variable.zero_grad();
         }
 
         let transform = TransformDCT::new(vs.variables(), compression_chunk);
 
         Self {
-            sgd,
+            optimizer,
+            optimizer_definition,
             compression_decay,
             compression_topk,
             weight_decay,
@@ -530,7 +587,9 @@ impl Distro {
             let delta_var = &mut self.state.get_mut(index).unwrap().delta;
             let mut delta = delta_var.logical_tensor();
 
-            let _t = variable.g_add_(&delta.sign().multiply_scalar(prev_lr));
+            if self.optimizer.is_sgd() {
+                let _t = variable.g_add_(&delta.sign().multiply_scalar(prev_lr));
+            }
 
             if !prev_self_results.is_empty() {
                 let device = variable.device();
@@ -568,7 +627,7 @@ impl Distro {
             }
 
             // weight decay
-            if self.weight_decay != 0.0 {
+            if self.optimizer.is_sgd() && self.weight_decay != 0.0 {
                 let _t = variable.g_mul_scalar_(1.0 - lr * self.weight_decay);
             }
 
@@ -578,7 +637,12 @@ impl Distro {
             }
 
             // add delta to new gradient
-            let _t = delta.g_add_(&variable.grad().multiply_scalar(lr));
+            let grad = variable.grad();
+            let grad = match self.optimizer.is_sgd() {
+                true => grad.multiply_scalar(lr),
+                false => grad,
+            };
+            let _t = delta.g_add_(&grad);
 
             // Compress delta
             let full_delta = delta_var.gather_full_tensor();
@@ -655,18 +719,19 @@ impl Distro {
             // Set the gradients!!!
             var.set_grad(self.transform.decode(&decompressed));
 
-            // Sign-SGD
-            let _t = variable.grad().sign_();
+            if self.optimizer.is_sgd() {
+                let _t = variable.grad().sign_();
+            }
         }
-        // SGD step
-        self.sgd.set_learning_rate(lr).unwrap();
-        let _ = self.sgd.step();
-        for var in vars.variables() {
-            var.zero_grad();
-        }
+        self.optimizer.step(lr);
+        self.optimizer.zero_grad();
     }
 
     pub fn error_correction(&mut self, vars: &dyn CausalLM, prev_lr: f64) {
+        if !self.optimizer.is_sgd() {
+            return;
+        }
+
         let _no_grad = tch::no_grad_guard();
         for (index, var) in vars.variables().enumerate() {
             let mut variable = var.logical_tensor();
@@ -678,9 +743,15 @@ impl Distro {
         }
     }
 
-    pub fn zero_optim(&mut self) {
+    pub fn zero_optim(&mut self, vars: &dyn CausalLM) {
         for state in &mut self.state {
             let _ = state.delta.logical_tensor().zero_();
+        }
+
+        self.optimizer = DistroOptimizer::new(self.optimizer_definition, self.weight_decay);
+        for variable in vars.variables() {
+            let logical_tensor = variable.logical_tensor();
+            self.optimizer.add_parameters(&logical_tensor);
         }
     }
 

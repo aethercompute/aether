@@ -43,6 +43,7 @@ impl Optimizer {
                 clip_grad_norm,
             },
             OptimizerDefinition::Distro {
+                algorithm,
                 clip_grad_norm,
                 weight_decay,
                 compression_decay,
@@ -56,6 +57,7 @@ impl Optimizer {
                     compression_chunk as i64,
                     compression_topk as i64,
                     weight_decay.unwrap_or(0.0) as f64,
+                    algorithm,
                 )
                 .into(),
                 clip_grad_norm,

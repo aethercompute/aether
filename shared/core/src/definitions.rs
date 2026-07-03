@@ -290,6 +290,20 @@ impl From<WarmupStableDecayLR> for LearningRateSchedule {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS)]
 #[repr(C)]
+#[serde(rename_all = "lowercase")]
+pub enum DistroOptimizerDefinition {
+    SGD,
+    AdamW { betas: [f32; 2], eps: f32 },
+}
+
+impl Default for DistroOptimizerDefinition {
+    fn default() -> Self {
+        Self::SGD
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS)]
+#[repr(C)]
 pub enum OptimizerDefinition {
     Dummy,
     AdamW {
@@ -299,6 +313,8 @@ pub enum OptimizerDefinition {
         clip_grad_norm: Option<f32>,
     },
     Distro {
+        #[serde(default)]
+        algorithm: DistroOptimizerDefinition,
         clip_grad_norm: Option<f32>,
         weight_decay: Option<f32>,
         compression_decay: f32,

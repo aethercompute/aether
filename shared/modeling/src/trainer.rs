@@ -915,7 +915,7 @@ impl LocalTrainer {
                         }
                         Optimizer::Distro { optimizer, .. } => {
                             if zero_optim {
-                                optimizer.zero_optim();
+                                optimizer.zero_optim(model.as_ref());
                                 tracing::info!("Zeroed optimizer states");
                             }
                             match &prev_self_distro_results {
