@@ -415,8 +415,18 @@ fn format_optimizer(opt: &OptimizerDefinition) -> String {
                 .unwrap_or_else(|| "None".into());
             let algorithm = match algorithm {
                 DistroOptimizerDefinition::SGD => "SGD".into(),
-                DistroOptimizerDefinition::AdamW { betas, eps } => {
-                    format!("AdamW(betas=[{},{}], eps={})", betas[0], betas[1], eps)
+                DistroOptimizerDefinition::AdamW {
+                    betas,
+                    eps,
+                    mask_stats_every,
+                } => {
+                    let mask_stats = mask_stats_every
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "None".into());
+                    format!(
+                        "AdamW(betas=[{},{}], eps={}, mask_stats_every={})",
+                        betas[0], betas[1], eps, mask_stats
+                    )
                 }
             };
             format!(

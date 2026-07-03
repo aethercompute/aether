@@ -1,5 +1,5 @@
 use crate::{CausalLM, Distro};
-use psyche_core::OptimizerDefinition;
+use psyche_core::{DistroOptimizerDefinition, OptimizerDefinition};
 use tch::COptimizer;
 
 pub enum Optimizer {
@@ -61,7 +61,10 @@ impl Optimizer {
                 )
                 .into(),
                 clip_grad_norm,
-                quantize_1bit,
+                quantize_1bit: match algorithm {
+                    DistroOptimizerDefinition::SGD => quantize_1bit,
+                    DistroOptimizerDefinition::AdamW { .. } => false,
+                },
             },
             OptimizerDefinition::Dummy => Self::Null,
         }

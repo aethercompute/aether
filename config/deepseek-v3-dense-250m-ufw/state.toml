@@ -54,10 +54,10 @@ total_steps = 2604
 final_lr = 1.0e-4
 
 [model.LLM.optimizer.Distro]
-algorithm = { adamw = { betas = [0.9, 0.95], eps = 1.0e-8 } }
+algorithm = { adamw = { betas = [0.9, 0.95], eps = 1.0e-8, mask_stats_every = 100 } }
 clip_grad_norm = 1.0
 compression_decay = 0.999
 compression_chunk = 64
 compression_topk = 8
-quantize_1bit = true
+quantize_1bit = false
 weight_decay = 0.1

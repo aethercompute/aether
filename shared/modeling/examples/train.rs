@@ -141,6 +141,9 @@ struct RunArgs {
     #[arg(long, default_value = "sgd")]
     distro_optimizer: DistroOptimizerArg,
 
+    #[arg(long, default_value_t = 100)]
+    distro_adamw_mask_stats_every: u32,
+
     #[arg(long, default_value_t = false)]
     distro_quantization: bool,
 
@@ -263,6 +266,10 @@ async fn main() -> Result<()> {
                 DistroOptimizerArg::AdamW => DistroOptimizerDefinition::AdamW {
                     betas: [args.beta1, args.beta2],
                     eps: args.eps,
+                    mask_stats_every: match args.distro_adamw_mask_stats_every {
+                        0 => None,
+                        value => Some(value),
+                    },
                 },
             },
             clip_grad_norm,

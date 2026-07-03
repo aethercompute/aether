@@ -751,7 +751,7 @@ mod tests {
             "COORD_RECORD_SIZE definition drifted from size_of::<Coordinator>()"
         );
         // Pinned size (bytes). Update deliberately + note the on-disk breakage.
-        let expected = 94064;
+        let expected = 94072;
         assert_eq!(
             coord_size, expected,
             "Coordinator size changed ({coord_size} != {expected}); \

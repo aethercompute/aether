@@ -112,6 +112,7 @@ jobs:
       - name: Configure libtorch env
         run: |
           echo "LIBTORCH_USE_PYTORCH=1" >> "$GITHUB_ENV"
+          echo "RUST_MIN_STACK=8388608" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=$(python -c 'import torch, os; print(os.path.join(os.path.dirname(torch.__file__), "lib"))')" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
       - name: clippy (torch-bound crates)

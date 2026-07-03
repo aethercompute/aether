@@ -295,9 +295,25 @@ pub enum DistroOptimizerDefinition {
     #[default]
     SGD,
     AdamW {
+        #[serde(default = "default_distro_adamw_betas")]
         betas: [f32; 2],
+        #[serde(default = "default_distro_adamw_eps")]
         eps: f32,
+        #[serde(default = "default_distro_adamw_mask_stats_every")]
+        mask_stats_every: Option<u32>,
     },
+}
+
+fn default_distro_adamw_betas() -> [f32; 2] {
+    [0.9, 0.95]
+}
+
+fn default_distro_adamw_eps() -> f32 {
+    1e-8
+}
+
+fn default_distro_adamw_mask_stats_every() -> Option<u32> {
+    Some(100)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS)]
