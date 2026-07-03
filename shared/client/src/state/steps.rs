@@ -729,9 +729,7 @@ impl StepStateMachine {
                 );
 
                 let new_step = match std::mem::take(&mut self.active_step) {
-                    ActiveStep::Intermediate => {
-                        unreachable!("can never be in intermediate state.")
-                    }
+                    ActiveStep::Intermediate => ActiveStep::Intermediate,
                     ActiveStep::Warmup(warmup) => ActiveStep::Warmup(warmup),
                     ActiveStep::Cooldown(cooldown) => {
                         trace!(
@@ -1078,9 +1076,7 @@ impl RunManager {
 
     pub async fn apply_state(&mut self, state: Coordinator) -> Result<(), ApplyStateError> {
         if let InitStage::Running(state_machine) = &self.stage {
-            if state.run_state == RunState::WaitingForMembers
-                && state.run_id != state_machine.coordinator_state.run_id
-            {
+            if state.run_id != state_machine.coordinator_state.run_id {
                 info!(
                     old_run_id = %state_machine.coordinator_state.run_id,
                     new_run_id = %state.run_id,
@@ -1091,7 +1087,7 @@ impl RunManager {
         }
         if let InitStage::Initializing(init) = &mut self.stage {
             let (init_future, init_state) = &mut **init;
-            if state.run_state == RunState::WaitingForMembers && state.run_id != init_state.run_id {
+            if state.run_id != init_state.run_id {
                 info!(
                     old_run_id = %init_state.run_id,
                     new_run_id = %state.run_id,
