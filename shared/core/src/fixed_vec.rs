@@ -485,4 +485,241 @@ mod tests {
             assert_eq!(vec.data[i], 0u32);
         }
     }
+
+    #[test]
+    fn first_and_last() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        assert_eq!(vec.first(), None);
+        assert_eq!(vec.last(), None);
+
+        vec.push(10).unwrap();
+        assert_eq!(vec.first(), Some(&10));
+        assert_eq!(vec.last(), Some(&10));
+
+        vec.push(20).unwrap();
+        assert_eq!(vec.first(), Some(&10));
+        assert_eq!(vec.last(), Some(&20));
+    }
+
+    #[test]
+    fn get_mut_modifies_in_place() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        vec.push(1).unwrap();
+        vec.push(2).unwrap();
+
+        *vec.get_mut(0).unwrap() = 99;
+        assert_eq!(vec[0], 99);
+        assert_eq!(vec[1], 2);
+
+        assert!(vec.get_mut(5).is_none());
+    }
+
+    #[test]
+    fn iter_mut_allows_mutation() {
+        let mut vec: FixedVec<u32, 4> = FixedVec::new();
+        vec.extend([1, 2, 3]).unwrap();
+
+        for v in vec.iter_mut() {
+            *v *= 10;
+        }
+
+        assert_eq!(vec[0], 10);
+        assert_eq!(vec[1], 20);
+        assert_eq!(vec[2], 30);
+    }
+
+    #[test]
+    fn deref_gives_slice_access() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        vec.extend([1, 2, 3]).unwrap();
+
+        let slice: &[u32] = &vec;
+        assert_eq!(slice, &[1, 2, 3]);
+    }
+
+    #[test]
+    fn deref_mut_allows_slice_mutation() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        vec.extend([1, 2, 3]).unwrap();
+
+        {
+            let slice: &mut [u32] = &mut vec;
+            slice[1] = 99;
+        }
+
+        assert_eq!(vec[1], 99);
+    }
+
+    #[test]
+    fn index_range_full() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        vec.push(1).unwrap();
+        vec.push(2).unwrap();
+        assert_eq!(&vec[..], &[1, 2]);
+    }
+
+    #[test]
+    fn index_range_from() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        vec.extend([1, 2, 3, 4]).unwrap();
+        assert_eq!(&vec[1..], &[2, 3, 4]);
+    }
+
+    #[test]
+    fn index_range_to() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        vec.extend([1, 2, 3, 4]).unwrap();
+        assert_eq!(&vec[..3], &[1, 2, 3]);
+    }
+
+    #[test]
+    fn remove_first_element() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        vec.extend([1, 2, 3]).unwrap();
+
+        assert_eq!(vec.remove(0), Some(1));
+        assert_eq!(vec.len(), 2);
+        assert_eq!(vec[0], 2);
+        assert_eq!(vec[1], 3);
+    }
+
+    #[test]
+    fn remove_last_element() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        vec.extend([1, 2, 3]).unwrap();
+
+        assert_eq!(vec.remove(2), Some(3));
+        assert_eq!(vec.len(), 2);
+        assert_eq!(vec[0], 1);
+        assert_eq!(vec[1], 2);
+    }
+
+    #[test]
+    fn remove_out_of_bounds_returns_none() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        vec.push(1).unwrap();
+
+        assert_eq!(vec.remove(5), None);
+        assert_eq!(vec.remove(0), Some(1));
+        assert_eq!(vec.remove(0), None);
+    }
+
+    #[test]
+    fn insert_at_end() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        vec.push(1).unwrap();
+        vec.insert(1, 2).unwrap();
+        assert_eq!(vec.len(), 2);
+        assert_eq!(vec[0], 1);
+        assert_eq!(vec[1], 2);
+    }
+
+    #[test]
+    fn insert_out_of_bounds_is_error() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        vec.push(1).unwrap();
+        assert!(vec.insert(5, 2).is_err());
+    }
+
+    #[test]
+    fn retain_removes_none() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        vec.extend([1, 2, 3]).unwrap();
+
+        vec.retain(|_| true);
+        assert_eq!(vec.len(), 3);
+    }
+
+    #[test]
+    fn retain_removes_all() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        vec.extend([1, 2, 3]).unwrap();
+
+        vec.retain(|_| false);
+        assert_eq!(vec.len(), 0);
+    }
+
+    #[test]
+    fn retain_removes_first() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        vec.extend([1, 2, 3]).unwrap();
+
+        vec.retain(|x| *x != 1);
+        assert_eq!(vec.len(), 2);
+        assert_eq!(vec[0], 2);
+        assert_eq!(vec[1], 3);
+    }
+
+    #[test]
+    fn retain_removes_last() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        vec.extend([1, 2, 3]).unwrap();
+
+        vec.retain(|x| *x != 3);
+        assert_eq!(vec.len(), 2);
+        assert_eq!(vec[0], 1);
+    }
+
+    #[test]
+    fn extend_too_many_returns_error() {
+        let mut vec: FixedVec<u32, 4> = FixedVec::new();
+        assert!(vec.extend([1, 2, 3, 4, 5]).is_err());
+        assert_eq!(vec.len(), 4);
+    }
+
+    #[test]
+    fn extend_empty_is_noop() {
+        let mut vec: FixedVec<u32, 4> = FixedVec::new();
+        vec.extend([]).unwrap();
+        assert!(vec.is_empty());
+    }
+
+    #[test]
+    fn try_from_iter_oflow_is_err() {
+        let result = FixedVec::<u32, 2>::try_from_iter([1, 2, 3]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn try_from_slice_exact_fit() {
+        let vec = FixedVec::<u32, 4>::try_from(&[1u32, 2, 3] as &[_]).unwrap();
+        assert_eq!(vec.len(), 3);
+        assert_eq!(vec[0], 1);
+    }
+
+    #[test]
+    fn into_iter_consumes_fixed_vec() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        vec.extend([10, 20, 30]).unwrap();
+
+        let items: Vec<u32> = vec.into_iter().collect();
+        assert_eq!(items, vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn debug_format_shows_capacity_and_items() {
+        let mut vec: FixedVec<u32, 4> = FixedVec::new();
+        vec.push(42).unwrap();
+
+        let s = format!("{:?}", vec);
+        assert!(s.contains("FixedVec<4>"));
+        assert!(s.contains("42"));
+    }
+
+    #[test]
+    fn serde_roundtrip() {
+        let mut vec: FixedVec<u32, 6> = FixedVec::new();
+        vec.extend([1, 2, 3]).unwrap();
+
+        psyche_test_support::assert_postcard_roundtrip(&vec);
+    }
+
+    #[test]
+    fn from_iter_panics_on_overflow() {
+        use std::panic::catch_unwind;
+        let result = catch_unwind(|| {
+            let _ = FixedVec::<u32, 2>::from_iter([1, 2, 3]);
+        });
+        assert!(result.is_err());
+    }
 }

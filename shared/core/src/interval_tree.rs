@@ -287,4 +287,100 @@ mod tests {
         let tree: IntervalTree<u64, &str> = IntervalTree::default();
         assert!(tree.iter().next().is_none());
     }
+
+    #[test]
+    fn get_on_empty_tree_returns_none() {
+        let tree: IntervalTree<u64, &str> = IntervalTree::new();
+        assert_eq!(tree.get(0), None);
+        assert_eq!(tree.get(u64::MAX), None);
+    }
+
+    #[test]
+    fn remove_non_existent_returns_none() {
+        let mut tree = IntervalTree::new();
+        tree.insert(ClosedInterval::new(1, 5), "A").unwrap();
+        assert_eq!(tree.remove(&ClosedInterval::new(10, 20)), None);
+        assert_eq!(tree.remove(&ClosedInterval::new(2, 6)), None);
+    }
+
+    #[test]
+    fn overlaps_exact_same_interval() {
+        let a = ClosedInterval::new(3, 7);
+        let b = ClosedInterval::new(3, 7);
+        assert!(a.overlaps(&b));
+        assert!(b.overlaps(&a));
+    }
+
+    #[test]
+    fn overlaps_one_contains_another() {
+        let outer = ClosedInterval::new(1, 10);
+        let inner = ClosedInterval::new(4, 6);
+        assert!(outer.overlaps(&inner));
+        assert!(inner.overlaps(&outer));
+    }
+
+    #[test]
+    fn closed_interval_hash_is_consistent() {
+        use std::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+
+        let a = ClosedInterval::new(1, 5);
+        let b = ClosedInterval::new(1, 5);
+        let c = ClosedInterval::new(1, 6);
+
+        let hash = |x: &ClosedInterval<u64>| {
+            let mut h = DefaultHasher::new();
+            x.hash(&mut h);
+            h.finish()
+        };
+
+        assert_eq!(hash(&a), hash(&b));
+        assert_ne!(hash(&a), hash(&c));
+    }
+
+    #[test]
+    fn display_empty_tree() {
+        let tree: IntervalTree<u64, &str> = IntervalTree::new();
+        assert_eq!(tree.to_string(), "IntervalTree {}");
+    }
+
+    #[test]
+    fn display_single_interval() {
+        let mut tree = IntervalTree::new();
+        tree.insert(ClosedInterval::new(0, 4), "A").unwrap();
+        let s = tree.to_string();
+        assert!(s.contains("A"));
+    }
+
+    #[test]
+    fn display_multiple_intervals() {
+        let mut tree = IntervalTree::new();
+        tree.insert(ClosedInterval::new(1, 3), "a").unwrap();
+        tree.insert(ClosedInterval::new(5, 7), "b").unwrap();
+        let s = tree.to_string();
+        assert!(s.contains("a"));
+        assert!(s.contains("b"));
+    }
+
+    #[test]
+    fn closed_interval_display_single_point() {
+        let interval = ClosedInterval::new(5, 5);
+        assert_eq!(interval.to_string(), "5");
+    }
+
+    #[test]
+    fn closed_interval_display_range() {
+        let interval = ClosedInterval::new(3, 7);
+        assert_eq!(interval.to_string(), "[3, 7]");
+    }
+
+    #[test]
+    fn insert_at_extreme_boundaries() {
+        let mut tree = IntervalTree::new();
+        assert!(tree.insert(ClosedInterval::new(0, 0), "zero").is_ok());
+        assert!(tree.insert(ClosedInterval::new(2, 2), "two").is_ok());
+        assert_eq!(tree.get(0), Some(&"zero"));
+        assert_eq!(tree.get(2), Some(&"two"));
+        assert_eq!(tree.get(1), None);
+    }
 }
