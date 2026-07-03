@@ -313,6 +313,32 @@ mod tests {
         }
     }
 
+    #[test]
+    fn get_batch_ids_for_node_returns_matching_assignments() {
+        let coordinator = create_test_coordinator(4, 100, 10);
+        let assignments = assign_data_for_state(
+            &coordinator,
+            &CommitteeSelection::from_coordinator(&coordinator, 0).unwrap(),
+        );
+        // Pick the first assigned node.
+        let first_node = *assignments.values().next().unwrap();
+        let ids = get_batch_ids_for_node(&assignments, &first_node);
+        assert_eq!(ids.len(), 1);
+        assert_eq!(ids[0], *assignments.iter().find(|(_, v)| **v == first_node).unwrap().0);
+    }
+
+    #[test]
+    fn get_batch_ids_for_node_returns_empty_for_unknown_node() {
+        let coordinator = create_test_coordinator(3, 30, 10);
+        let assignments = assign_data_for_state(
+            &coordinator,
+            &CommitteeSelection::from_coordinator(&coordinator, 0).unwrap(),
+        );
+        let unknown = NodeIdentity::from_single_key([0xffu8; 32]);
+        let ids = get_batch_ids_for_node(&assignments, &unknown);
+        assert!(ids.is_empty());
+    }
+
     // get_data_index_for_step: 0 before the schedule starts and after it ends,
     // and strictly non-decreasing across steps.
     #[test]

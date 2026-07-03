@@ -36,7 +36,7 @@ pub enum InferenceMessage {
     Cancel { request_id: String },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
@@ -68,7 +68,7 @@ fn default_top_p() -> f64 {
     1.0
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InferenceResponse {
     pub request_id: String,
     pub generated_text: String,
@@ -252,5 +252,157 @@ mod tests {
         let bytes = postcard::to_stdvec(&hf).unwrap();
         let parsed: ModelSource = postcard::from_bytes(&bytes).unwrap();
         assert_eq!(parsed, hf);
+    }
+
+    #[test]
+    fn chat_message_roundtrip() {
+        let msg = ChatMessage {
+            role: "user".to_string(),
+            content: "Hello, world!".to_string(),
+        };
+        psyche_test_support::assert_postcard_roundtrip(&msg);
+        psyche_test_support::assert_serde_json_roundtrip(&msg);
+    }
+
+    #[test]
+    fn inference_request_full_roundtrip() {
+        let req = InferenceRequest {
+            request_id: "req-1".to_string(),
+            messages: vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: "You are helpful.".to_string(),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: "What is Rust?".to_string(),
+                },
+            ],
+            max_tokens: 512,
+            temperature: 0.8,
+            top_p: 0.95,
+            stream: true,
+        };
+        let back = psyche_test_support::postcard_roundtrip(&req);
+        assert_eq!(back.request_id, "req-1");
+        assert_eq!(back.messages.len(), 2);
+        assert_eq!(back.max_tokens, 512);
+        assert_eq!(back.temperature, 0.8);
+        assert_eq!(back.top_p, 0.95);
+        assert!(back.stream);
+    }
+
+    #[test]
+    fn inference_response_roundtrip() {
+        let resp = InferenceResponse {
+            request_id: "resp-1".to_string(),
+            generated_text: "Rust is a systems language.".to_string(),
+            full_text: "What is Rust? Rust is a systems language.".to_string(),
+            finish_reason: Some("length".to_string()),
+        };
+        psyche_test_support::assert_postcard_roundtrip(&resp);
+    }
+
+    #[test]
+    fn gossip_message_node_available_roundtrip() {
+        let msg = InferenceGossipMessage::NodeAvailable {
+            model_name: Some("llama-3.2-3b".to_string()),
+            checkpoint_id: Some("v1.0".to_string()),
+            capabilities: vec!["chat".to_string(), "stream".to_string()],
+            timestamp_ms: 42,
+        };
+        let back = psyche_test_support::postcard_roundtrip(&msg);
+        assert!(matches!(back, InferenceGossipMessage::NodeAvailable { .. }));
+    }
+
+    #[test]
+    fn gossip_message_node_unavailable_roundtrip() {
+        let msg = InferenceGossipMessage::NodeUnavailable;
+        let back = psyche_test_support::postcard_roundtrip(&msg);
+        assert!(matches!(back, InferenceGossipMessage::NodeUnavailable));
+    }
+
+    #[test]
+    fn gossip_message_load_model_roundtrip() {
+        let msg = InferenceGossipMessage::LoadModel {
+            model_name: "gpt2".to_string(),
+            model_source: ModelSource::Local("/tmp/model".to_string()),
+        };
+        let back = psyche_test_support::postcard_roundtrip(&msg);
+        assert!(matches!(back, InferenceGossipMessage::LoadModel { .. }));
+    }
+
+    #[test]
+    fn gossip_message_reload_checkpoint_roundtrip() {
+        let msg = InferenceGossipMessage::ReloadCheckpoint {
+            checkpoint_id: "ckpt-abc".to_string(),
+            checkpoint_source: "/tmp/ckpt".to_string(),
+        };
+        let back = psyche_test_support::postcard_roundtrip(&msg);
+        assert!(matches!(
+            back,
+            InferenceGossipMessage::ReloadCheckpoint { .. }
+        ));
+    }
+
+    #[test]
+    fn inference_message_variants_roundtrip() {
+        let msgs = vec![
+            InferenceMessage::Request(InferenceRequest {
+                request_id: "r1".to_string(),
+                messages: vec![],
+                max_tokens: 100,
+                temperature: 1.0,
+                top_p: 1.0,
+                stream: false,
+            }),
+            InferenceMessage::Response(InferenceResponse {
+                request_id: "r1".to_string(),
+                generated_text: "hi".to_string(),
+                full_text: "hi".to_string(),
+                finish_reason: Some("stop".to_string()),
+            }),
+            InferenceMessage::StreamChunk {
+                request_id: "r1".to_string(),
+                text: "hello".to_string(),
+            },
+            InferenceMessage::Cancel {
+                request_id: "r1".to_string(),
+            },
+        ];
+
+        for msg in msgs {
+            let back = psyche_test_support::postcard_roundtrip(&msg);
+            assert!(
+                matches!(
+                    (&msg, &back),
+                    (InferenceMessage::Request(_), InferenceMessage::Request(_))
+                        | (
+                            InferenceMessage::Response(_),
+                            InferenceMessage::Response(_)
+                        )
+                        | (
+                            InferenceMessage::StreamChunk { .. },
+                            InferenceMessage::StreamChunk { .. }
+                        )
+                        | (
+                            InferenceMessage::Cancel { .. },
+                            InferenceMessage::Cancel { .. }
+                        )
+                ),
+                "variant mismatch for {msg:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn model_source_variants_roundtrip() {
+        let sources = vec![
+            ModelSource::HuggingFace("org/model".to_string()),
+            ModelSource::Local("/path/to/model".to_string()),
+        ];
+        for source in sources {
+            psyche_test_support::assert_postcard_roundtrip(&source);
+        }
     }
 }

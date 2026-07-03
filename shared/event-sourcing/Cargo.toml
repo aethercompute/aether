@@ -27,6 +27,7 @@ indexmap.workspace = true
 psyche-metrics.workspace = true
 
 [dev-dependencies]
+psyche-test-support.workspace = true
 serial_test.workspace = true
 rand.workspace = true
 tempfile = "3"

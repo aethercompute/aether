@@ -44,3 +44,41 @@ impl<'de> Deserialize<'de> for Commitment {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commitment_postcard_roundtrip() {
+        let c = Commitment {
+            data_hash: [1u8; 32],
+            signature: [2u8; 64],
+        };
+        let back = psyche_test_support::postcard_roundtrip(&c);
+        assert_eq!(c.data_hash, back.data_hash);
+        assert_eq!(c.signature, back.signature);
+    }
+
+    #[test]
+    fn commitment_rejects_short_payload() {
+        let encoded = postcard::to_allocvec(&vec![0u8; 95]).unwrap();
+        let result: Result<Commitment, _> = postcard::from_bytes(&encoded);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn commitment_rejects_long_payload() {
+        let encoded = postcard::to_allocvec(&vec![0u8; 97]).unwrap();
+        let result: Result<Commitment, _> = postcard::from_bytes(&encoded);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn commitment_rejects_empty_payload() {
+        let encoded = postcard::to_allocvec(&Vec::<u8>::new()).unwrap();
+        let result: Result<Commitment, _> = postcard::from_bytes(&encoded);
+        assert!(result.is_err());
+    }
+
+}

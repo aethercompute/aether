@@ -12,5 +12,9 @@ bytemuck.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 
+[dev-dependencies]
+psyche-test-support.workspace = true
+postcard.workspace = true
+
 [lints]
 workspace = true

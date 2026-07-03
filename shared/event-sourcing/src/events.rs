@@ -315,3 +315,158 @@ impl From<ResourceSnapshot> for EventData {
         EventData::ResourceSnapshot(value)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        client, cooldown, coordinator, train, warmup, BatchId, Client, Cooldown, Event,
+        EventData, ResourceSnapshot, RpcCallType, RunStarted, SubscriptionStatus, Train, Warmup,
+    };
+    use chrono::Utc;
+    use psyche_core::ClosedInterval;
+
+    fn make_event(data: EventData) -> Event {
+        Event {
+            timestamp: Utc::now(),
+            data,
+        }
+    }
+
+    #[test]
+    fn subscription_status_roundtrip() {
+        psyche_test_support::assert_postcard_roundtrip(&SubscriptionStatus::Up);
+        psyche_test_support::assert_postcard_roundtrip(&SubscriptionStatus::Down);
+    }
+
+    #[test]
+    fn rpc_call_type_roundtrip() {
+        for ty in [
+            RpcCallType::Witness,
+            RpcCallType::WarmupWitness,
+            RpcCallType::HealthCheck,
+            RpcCallType::Checkpoint,
+            RpcCallType::Join,
+            RpcCallType::Tick,
+        ] {
+            psyche_test_support::assert_postcard_roundtrip(&ty);
+        }
+    }
+
+    #[test]
+    fn run_started_roundtrip() {
+        let event = make_event(EventData::RunStarted(RunStarted {
+            run_id: "run-42".to_string(),
+            node_id: "node-1".to_string(),
+            config: "config".to_string(),
+            psyche_version: "0.2.0".to_string(),
+        }));
+        let back = psyche_test_support::postcard_roundtrip(&event);
+        match &back.data {
+            EventData::RunStarted(rs) => {
+                assert_eq!(rs.run_id, "run-42");
+                assert_eq!(rs.node_id, "node-1");
+                assert_eq!(rs.psyche_version, "0.2.0");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn resource_snapshot_roundtrip() {
+        let event = make_event(EventData::ResourceSnapshot(ResourceSnapshot {
+            gpu_mem_used_bytes: Some(8_000_000_000),
+            gpu_utilization_percent: Some(85.5),
+            cpu_mem_used_bytes: 16_000_000_000,
+            cpu_utilization_percent: 42.0,
+            network_bytes_sent_total: 1024,
+            network_bytes_recv_total: 2048,
+            disk_space_available_bytes: 500_000_000_000,
+        }));
+        let back = psyche_test_support::postcard_roundtrip(&event);
+        match &back.data {
+            EventData::ResourceSnapshot(rs) => {
+                assert_eq!(rs.gpu_mem_used_bytes, Some(8_000_000_000));
+                assert_eq!(rs.cpu_mem_used_bytes, 16_000_000_000);
+                assert_eq!(rs.network_bytes_sent_total, 1024);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn coordinator_state_changed_roundtrip() {
+        let event = make_event(
+            EventData::CoordinatorEvent(super::CoordinatorEvent::CoordinatorStateChanged(
+                coordinator::CoordinatorStateChanged {
+                    new_state_hash: "abc123".to_string(),
+                },
+            )),
+        );
+        let back = psyche_test_support::postcard_roundtrip(&event);
+        match &back.data {
+            EventData::CoordinatorEvent(ce) => {
+                let s = format!("{ce}");
+                assert!(s.contains("abc123"), "{s}");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn client_state_changed_roundtrip() {
+        use psyche_coordinator::RunState;
+        let event = make_event(EventData::Client(Client::StateChanged(
+            client::StateChanged {
+                old_state: RunState::Uninitialized,
+                new_state: RunState::Warmup,
+                epoch: 1,
+                step: 2,
+            },
+        )));
+        let back = psyche_test_support::postcard_roundtrip(&event);
+        match &back.data {
+            EventData::Client(Client::StateChanged(sc)) => {
+                assert_eq!(sc.epoch, 1);
+                assert_eq!(sc.step, 2);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn train_batch_assigned_roundtrip() {
+        let event = make_event(EventData::Train(Train::BatchAssigned(
+            train::BatchAssigned {
+                batch_id: BatchId(ClosedInterval { start: 10, end: 99 }),
+            },
+        )));
+        let back = psyche_test_support::postcard_roundtrip(&event);
+        match &back.data {
+            EventData::Train(Train::BatchAssigned(ba)) => {
+                assert_eq!(ba.batch_id, BatchId(ClosedInterval { start: 10, end: 99 }));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn warmup_model_load_complete_roundtrip() {
+        let event = make_event(EventData::Warmup(Warmup::ModelLoadComplete(
+            warmup::ModelLoadComplete,
+        )));
+        let back = psyche_test_support::postcard_roundtrip(&event);
+        assert!(matches!(back.data, EventData::Warmup(Warmup::ModelLoadComplete(_))));
+    }
+
+    #[test]
+    fn cooldown_model_serialization_started_roundtrip() {
+        let event = make_event(EventData::Cooldown(
+            Cooldown::ModelSerializationStarted(cooldown::ModelSerializationStarted),
+        ));
+        let back = psyche_test_support::postcard_roundtrip(&event);
+        assert!(matches!(
+            back.data,
+            EventData::Cooldown(Cooldown::ModelSerializationStarted(_))
+        ));
+    }
+}

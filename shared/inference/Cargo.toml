@@ -20,6 +20,7 @@ tokio.workspace = true
 postcard.workspace = true
 
 [dev-dependencies]
+psyche-test-support.workspace = true
 # For integration tests
 serial_test = "3.2"
 

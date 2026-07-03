@@ -46,6 +46,9 @@ bindings
 ### Volunteer launcher sandbox ###
 .aethercompute/
 
+### Coverage reports ###
+coverage/
+
 ### Data folders ###
 /data
 /distro-data

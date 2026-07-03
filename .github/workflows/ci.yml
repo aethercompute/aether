@@ -70,6 +70,29 @@ jobs:
           -p psyche-inference -p psyche-centralized-shared -p psyche-centralized-volunteer
           -p psyche-centralized-local-testnet -p psyche-test-support
 
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-binstall
+      - run: cargo binstall -y cargo-tarpaulin
+      - run: >
+          cargo tarpaulin --out Xml --out Html
+          --output-dir ./coverage
+          -p psyche-core -p psyche-coordinator -p psyche-event-sourcing
+          -p psyche-metrics -p psyche-tui -p psyche-watcher -p psyche-data-provider
+          -p psyche-inference -p psyche-centralized-shared -p psyche-centralized-volunteer
+          -p psyche-centralized-local-testnet -p psyche-test-support
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: ./coverage
+
   # Torch lane: lint + test the torch-bound crates + integration suite.
   # Uses PyTorch-as-libtorch (same pattern as the root Dockerfile). Slower.
   test-torch:

@@ -450,4 +450,111 @@ mod tests {
         assert_eq!(LLMArchitecture::HfAuto.to_string(), "HfAuto");
         assert_eq!(LLMArchitecture::Torchtitan.to_string(), "Torchtitan");
     }
+
+    #[test]
+    fn hub_repo_postcard_roundtrip() {
+        let repo = HubRepo {
+            repo_id: fixed("org/model"),
+            revision: Some(fixed("main")),
+        };
+        psyche_test_support::assert_postcard_roundtrip(&repo);
+    }
+
+    #[test]
+    fn gcs_repo_postcard_roundtrip() {
+        let repo = GcsRepo {
+            bucket: fixed("my-bucket"),
+            prefix: Some(fixed("prefix/path")),
+        };
+        psyche_test_support::assert_postcard_roundtrip(&repo);
+    }
+
+    #[test]
+    fn checkpoint_variants_roundtrip() {
+        let hub = HubRepo {
+            repo_id: fixed("org/model"),
+            revision: Some(fixed("main")),
+        };
+        let gcs = GcsRepo {
+            bucket: fixed("bucket"),
+            prefix: Some(fixed("path")),
+        };
+
+        let cases: [Checkpoint; 6] = [
+            Checkpoint::Ephemeral,
+            Checkpoint::Dummy(hub),
+            Checkpoint::Hub(hub),
+            Checkpoint::P2P(hub),
+            Checkpoint::Gcs(gcs),
+            Checkpoint::P2PGcs(gcs),
+        ];
+
+        for cp in cases {
+            let back = psyche_test_support::postcard_roundtrip(&cp);
+            assert!(
+                matches!(
+                    (&cp, &back),
+                    (Checkpoint::Ephemeral, Checkpoint::Ephemeral)
+                        | (Checkpoint::Dummy(_), Checkpoint::Dummy(_))
+                        | (Checkpoint::Hub(_), Checkpoint::Hub(_))
+                        | (Checkpoint::P2P(_), Checkpoint::P2P(_))
+                        | (Checkpoint::Gcs(_), Checkpoint::Gcs(_))
+                        | (Checkpoint::P2PGcs(_), Checkpoint::P2PGcs(_))
+                ),
+                "variant mismatch for {cp:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn llm_training_data_location_variants_roundtrip() {
+        let dummy = LLMTrainingDataLocation::Dummy;
+        let back = psyche_test_support::postcard_roundtrip(&dummy);
+        assert!(matches!(back, LLMTrainingDataLocation::Dummy));
+
+        let local = LLMTrainingDataLocation::Local(LocalLLMTrainingDataLocation {
+            path: fixed("/data/train.bin"),
+            token_size_in_bytes: TokenSize::TwoBytes,
+            shuffle: Shuffle::Seeded([0u8; 32]),
+        });
+        let back = psyche_test_support::postcard_roundtrip(&local);
+        assert!(matches!(back, LLMTrainingDataLocation::Local(_)));
+
+        let http = LLMTrainingDataLocation::Http(HttpLLMTrainingDataLocation {
+            location: HttpTrainingDataLocation::SingleUrl(fixed("https://example.com/data.bin")),
+            token_size_in_bytes: TokenSize::FourBytes,
+            shuffle: Shuffle::DontShuffle,
+        });
+        let back = psyche_test_support::postcard_roundtrip(&http);
+        assert!(matches!(back, LLMTrainingDataLocation::Http(_)));
+    }
+
+    #[test]
+    fn llm_postcard_roundtrip() {
+        let llm = LLM {
+            max_seq_len: 4096,
+            cold_start_warmup_steps: 100,
+            architecture: LLMArchitecture::HfDeepseek,
+            checkpoint: Checkpoint::Hub(HubRepo {
+                repo_id: fixed("org/model"),
+                revision: None,
+            }),
+            data_type: LLMTrainingDataType::Finetuning,
+            data_location: LLMTrainingDataLocation::Dummy,
+            lr_schedule: LearningRateSchedule::Constant(ConstantLR::default()),
+            optimizer: adamw(),
+        };
+        let back = psyche_test_support::postcard_roundtrip(&llm);
+        assert_eq!(back.max_seq_len, 4096);
+        assert_eq!(back.cold_start_warmup_steps, 100);
+        assert!(matches!(back.architecture, LLMArchitecture::HfDeepseek));
+        assert!(matches!(back.data_type, LLMTrainingDataType::Finetuning));
+    }
+
+    #[test]
+    fn model_postcard_roundtrip() {
+        let model = Model::LLM(valid_llm());
+        let back = psyche_test_support::postcard_roundtrip(&model);
+        assert!(matches!(back, Model::LLM(_)));
+    }
 }
