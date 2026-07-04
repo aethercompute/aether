@@ -1,4 +1,4 @@
-run_id = "deepseek-v3-dense-100m-1b-lr-1-5e-3"
+run_id = "deepseek-v3-dense-100m-1b-lr-1-5e-2"
 run_state = "WaitingForMembers"
 
 [config]
@@ -42,15 +42,15 @@ cold_start_warmup_steps = 0
 Server = "167.233.75.197:39406"
 
 [model.LLM.checkpoint.Hub]
-repo_id = "aethercompute/deepseek-v3-dense-100m-1b-lr-1-5e-3"
+repo_id = "aethercompute/deepseek-v3-dense-100m-1b-lr-1-5e-2"
 
 [model.LLM.lr_schedule.Cosine]
-# LR 1/4: 1.5e-3 (2x of previous 7.5e-4).
-base_lr = 1.5e-3
+# LR 1/4: 1.5e-2 (10x of previous 1.5e-3).
+base_lr = 1.5e-2
 warmup_steps = 2
 warmup_init_lr = 0.0
 total_steps = 38
-final_lr = 1.5e-4
+final_lr = 1.5e-3
 
 [model.LLM.optimizer.Distro]
 clip_grad_norm = 1.0
