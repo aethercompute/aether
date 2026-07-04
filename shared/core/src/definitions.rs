@@ -326,6 +326,51 @@ mod tests {
     use approx::assert_relative_eq;
 
     #[test]
+    fn optimizer_definition_postcard_roundtrip_all_variants() {
+        // The server sends `Coordinator` (containing the optimizer) to clients over
+        // postcard. Make sure every variant — especially Muon — round-trips, so a
+        // version-skew between server and client is the only possible cause of a
+        // join-time "Serde Deserialization Error", not a missing serde impl.
+        let variants = [
+            OptimizerDefinition::Dummy,
+            OptimizerDefinition::AdamW {
+                betas: [0.9, 0.95],
+                weight_decay: 0.1,
+                eps: 1e-8,
+                clip_grad_norm: Some(1.0),
+            },
+            OptimizerDefinition::Distro {
+                clip_grad_norm: Some(1.0),
+                weight_decay: Some(0.1),
+                compression_decay: 0.999,
+                compression_topk: 8,
+                compression_chunk: 64,
+                quantize_1bit: true,
+            },
+            OptimizerDefinition::Muon {
+                momentum: 0.95,
+                weight_decay: 0.1,
+                clip_grad_norm: Some(1.0),
+                nesterov: true,
+                ns_steps: 5,
+                lookahead: false,
+                compression_decay: 1.0,
+                compression_topk: 8,
+                compression_chunk: 64,
+                quantize_1bit: true,
+            },
+        ];
+        for v in variants {
+            let back = psyche_test_support::postcard_roundtrip(&v);
+            assert_eq!(
+                format!("{v:?}"),
+                format!("{back:?}"),
+                "OptimizerDefinition postcard round-trip mismatch"
+            );
+        }
+    }
+
+    #[test]
     fn test_constant_lr() {
         let scheduler = ConstantLR::new(0.01, 10, 0.001);
 
