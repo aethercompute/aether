@@ -11,14 +11,14 @@ min_clients = 1
 init_min_clients = 1
 
 # Fixed global batch size: 768 sequences * 512 tokens = 393,216 tokens/step.
-# 120 steps consume 92,160 sequences = 47,185,920 tokens.
+# 38 steps consume 29,184 sequences = ~15M tokens.
 global_batch_size_start = 768
 global_batch_size_end = 768
 global_batch_size_warmup_tokens = 0
 
 verification_percent = 0
 witness_nodes = 1
-total_steps = 120
+total_steps = 38
 waiting_for_members_extra_time = 120
 
 [model.LLM]
@@ -47,9 +47,9 @@ repo_id = "aethercompute/deepseek-v3-dense-100m-1b-lr-5e-4"
 [model.LLM.lr_schedule.Cosine]
 # LR 1/4: 5e-4 (half of 1e-3 baseline).
 base_lr = 5.0e-4
-warmup_steps = 4
+warmup_steps = 2
 warmup_init_lr = 0.0
-total_steps = 120
+total_steps = 38
 final_lr = 5.0e-5
 
 [model.LLM.optimizer.Distro]
