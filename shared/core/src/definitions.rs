@@ -306,6 +306,18 @@ pub enum OptimizerDefinition {
         compression_chunk: u16,
         quantize_1bit: bool,
     },
+    Muon {
+        momentum: f32,
+        weight_decay: f32,
+        clip_grad_norm: Option<f32>,
+        nesterov: bool,
+        ns_steps: u8,
+        lookahead: bool,
+        compression_decay: f32,
+        compression_topk: u16,
+        compression_chunk: u16,
+        quantize_1bit: bool,
+    },
 }
 
 #[cfg(test)]

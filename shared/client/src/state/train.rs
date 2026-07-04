@@ -297,6 +297,7 @@ impl TrainingStepMetadata {
                 let quantize = match &state.model {
                     model::Model::LLM(llm) => match llm.optimizer {
                         OptimizerDefinition::Distro { quantize_1bit, .. } => quantize_1bit,
+                        OptimizerDefinition::Muon { quantize_1bit, .. } => quantize_1bit,
                         _ => false,
                     },
                 };

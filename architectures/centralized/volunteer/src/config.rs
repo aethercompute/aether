@@ -4,7 +4,7 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
-pub const DEFAULT_RUN_ID: &str = "ds-v3-dense-250m-ufw";
+pub const DEFAULT_RUN_ID: &str = "ds-v3-dense-100m-ufw";
 pub const DEFAULT_SERVER_HOST: &str = "train.aethercompute.org";
 pub const DEFAULT_SERVER_PORT: &str = "39405";
 pub const DEFAULT_MICRO_BATCH: &str = "1";

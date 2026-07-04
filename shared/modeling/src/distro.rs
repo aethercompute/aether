@@ -692,7 +692,7 @@ impl Distro {
         tensor
     }
 
-    fn unpack_tensor_sign_from_boolean(tensor: Tensor, unpack_kind: Kind) -> Tensor {
+    pub fn unpack_tensor_sign_from_boolean(tensor: Tensor, unpack_kind: Kind) -> Tensor {
         tensor.to_kind(unpack_kind) * -2 + 1
     }
 }
@@ -720,6 +720,10 @@ mod tests {
 
         fn gather_full_tensor(&self) -> Tensor {
             self.shallow_clone()
+        }
+
+        fn gather_other_tensor_like_me(&self, tensor: Tensor) -> Tensor {
+            tensor
         }
 
         fn shard_other_tensor_like_me(&self, tensor: Tensor) -> Tensor {

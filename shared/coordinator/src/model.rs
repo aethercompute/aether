@@ -275,6 +275,7 @@ impl Model {
                     OptimizerDefinition::Dummy => false,
                     OptimizerDefinition::AdamW { .. } => true,
                     OptimizerDefinition::Distro { .. } => true,
+                    OptimizerDefinition::Muon { .. } => true,
                 } {
                     warn!("model check failed: bad optimizer");
                     return false;

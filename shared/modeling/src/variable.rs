@@ -17,6 +17,10 @@ pub trait Variable {
     fn logical_tensor(&self) -> Tensor;
     fn local_tensor(&self) -> Tensor;
     fn gather_full_tensor(&self) -> Tensor;
+    /// All-gather a *different* local tensor using this variable's shard/comm info,
+    /// returning the full (unsharded) tensor. Inverse of `shard_other_tensor_like_me`.
+    /// For non-sharded variables this returns the tensor unchanged.
+    fn gather_other_tensor_like_me(&self, tensor: Tensor) -> Tensor;
     fn shard_other_tensor_like_me(&self, tensor: Tensor) -> Tensor;
     fn full_tensor_shape(&self) -> Vec<i64>;
     fn is_sharded(&self) -> bool;
@@ -101,6 +105,24 @@ impl Variable for (String, Tensor, Option<Shard>, Option<Arc<Communicator>>) {
             #[cfg(not(feature = "parallelism"))]
             Some(_) => panic!("Sharded tensor without parallelism feature?"),
             None => self.1.shallow_clone(),
+        }
+    }
+
+    fn gather_other_tensor_like_me(&self, tensor: Tensor) -> Tensor {
+        match &self.2 {
+            #[cfg(feature = "parallelism")]
+            Some(shard) => {
+                assert!(self.3.is_some());
+                let shards = (0..shard.world_size)
+                    .map(|_| tensor.empty_like())
+                    .collect::<Vec<_>>();
+                tensor.all_gather(&shards, &self.3);
+
+                crate::parallelism::unshard_tensor(shards, shard)
+            }
+            #[cfg(not(feature = "parallelism"))]
+            Some(_) => panic!("Sharded tensor without parallelism feature?"),
+            None => tensor,
         }
     }
 

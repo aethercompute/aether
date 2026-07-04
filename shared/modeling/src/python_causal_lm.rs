@@ -512,6 +512,20 @@ impl Variable for PythonCausalLMVariable {
         }
     }
 
+    fn gather_other_tensor_like_me(&self, tensor: Tensor) -> Tensor {
+        match self.sharded {
+            // Newton-Schulz orthogonalization under Python dtensor sharding would
+            // require an arbitrary-tensor all-gather that the dtensor bindings don't
+            // currently expose. Route sharded Python params to the non-Muon fallback,
+            // or use the native (non-Python) model path / data-parallelism.
+            true => unimplemented!(
+                "Muon Newton-Schulz under Python tensor-parallel sharding is not yet \
+                 supported; use data-parallelism or the native model path"
+            ),
+            false => tensor,
+        }
+    }
+
     fn full_tensor_shape(&self) -> Vec<i64> {
         self.full_shape.clone()
     }

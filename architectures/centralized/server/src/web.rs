@@ -417,6 +417,35 @@ fn format_optimizer(opt: &OptimizerDefinition) -> String {
                 clip, wd, compression_decay, compression_topk, compression_chunk, quantize_1bit
             )
         }
+        OptimizerDefinition::Muon {
+            momentum,
+            weight_decay,
+            clip_grad_norm,
+            nesterov,
+            ns_steps,
+            lookahead,
+            compression_decay,
+            compression_topk,
+            compression_chunk,
+            quantize_1bit,
+        } => {
+            let clip = clip_grad_norm
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "None".into());
+            format!(
+                "Muon(momentum={}, wd={}, clip={}, nesterov={}, ns_steps={}, lookahead={}, comp_decay={}, topk={}, chunk={}, quantize_1bit={})",
+                momentum,
+                weight_decay,
+                clip,
+                nesterov,
+                ns_steps,
+                lookahead,
+                compression_decay,
+                compression_topk,
+                compression_chunk,
+                quantize_1bit
+            )
+        }
     }
 }
 

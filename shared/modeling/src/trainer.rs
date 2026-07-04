@@ -928,6 +928,19 @@ impl LocalTrainer {
                                 }
                             };
                         }
+                        Optimizer::Muon { optimizer, .. } => {
+                            if zero_optim {
+                                optimizer.zero_optim();
+                                tracing::info!("Zeroed Muon optimizer states");
+                            }
+                            match &prev_self_distro_results {
+                                Some(_) => optimizer.error_correction(model.as_ref(), prev_lr),
+                                None => {
+                                    error!("Got Muon train assignment, but null previous results");
+                                    return;
+                                }
+                            };
+                        }
                         Optimizer::Null => {}
                     };
 
@@ -1012,6 +1025,43 @@ impl LocalTrainer {
                                 clip_grad_norm: _,
                             } => None,
                             Optimizer::Distro {
+                                optimizer,
+                                clip_grad_norm,
+                                quantize_1bit: _,
+                            } => {
+                                let clipped = match clip_grad_norm {
+                                    Some(clip_grad_norm) => match barrier.wait() {
+                                        Ok(_) => {
+                                            if *clip_grad_norm > 0. {
+                                                model.clip_grad_norm(*clip_grad_norm as f64);
+                                            }
+                                            barrier.wait().is_ok()
+                                        }
+                                        Err(_) => false,
+                                    },
+                                    None => true,
+                                };
+                                if clipped {
+                                    let ret = optimizer.generate(
+                                        model.as_ref(),
+                                        &prev_self_distro_results.unwrap_or_default(),
+                                        prev_lr,
+                                        lr,
+                                        optim_stats_every_n_steps
+                                            .map(|stats| step % stats == 0)
+                                            .unwrap_or(false),
+                                    );
+                                    // just need results from one of the ranks
+                                    match index == 0 {
+                                        true => Some(ret),
+                                        false => None,
+                                    }
+                                } else {
+                                    cancelled = true;
+                                    None
+                                }
+                            }
+                            Optimizer::Muon {
                                 optimizer,
                                 clip_grad_norm,
                                 quantize_1bit: _,
@@ -1327,6 +1377,26 @@ fn optimize_step(
             }
             None => {
                 error!("Got DisTrO optimizer assignment, but no results");
+                return ControlFlow::Break(());
+            }
+        },
+        Optimizer::Muon { optimizer, .. } => match distro_results {
+            Some(results) => {
+                if !results.is_empty() {
+                    trace!("Applying {} Muon gradients", results.len());
+                    if barrier.wait().is_err() {
+                        return ControlFlow::Break(());
+                    }
+                    optimizer.apply(model.as_ref(), results, lr);
+                    if barrier.wait().is_err() {
+                        return ControlFlow::Break(());
+                    }
+                } else {
+                    warn!("Empty Muon gradients, model parameters will not be updated");
+                }
+            }
+            None => {
+                error!("Got Muon optimizer assignment, but no results");
                 return ControlFlow::Break(());
             }
         },

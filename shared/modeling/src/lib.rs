@@ -9,6 +9,7 @@ mod distro;
 mod dummy;
 mod fp32_gradient_accumulator;
 mod models;
+mod muon;
 mod optimizer;
 mod parallelism;
 #[cfg(feature = "python")]
@@ -39,6 +40,7 @@ pub use distro::{CompressDCT, Distro, DistroResult, TransformDCT};
 pub use dummy::{get_dummy_parameters, DummyModel};
 pub use fp32_gradient_accumulator::Fp32GradientAccumulator;
 pub use models::*;
+pub use muon::MuonOptimizer;
 pub use optimizer::Optimizer;
 pub use parallelism::{
     unsharded_cpu_variables, AllReduce, ColumnParallelLinear, Communicator, CommunicatorId,

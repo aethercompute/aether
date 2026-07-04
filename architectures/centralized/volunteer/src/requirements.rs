@@ -1,6 +1,6 @@
 //! Hardware requirements and the VRAM→micro-batch heuristic.
 //!
-//! The volunteer run is a 250M-param bf16 model (seq len 512) trained with the
+//! The volunteer run is a 100M-param bf16 model (seq len 512) trained with the
 //! compressed Distro optimizer, so optimizer/gradient state is small and peak
 //! memory is dominated by activations — which scale with the micro-batch size.
 //! That lets us recommend a micro-batch from VRAM alone, and gate the launch on
@@ -9,7 +9,7 @@
 //! All thresholds live here as constants so they're easy to tune in one place.
 
 /// Minimum VRAM a single NVIDIA GPU must have to be allowed to train.
-/// 4 GiB fits the 250M/bf16/Distro model comfortably at micro-batch 1.
+/// 4 GiB fits the 100M/bf16/Distro model comfortably at micro-batch 1.
 pub const MIN_VRAM_MIB: u32 = 4 * 1024;
 
 /// True when the given VRAM (in MiB) clears the minimum floor.

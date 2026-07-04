@@ -1,4 +1,4 @@
-use crate::{CausalLM, Distro};
+use crate::{CausalLM, Distro, MuonOptimizer};
 use psyche_core::OptimizerDefinition;
 use tch::COptimizer;
 
@@ -9,6 +9,11 @@ pub enum Optimizer {
     },
     Distro {
         optimizer: Box<Distro>,
+        clip_grad_norm: Option<f32>,
+        quantize_1bit: bool,
+    },
+    Muon {
+        optimizer: Box<MuonOptimizer>,
         clip_grad_norm: Option<f32>,
         quantize_1bit: bool,
     },
@@ -56,6 +61,33 @@ impl Optimizer {
                     compression_chunk as i64,
                     compression_topk as i64,
                     weight_decay.unwrap_or(0.0) as f64,
+                )
+                .into(),
+                clip_grad_norm,
+                quantize_1bit,
+            },
+            OptimizerDefinition::Muon {
+                momentum,
+                weight_decay,
+                clip_grad_norm,
+                nesterov,
+                ns_steps,
+                lookahead,
+                compression_decay,
+                compression_topk,
+                compression_chunk,
+                quantize_1bit,
+            } => Self::Muon {
+                optimizer: MuonOptimizer::new(
+                    model,
+                    momentum as f64,
+                    weight_decay as f64,
+                    nesterov,
+                    ns_steps as i64,
+                    lookahead,
+                    compression_decay as f64,
+                    compression_chunk as i64,
+                    compression_topk as i64,
                 )
                 .into(),
                 clip_grad_norm,

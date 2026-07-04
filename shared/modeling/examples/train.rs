@@ -132,6 +132,21 @@ struct RunArgs {
     #[arg(long, default_value_t = false)]
     distro_quantization: bool,
 
+    #[arg(long, default_value_t = false)]
+    muon: bool,
+
+    #[arg(long, default_value_t = 0.95)]
+    muon_momentum: f32,
+
+    #[arg(long, default_value_t = 5)]
+    muon_ns_steps: u8,
+
+    #[arg(long, default_value_t = true)]
+    muon_nesterov: bool,
+
+    #[arg(long, default_value_t = false)]
+    muon_lookahead: bool,
+
     #[arg(long)]
     attn_implementation: Option<AttnImpl>,
 
@@ -244,8 +259,8 @@ async fn main() -> Result<()> {
         x => Some(x),
     };
 
-    let optimizer = match args.distro {
-        true => OptimizerDefinition::Distro {
+    let optimizer = match (args.distro, args.muon) {
+        (true, false) => OptimizerDefinition::Distro {
             clip_grad_norm,
             compression_decay: args.compression_decay,
             compression_topk: args.compression_topk,
@@ -253,12 +268,25 @@ async fn main() -> Result<()> {
             quantize_1bit: args.distro_quantization,
             weight_decay: Some(args.weight_decay),
         },
-        false => OptimizerDefinition::AdamW {
+        (false, true) => OptimizerDefinition::Muon {
+            momentum: args.muon_momentum,
+            weight_decay: args.weight_decay,
+            clip_grad_norm,
+            nesterov: args.muon_nesterov,
+            ns_steps: args.muon_ns_steps,
+            lookahead: args.muon_lookahead,
+            compression_decay: args.compression_decay,
+            compression_topk: args.compression_topk,
+            compression_chunk: args.compression_chunk,
+            quantize_1bit: args.distro_quantization,
+        },
+        (false, false) => OptimizerDefinition::AdamW {
             betas: [args.beta1, args.beta2],
             weight_decay: args.weight_decay,
             eps: args.eps,
             clip_grad_norm,
         },
+        (true, true) => panic!("--distro and --muon are mutually exclusive"),
     };
 
     let dp_world_size = args.data_parallelism.unwrap_or(1);
