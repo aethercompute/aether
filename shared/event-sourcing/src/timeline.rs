@@ -751,7 +751,9 @@ mod tests {
             "COORD_RECORD_SIZE definition drifted from size_of::<Coordinator>()"
         );
         // Pinned size (bytes). Update deliberately + note the on-disk breakage.
-        let expected = 94048;
+        // 94056: grew 8 bytes after adding OptimizerDefinition::Muon (new optimizer
+        //        variant — its payload is the largest of the enum's variants).
+        let expected = 94056;
         assert_eq!(
             coord_size, expected,
             "Coordinator size changed ({coord_size} != {expected}); \
