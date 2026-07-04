@@ -1,4 +1,4 @@
-run_id = "deepseek-v3-dense-100m-1b-muon-gbs768"
+run_id = "aether0-100m-muon"
 run_state = "WaitingForMembers"
 
 [config]

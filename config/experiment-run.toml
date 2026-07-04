@@ -1,11 +1,8 @@
 [[runs]]
-state = "deepseek-v3-dense-100m-ufw/state_lr_0.toml"
+state = "aether0-100m/state.toml"
 
 [[runs]]
-state = "deepseek-v3-dense-100m-ufw/state_lr_1.toml"
+state = "aether0-1b/state.toml"
 
 [[runs]]
-state = "deepseek-v3-dense-100m-ufw/state_lr_2.toml"
-
-[[runs]]
-state = "deepseek-v3-dense-100m-ufw/state_lr_3.toml"
+state = "aether0-2b/state.toml"
