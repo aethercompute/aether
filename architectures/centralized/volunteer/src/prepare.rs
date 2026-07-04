@@ -360,6 +360,77 @@ pub fn torch_changed_since_build() -> bool {
     matches!(t_meta.modified(), Ok(t) if t > bin_mod)
 }
 
+/// True if any client source file (or build manifest) under `shared/` /
+/// `architecture/` / the workspace root is newer than the client binary — i.e.
+/// the checked-out source has changed since the binary was built and the client
+/// must be recompiled even though it still loads. Without this, a `git pull` that
+/// changes the on-wire types (e.g. adding an `OptimizerDefinition` variant) leaves
+/// the volunteer exec'ing a stale client that deserializes the new payload as
+/// "Serde Deserialization Error".
+pub fn source_changed_since_build() -> bool {
+    let Some(bin_mod) = bin_modified() else {
+        return false; // no binary yet — handled by the `bin_exists` check
+    };
+    let root = config::repo_root();
+    for sub in ["shared", "architectures"] {
+        if newer_file_in(&root.join(sub), &bin_mod) {
+            return true;
+        }
+    }
+    for manifest in ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml"] {
+        if let Ok(m) = std::fs::metadata(root.join(manifest)) {
+            if matches!(m.modified(), Ok(t) if t > bin_mod) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn bin_modified() -> Option<std::time::SystemTime> {
+    std::fs::metadata(config::client_bin())
+        .ok()
+        .and_then(|m| m.modified().ok())
+}
+
+/// Recursively look for a build-input file (`.rs` / `.toml` / `.lock`) newer than
+/// `threshold`. Skips generated / vendored / build-artifact trees.
+fn newer_file_in(dir: &std::path::Path, threshold: &std::time::SystemTime) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(ft) = entry.file_type() else {
+            continue;
+        };
+        if ft.is_dir() {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if matches!(
+                name,
+                "target" | "vendor" | ".git" | ".aethercompute" | "bindings" | "node_modules"
+            ) {
+                continue;
+            }
+            if newer_file_in(&path, threshold) {
+                return true;
+            }
+        } else if ft.is_file() {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            let interesting =
+                name.ends_with(".rs") || name.ends_with(".toml") || name.ends_with(".lock");
+            if interesting {
+                if let Ok(m) = std::fs::metadata(&path) {
+                    if matches!(m.modified(), Ok(t) if t > *threshold) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Replace this process with the training client.
 pub fn exec_client(launch: &config::LaunchConfig) -> Result<()> {
     let bin = config::client_bin();
@@ -387,5 +458,67 @@ pub fn exec_client(launch: &config::LaunchConfig) -> Result<()> {
     {
         let _ = cmd.status().context("run training client")?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn set_mtime(path: &std::path::Path, when: std::time::SystemTime) {
+        let f = std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .unwrap_or_else(|_| std::fs::File::create(path).unwrap());
+        f.set_modified(when).unwrap();
+    }
+
+    #[test]
+    fn newer_file_in_detects_source_changes_and_skips_artifacts() {
+        let root = std::env::temp_dir().join(format!(
+            "aether-prepare-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("target")).unwrap();
+        std::fs::create_dir_all(root.join("vendor")).unwrap();
+
+        let now = std::time::SystemTime::now();
+        let old = now - Duration::from_secs(3600);
+        let newer = now + Duration::from_secs(60);
+
+        // Old source file — below the threshold.
+        let old_rs = root.join("src").join("lib.rs");
+        std::fs::write(&old_rs, b"// old").unwrap();
+        set_mtime(&old_rs, old);
+        // A newer non-source file (.md) — must be ignored.
+        std::fs::write(root.join("README.md"), b"# hi").unwrap();
+        set_mtime(&root.join("README.md"), newer);
+        // A newer .rs inside target/ — must be skipped (build artifact).
+        let tgt = root.join("target").join("out.rs");
+        std::fs::write(&tgt, b"// built").unwrap();
+        set_mtime(&tgt, newer);
+
+        assert!(
+            !newer_file_in(&root, &now),
+            "old source + skipped artifacts should not trigger a rebuild"
+        );
+
+        // Add a genuinely-newer source file → must trigger.
+        let new_rs = root.join("src").join("new.rs");
+        std::fs::write(&new_rs, b"// new").unwrap();
+        set_mtime(&new_rs, newer);
+        assert!(
+            newer_file_in(&root, &now),
+            "a newer .rs under src should trigger a rebuild"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

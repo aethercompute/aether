@@ -320,14 +320,20 @@ impl App {
         self.build_elapsed = std::time::Duration::ZERO;
 
         let bin_exists = config::client_bin().exists();
-        if bin_exists && prepare::client_runs() && !prepare::torch_changed_since_build() {
-            // Binary is present and matches the active libtorch — reuse it.
+        if bin_exists
+            && prepare::client_runs()
+            && !prepare::torch_changed_since_build()
+            && !prepare::source_changed_since_build()
+        {
+            // Binary is present, matches the active libtorch, and is up to date
+            // with the checked-out source — reuse it.
             self.screen = Screen::Ready;
             return Flow::Continue;
         }
-        // Either missing, fails to load, or stale relative to a torch
-        // upgrade/downgrade. If a binary exists we must clean torch-sys so it
-        // re-links against the current torch rather than reusing cached links.
+        // Either missing, fails to load, stale relative to a torch
+        // upgrade/downgrade, or stale relative to newer source. If a binary
+        // exists we must clean torch-sys so it re-links against the current
+        // torch rather than reusing cached links.
         self.build = Some(BuildJob::start(config::CLIENT_CRATE, bin_exists));
         self.screen = Screen::Build;
         Flow::Continue
