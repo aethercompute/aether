@@ -1,5 +1,2 @@
 [[runs]]
 state = "deepseek-v3-dense-100m-ufw/state_muon.toml"
-
-[[runs]]
-state = "deepseek-v3-dense-100m-ufw/state_lr_0.toml"
