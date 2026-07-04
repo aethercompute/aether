@@ -87,14 +87,37 @@ def initialize_deepseek_weights(model: DeepseekV3ForCausalLM, config: DeepseekV3
         attn_out_std = 1 / (math.sqrt(2 * config.hidden_size * (layer_id + 1)))
         _init_normal(layer.self_attn.o_proj, std=attn_out_std)
 
-        ff_std = 1 / math.sqrt(config.hidden_size)
-        _init_normal(layer.mlp.gate_proj, std=ff_std)
-        _init_normal(layer.mlp.up_proj, std=ff_std)
+        if hasattr(layer.mlp, "gate_proj"):
+            ff_std = 1 / math.sqrt(config.hidden_size)
+            _init_normal(layer.mlp.gate_proj, std=ff_std)
+            _init_normal(layer.mlp.up_proj, std=ff_std)
 
-        ff_out_std = 1 / (
-            math.sqrt(2 * layer.mlp.down_proj.in_features * (layer_id + 1))
-        )
-        _init_normal(layer.mlp.down_proj, std=ff_out_std)
+            ff_out_std = 1 / (
+                math.sqrt(2 * layer.mlp.down_proj.in_features * (layer_id + 1))
+            )
+            _init_normal(layer.mlp.down_proj, std=ff_out_std)
+        else:
+            ff_std = 1 / math.sqrt(config.hidden_size)
+            for expert in layer.mlp.experts:
+                _init_normal(expert.gate_proj, std=ff_std)
+                _init_normal(expert.up_proj, std=ff_std)
+                ff_out_std = 1 / (
+                    math.sqrt(2 * expert.down_proj.in_features * (layer_id + 1))
+                )
+                _init_normal(expert.down_proj, std=ff_out_std)
+            shared_experts = getattr(layer.mlp, "shared_experts", None)
+            if shared_experts is not None:
+                _init_normal(shared_experts.gate_proj, std=ff_std)
+                _init_normal(shared_experts.up_proj, std=ff_std)
+                ff_out_std = 1 / (
+                    math.sqrt(
+                        2 * shared_experts.down_proj.in_features * (layer_id + 1)
+                    )
+                )
+                _init_normal(shared_experts.down_proj, std=ff_out_std)
+            gate = getattr(layer.mlp, "gate", None)
+            if gate is not None:
+                _init_normal(gate, std=ff_std)
 
         nn.init.ones_(layer.input_layernorm.weight)
         nn.init.ones_(layer.post_attention_layernorm.weight)
