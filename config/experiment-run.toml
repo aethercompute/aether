@@ -1,8 +1,2 @@
 [[runs]]
-state = "aether0-100m/state.toml"
-
-[[runs]]
-state = "aether0-1b/state.toml"
-
-[[runs]]
-state = "aether0-2b/state.toml"
+state = "aether0-500m/state.toml"

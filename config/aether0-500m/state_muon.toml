@@ -1,4 +1,4 @@
-run_id = "aether0-100m-muon"
+run_id = "aether0-500m-muon"
 run_state = "WaitingForMembers"
 
 [config]
@@ -11,15 +11,14 @@ min_clients = 1
 init_min_clients = 1
 
 # Fixed global batch size: 768 sequences * 512 tokens = 393,216 tokens/step.
-# 120 steps consume 92,160 sequences = 47,185,920 tokens. Matches the
-# state_lr_*.toml Distro LR-sweep format for a direct A/B.
+# 64 steps consume 49,152 sequences = ~25M tokens.
 global_batch_size_start = 768
 global_batch_size_end = 768
 global_batch_size_warmup_tokens = 0
 
 verification_percent = 0
 witness_nodes = 1
-total_steps = 120
+total_steps = 64
 waiting_for_members_extra_time = 120
 
 [model.LLM]
@@ -32,32 +31,27 @@ cold_start_warmup_steps = 0
 Server = "167.233.75.197:39406"
 
 [model.LLM.checkpoint.Hub]
-repo_id = "aethercompute/deepseek-v3-dense-100m-1b-exp1"
+repo_id = "aethercompute/aether0-500m-muon"
 
 [model.LLM.lr_schedule.Cosine]
 # LR NOTE (Muon v2): the orthogonalized update is applied at `apply` as
 # `w -= lr · scale · NewtonSchulz(momentum)` — the *continuous* orthogonal factor
 # (entries ~ 1/√d), NOT a sign. Per-coordinate step ≈ lr·scale/√d, which is the
 # canonical Muon regime: lr ~ 0.02 (NOT SignSGD/Distro's ~1e-3 scale).
-#
-# The earlier sign-mode attempt (lr ~1e-3) plateaued near random-loss (~10.2):
-# it compressed the *orthogonalized* update through DCT+top-k, but orthogonalized
-# matrices are incompressible (uniform energy), so the channel destroyed them and
-# only the noise survived. v2 compresses the raw *momentum* (compressible, like
-# Distro) and orthogonalizes post-aggregation — same transport, correct math.
 base_lr = 2.0e-2
-warmup_steps = 8
+warmup_steps = 4
 warmup_init_lr = 0.0
-total_steps = 120
+total_steps = 64
 final_lr = 2.0e-3
 
 # Muon v2: the DisTrO transport carries the gradient *momentum* (compressible —
 # identical channel to Distro); Newton-Schulz orthogonalization happens at apply
 # on the aggregated momentum, replacing Distro's sign. 2D hidden weights (aspect
 # ratio ≤ 8) get Muon; embeddings/lm_head/1D use a sign fallback at lr·0.05 so
-# their steps stay on the SignSGD scale. `quantize_1bit = false` sends bf16 top-k
-# values (~1.4× Distro's bool bandwidth) so the momentum's magnitude survives the
-# channel — needed for NS to produce a meaningful direction.
+# their steps stay on the SignSGD scale. This test sets `quantize_1bit = true`
+# and top-k=8 to match Distro's transport bandwidth exactly. That removes DCT
+# coefficient magnitudes before NS, so if quality regresses, switch back to
+# bf16 values (`quantize_1bit = false`) and use top-k=6 for near-Distro bandwidth.
 [model.LLM.optimizer.Muon]
 momentum = 0.95          # transport/momentum EMA decay (β)
 weight_decay = 0.1
@@ -68,4 +62,4 @@ lookahead = false
 compression_decay = 1.0  # accepted for serde; momentum (above) is the active decay
 compression_topk = 8
 compression_chunk = 64
-quantize_1bit = false    # bf16 values — preserve momentum magnitude for NS
+quantize_1bit = true     # experimental: same bandwidth as Distro, higher Muon quality risk

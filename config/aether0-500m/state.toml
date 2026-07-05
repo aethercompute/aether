@@ -1,4 +1,4 @@
-run_id = "aether0-2b"
+run_id = "aether0-500m"
 run_state = "WaitingForMembers"
 
 [config]
@@ -11,14 +11,14 @@ min_clients = 1
 init_min_clients = 1
 
 # Fixed global batch size: 768 sequences * 512 tokens = 393,216 tokens/step.
-# 38 steps consume 29,184 sequences = ~15M tokens.
+# 64 steps consume 49,152 sequences = ~25M tokens.
 global_batch_size_start = 768
 global_batch_size_end = 768
 global_batch_size_warmup_tokens = 0
 
 verification_percent = 0
 witness_nodes = 1
-total_steps = 38
+total_steps = 64
 waiting_for_members_extra_time = 120
 
 [model.LLM]
@@ -31,13 +31,13 @@ cold_start_warmup_steps = 0
 Server = "167.233.75.197:39406"
 
 [model.LLM.checkpoint.Hub]
-repo_id = "aethercompute/aether0-2b"
+repo_id = "aethercompute/aether0-500m"
 
 [model.LLM.lr_schedule.Cosine]
 base_lr = 1.5e-3
-warmup_steps = 2
+warmup_steps = 4
 warmup_init_lr = 0.0
-total_steps = 38
+total_steps = 64
 final_lr = 1.5e-4
 
 [model.LLM.optimizer.Distro]
