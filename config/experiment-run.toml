@@ -1,2 +1,5 @@
 [[runs]]
 state = "aether0-500m/state.toml"
+
+[[runs]]
+state = "aether0-500m/state_muon.toml"
