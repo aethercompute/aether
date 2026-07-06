@@ -39,6 +39,24 @@ pub struct Trainer {
     cancel: CancellationToken,
 }
 
+impl Trainer {
+    fn take_trainer(&self) -> PyResult<psyche_modeling::LocalTrainer> {
+        self.trainer
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("trainer lock poisoned"))?
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("trainer is already in use"))
+    }
+
+    fn replace_trainer(&self, trainer: psyche_modeling::LocalTrainer) -> PyResult<()> {
+        *self
+            .trainer
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("trainer lock poisoned"))? = Some(trainer);
+        Ok(())
+    }
+}
+
 #[pyclass]
 pub struct DistroResult {
     #[pyo3(get)]
@@ -152,7 +170,7 @@ impl Trainer {
         prev_self_distro_results: Option<Vec<Vec<Py<DistroResult>>>>,
     ) -> PyResult<(Option<Vec<DistroResult>>, f32)> {
         trace!("Python extension train() for step {step}");
-        let trainer = self_.trainer.write().unwrap().take().unwrap();
+        let trainer = self_.take_trainer()?;
         let id = BatchId(ClosedInterval::new(batch_id.0, batch_id.1));
         let cancel = self_.cancel.clone();
         let prev_self_distro_results =
@@ -178,11 +196,16 @@ impl Trainer {
                     cancel,
                 )
             })
-            .unwrap();
-        *self_.trainer.write().unwrap() = Some(match output.trainer {
+            .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+        let trainer = match output.trainer {
             psyche_modeling::Trainer::Local(local_trainer) => local_trainer,
-            _ => unreachable!("got a distributed trainer in local training mode"),
-        });
+            _ => {
+                return Err(PyRuntimeError::new_err(
+                    "got a distributed trainer in local training mode",
+                ));
+            }
+        };
+        self_.replace_trainer(trainer)?;
 
         let results: Option<Result<Vec<DistroResult>, PyErr>> =
             output.distro_results.map(|distro_results| {
@@ -212,38 +235,38 @@ impl Trainer {
         distro_results: Option<Vec<Vec<Py<DistroResult>>>>,
     ) -> PyResult<()> {
         trace!("Python extension optimize() for step {step}");
-        let trainer = self_.trainer.write().unwrap().take().unwrap();
+        let trainer = self_.take_trainer()?;
         let distro_results = DistroResult::to_native(self_.py(), distro_results)?;
         let output = self_
             .py()
             .allow_threads(move || trainer.optimize(step, warmup_lr_between, distro_results))
-            .unwrap();
-        *self_.trainer.write().unwrap() = Some(output);
+            .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+        self_.replace_trainer(output)?;
         Ok(())
     }
 
     pub fn extract(self_: PyRef<'_, Self>) -> PyResult<()> {
-        let trainer = self_.trainer.write().unwrap().take();
-        if let Some(mut trainer) = trainer {
-            let trainer = self_.py().allow_threads(move || {
-                let _ = trainer.extract();
-                trainer
-            });
-            *self_.trainer.write().unwrap() = Some(trainer);
-        }
-        Ok(())
+        let mut trainer = self_.take_trainer()?;
+        let (trainer, result) = self_.py().allow_threads(move || {
+            let result = trainer.extract();
+            (trainer, result)
+        });
+        self_.replace_trainer(trainer)?;
+        result
+            .map(|_| ())
+            .map_err(|err| PyRuntimeError::new_err(err.to_string()))
     }
 
     pub fn truncate_bf16(self_: PyRef<'_, Self>) -> PyResult<()> {
-        let trainer = self_.trainer.write().unwrap().take();
-        if let Some(mut trainer) = trainer {
-            let trainer = self_.py().allow_threads(move || {
-                let _ = trainer.truncate_bf16();
-                trainer
-            });
-            *self_.trainer.write().unwrap() = Some(trainer);
-        }
-        Ok(())
+        let mut trainer = self_.take_trainer()?;
+        let (trainer, result) = self_.py().allow_threads(move || {
+            let result = trainer.truncate_bf16();
+            (trainer, result)
+        });
+        self_.replace_trainer(trainer)?;
+        result
+            .map(|_| ())
+            .map_err(|err| PyRuntimeError::new_err(err.to_string()))
     }
 }
 
