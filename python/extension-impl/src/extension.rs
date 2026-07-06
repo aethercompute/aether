@@ -12,7 +12,7 @@ use std::{
 };
 use sysinfo::{Pid, System};
 use tokio_util::sync::CancellationToken;
-use tracing::trace;
+use tracing::{info, trace};
 
 #[pyfunction]
 fn add_one(tensor: PyTensor) -> PyResult<PyTensor> {
@@ -26,18 +26,14 @@ fn start_process_watcher(pid: usize, duration: Duration) -> PyResult<()> {
         std::thread::sleep(duration);
         let mut system = System::new_all();
         if !system.refresh_process(Pid::from(pid)) {
-            println!("Parent process {pid} gone, exiting");
-            system
-                .process(Pid::from_u32(std::process::id()))
-                .unwrap()
-                .kill();
+            info!("Parent process {pid} gone, exiting");
+            std::process::exit(0);
         }
     });
     Ok(())
 }
 
 #[pyclass]
-
 pub struct Trainer {
     trainer: RwLock<Option<psyche_modeling::LocalTrainer>>,
     cancel: CancellationToken,
