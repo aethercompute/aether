@@ -181,29 +181,20 @@ fn main() -> Result<()> {
                 "build client",
             )?;
 
-            let validate_cmd = if data_path.exists() {
-                vec![
-                    "run",
-                    "-p",
-                    "psyche-centralized-server",
-                    "validate-config",
-                    "--state",
-                    state_path.to_str().unwrap(),
-                    "--data-config",
-                    data_path.to_str().unwrap(),
-                ]
-            } else {
-                vec![
-                    "run",
-                    "-p",
-                    "psyche-centralized-server",
-                    "validate-config",
-                    "--state",
-                    state_path.to_str().unwrap(),
-                ]
-            };
             // Validate config
-            run_command(Command::new("cargo").args(validate_cmd), "validate config")?;
+            let mut validate_cmd = Command::new("cargo");
+            validate_cmd.args([
+                "run",
+                "-p",
+                "psyche-centralized-server",
+                "validate-config",
+                "--state",
+            ]);
+            validate_cmd.arg(&state_path);
+            if data_path.exists() {
+                validate_cmd.arg("--data-config").arg(&data_path);
+            }
+            run_command(&mut validate_cmd, "validate config")?;
 
             let run_id = extract_run_id(&state_path)?;
 
