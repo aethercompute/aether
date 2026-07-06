@@ -53,8 +53,16 @@ jobs:
         run: pip install torch==${TORCH_VERSION} --index-url ${TORCH_INDEX_URL}
       - name: Configure libtorch env
         run: |
+          native_libs=$(python - <<'PY'
+          import os
+          import sysconfig
+          import torch
+
+          print(os.path.join(os.path.dirname(torch.__file__), "lib") + ":" + (sysconfig.get_config_var("LIBDIR") or ""))
+          PY
+          )
           echo "LIBTORCH_USE_PYTORCH=1" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$(python -c 'import os, sysconfig, torch; print(os.path.join(os.path.dirname(torch.__file__), "lib") + ":" + (sysconfig.get_config_var("LIBDIR") or ""))')" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$native_libs" >> "$GITHUB_ENV"
           echo "PYO3_PYTHON=$(which python)" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
@@ -77,8 +85,16 @@ jobs:
           pip install uv
       - name: Configure libtorch env
         run: |
+          native_libs=$(python - <<'PY'
+          import os
+          import sysconfig
+          import torch
+
+          print(os.path.join(os.path.dirname(torch.__file__), "lib") + ":" + (sysconfig.get_config_var("LIBDIR") or ""))
+          PY
+          )
           echo "LIBTORCH_USE_PYTORCH=1" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$(python -c 'import os, sysconfig, torch; print(os.path.join(os.path.dirname(torch.__file__), "lib") + ":" + (sysconfig.get_config_var("LIBDIR") or ""))')" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$native_libs" >> "$GITHUB_ENV"
           echo "PYO3_PYTHON=$(which python)" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
       - name: Rust workspace tests
@@ -103,8 +119,16 @@ jobs:
         run: pip install torch==${TORCH_VERSION} --index-url ${TORCH_INDEX_URL}
       - name: Configure libtorch env
         run: |
+          native_libs=$(python - <<'PY'
+          import os
+          import sysconfig
+          import torch
+
+          print(os.path.join(os.path.dirname(torch.__file__), "lib") + ":" + (sysconfig.get_config_var("LIBDIR") or ""))
+          PY
+          )
           echo "LIBTORCH_USE_PYTORCH=1" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$(python -c 'import os, sysconfig, torch; print(os.path.join(os.path.dirname(torch.__file__), "lib") + ":" + (sysconfig.get_config_var("LIBDIR") or ""))')" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$native_libs" >> "$GITHUB_ENV"
           echo "PYO3_PYTHON=$(which python)" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
         with:
