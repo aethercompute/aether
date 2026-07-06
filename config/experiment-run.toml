@@ -1,2 +1,2 @@
 [[runs]]
-state = "aether0-500m/state_muon_v2_bf16_topk6_lr010_nonest.toml"
+state = "aether0-500m/state_muon_v2_bf16_topk6_lr015_nonest.toml"
