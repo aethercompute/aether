@@ -3,9 +3,10 @@ use crate::{
     traits::{Document, LogLikelihoodTask},
     TaskType,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use psyche_data_provider::{Dataset, Row, RowAccessor, Split};
 use std::{collections::HashMap, fmt::Display};
+use tracing::warn;
 
 pub struct PIQA {
     train_dataset: Dataset,
@@ -25,37 +26,37 @@ impl PIQA {
         "PIQA"
     }
 
-    fn row_to_document(dataset: &Dataset, row: Row) -> Document {
+    fn row_to_document(dataset: &Dataset, row: Row) -> Result<Document> {
         let goal = row
-            .get_string(dataset.get_column_id("goal").unwrap())
-            .unwrap()
+            .get_string(dataset.get_column_id("goal").context("column 'goal'")?)
+            .context("goal value")?
             .to_owned();
 
         let sol1 = row
-            .get_string(dataset.get_column_id("sol1").unwrap())
-            .unwrap()
+            .get_string(dataset.get_column_id("sol1").context("column 'sol1'")?)
+            .context("sol1 value")?
             .to_owned();
 
         let sol2 = row
-            .get_string(dataset.get_column_id("sol2").unwrap())
-            .unwrap()
+            .get_string(dataset.get_column_id("sol2").context("column 'sol2'")?)
+            .context("sol2 value")?
             .to_owned();
 
         let text = format!("Question: {goal}\nAnswer:");
         let choices = vec![sol1, sol2];
 
         let answer = row
-            .get_long(dataset.get_column_id("label").unwrap())
-            .unwrap() as usize;
+            .get_long(dataset.get_column_id("label").context("column 'label'")?)
+            .context("label value")? as usize;
 
-        Document {
+        Ok(Document {
             text,
             choices,
             answer,
             category: None,
             cot_content: None,
             eval_name: PIQA::name().to_string(),
-        }
+        })
     }
 }
 
@@ -63,7 +64,15 @@ impl LogLikelihoodTask for PIQA {
     fn get_documents(&self) -> Vec<Document> {
         self.validation_dataset
             .iter()
-            .map(|row| PIQA::row_to_document(&self.validation_dataset, row))
+            .filter_map(
+                |row| match PIQA::row_to_document(&self.validation_dataset, row) {
+                    Ok(doc) => Some(doc),
+                    Err(e) => {
+                        warn!("Skipping document: {e:#}");
+                        None
+                    }
+                },
+            )
             .collect()
     }
 
@@ -72,7 +81,15 @@ impl LogLikelihoodTask for PIQA {
         let docs: Vec<Document> = self
             .train_dataset
             .iter()
-            .map(|row| PIQA::row_to_document(&self.train_dataset, row))
+            .filter_map(
+                |row| match PIQA::row_to_document(&self.train_dataset, row) {
+                    Ok(doc) => Some(doc),
+                    Err(e) => {
+                        warn!("Skipping fewshot document: {e:#}");
+                        None
+                    }
+                },
+            )
             .collect();
         fewshot_documents.insert("default".to_string(), docs);
         fewshot_documents

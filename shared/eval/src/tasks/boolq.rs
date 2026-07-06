@@ -11,9 +11,10 @@ use crate::{
     traits::{Document, LogLikelihoodTask},
     TaskType,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use psyche_data_provider::{Dataset, Row, RowAccessor, Split};
 use std::{collections::HashMap, fmt::Display};
+use tracing::warn;
 
 pub struct BoolQ {
     test_dataset: Dataset,
@@ -43,15 +44,23 @@ impl BoolQ {
         "BoolQ"
     }
 
-    fn row_to_document(dataset: &Dataset, row: Row) -> Document {
+    fn row_to_document(dataset: &Dataset, row: Row) -> Result<Document> {
         let question = row
-            .get_string(dataset.get_column_id("question").unwrap())
-            .unwrap()
+            .get_string(
+                dataset
+                    .get_column_id("question")
+                    .context("column 'question'")?,
+            )
+            .context("question value")?
             .to_owned();
 
         let passage = row
-            .get_string(dataset.get_column_id("passage").unwrap())
-            .unwrap()
+            .get_string(
+                dataset
+                    .get_column_id("passage")
+                    .context("column 'passage'")?,
+            )
+            .context("passage value")?
             .to_owned();
 
         let choices = vec!["no".to_string(), "yes".to_string()];
@@ -59,17 +68,17 @@ impl BoolQ {
         let text = format!("{passage}\nQuestion: {question}?\nAnswer:");
 
         let answer = row
-            .get_long(dataset.get_column_id("label").unwrap())
-            .unwrap() as usize;
+            .get_long(dataset.get_column_id("label").context("column 'label'")?)
+            .context("label value")? as usize;
 
-        Document {
+        Ok(Document {
             text,
             choices,
             answer,
             category: None,
             cot_content: None,
             eval_name: BoolQ::name().to_string(),
-        }
+        })
     }
 }
 
@@ -77,7 +86,15 @@ impl LogLikelihoodTask for BoolQ {
     fn get_documents(&self) -> Vec<Document> {
         self.validation_dataset
             .iter()
-            .map(|row| BoolQ::row_to_document(&self.validation_dataset, row))
+            .filter_map(
+                |row| match BoolQ::row_to_document(&self.validation_dataset, row) {
+                    Ok(doc) => Some(doc),
+                    Err(e) => {
+                        warn!("Skipping document: {e:#}");
+                        None
+                    }
+                },
+            )
             .collect()
     }
 
@@ -86,7 +103,15 @@ impl LogLikelihoodTask for BoolQ {
         let docs: Vec<Document> = self
             .test_dataset
             .iter()
-            .map(|row| BoolQ::row_to_document(&self.test_dataset, row))
+            .filter_map(
+                |row| match BoolQ::row_to_document(&self.test_dataset, row) {
+                    Ok(doc) => Some(doc),
+                    Err(e) => {
+                        warn!("Skipping fewshot document: {e:#}");
+                        None
+                    }
+                },
+            )
             .collect();
         fewshot_documents.insert("default".to_string(), docs);
         fewshot_documents

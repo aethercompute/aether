@@ -11,9 +11,10 @@ use crate::{
     traits::{Document, GenerateUntilTask},
     TaskType, ASCII_UPPERCASE,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use psyche_data_provider::{Dataset, Row, RowAccessor, Split};
 use std::{collections::HashMap, fmt::Display};
+use tracing::warn;
 
 pub struct MMLUPro {
     test_dataset: Dataset,
@@ -33,45 +34,63 @@ impl MMLUPro {
         "MMLU Pro"
     }
 
-    fn row_to_document(dataset: &Dataset, row: Row) -> Document {
+    fn row_to_document(dataset: &Dataset, row: Row) -> Result<Document> {
         let text = row
-            .get_string(dataset.get_column_id("question").unwrap())
-            .unwrap()
+            .get_string(
+                dataset
+                    .get_column_id("question")
+                    .context("column 'question'")?,
+            )
+            .context("question value")?
             .to_owned();
         let choices: Vec<String> = row
-            .get_list(dataset.get_column_id("options").unwrap())
-            .unwrap()
+            .get_list(
+                dataset
+                    .get_column_id("options")
+                    .context("column 'options'")?,
+            )
+            .context("options list")?
             .elements()
             .iter()
             .map(|field| {
                 let mut s = field.to_string();
-                // Remove \" at the start and end of the String
                 s.remove(0);
                 s.pop();
                 s
             })
             .collect();
         let answer = row
-            .get_string(dataset.get_column_id("answer").unwrap())
-            .unwrap();
-        let answer = ASCII_UPPERCASE.iter().position(|x| x == answer).unwrap();
+            .get_string(dataset.get_column_id("answer").context("column 'answer'")?)
+            .context("answer value")?;
+        let answer = ASCII_UPPERCASE
+            .iter()
+            .position(|x| x == answer)
+            .context("answer not in ASCII_UPPERCASE")?;
         let category = row
-            .get_string(dataset.get_column_id("category").unwrap())
-            .unwrap()
+            .get_string(
+                dataset
+                    .get_column_id("category")
+                    .context("column 'category'")?,
+            )
+            .context("category value")?
             .to_owned();
         let cot_content = row
-            .get_string(dataset.get_column_id("cot_content").unwrap())
-            .unwrap()
+            .get_string(
+                dataset
+                    .get_column_id("cot_content")
+                    .context("column 'cot_content'")?,
+            )
+            .context("cot_content value")?
             .to_owned();
 
-        Document {
+        Ok(Document {
             text,
             choices,
             answer,
             category: Some(category),
             cot_content: Some(cot_content),
             eval_name: MMLUPro::name().to_string(),
-        }
+        })
     }
 }
 
@@ -79,19 +98,31 @@ impl GenerateUntilTask for MMLUPro {
     fn get_documents(&self) -> Vec<Document> {
         self.test_dataset
             .iter()
-            .map(|row| MMLUPro::row_to_document(&self.test_dataset, row))
+            .filter_map(
+                |row| match MMLUPro::row_to_document(&self.test_dataset, row) {
+                    Ok(doc) => Some(doc),
+                    Err(e) => {
+                        warn!("Skipping document: {e:#}");
+                        None
+                    }
+                },
+            )
             .collect()
     }
 
     fn get_fewshot_documents(&self) -> HashMap<String, Vec<Document>> {
         let mut fewshot_documents = HashMap::new();
         self.validation_dataset.iter().for_each(|row| {
-            let doc = MMLUPro::row_to_document(&self.validation_dataset, row);
-            let category = doc.category.as_ref().unwrap().clone();
-            fewshot_documents
-                .entry(category)
-                .or_insert_with(Vec::new)
-                .push(doc);
+            match MMLUPro::row_to_document(&self.validation_dataset, row) {
+                Ok(doc) => {
+                    let category = doc.category.as_ref().unwrap().clone();
+                    fewshot_documents
+                        .entry(category)
+                        .or_insert_with(Vec::new)
+                        .push(doc);
+                }
+                Err(e) => warn!("Skipping fewshot document: {e:#}"),
+            }
         });
         fewshot_documents
     }

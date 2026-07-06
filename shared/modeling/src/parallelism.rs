@@ -51,7 +51,7 @@ impl Communicator {
 
     pub fn size(&self) -> i64 {
         match self {
-            Communicator::None => unimplemented!(),
+            Communicator::None => 1,
             #[cfg(feature = "python")]
             Communicator::TorchDistributed(dist) => dist.size() as i64,
             #[cfg(feature = "parallelism")]
@@ -61,7 +61,7 @@ impl Communicator {
 
     pub fn rank(&self) -> i64 {
         match self {
-            Communicator::None => unimplemented!(),
+            Communicator::None => 0,
             #[cfg(feature = "python")]
             Communicator::TorchDistributed(dist) => dist.rank() as i64,
             #[cfg(feature = "parallelism")]
@@ -76,7 +76,9 @@ impl Communicator {
         op: ReduceType,
     ) -> Result<(), TchError> {
         match self {
-            Communicator::None => unimplemented!(),
+            Communicator::None => Err(TchError::Torch(
+                "all_reduce not supported on Communicator::None".into(),
+            )),
             #[cfg(feature = "python")]
             Communicator::TorchDistributed(torch) => {
                 assert_eq!(tensors.len(), 1);
@@ -92,9 +94,13 @@ impl Communicator {
     #[allow(unused_variables)]
     pub fn copy_to_model_parallel_region(&self, tensor: &Tensor) -> Result<Tensor, TchError> {
         match self {
-            Communicator::None => unimplemented!(),
+            Communicator::None => Err(TchError::Torch(
+                "copy_to_model_parallel_region not supported on Communicator::None".into(),
+            )),
             #[cfg(feature = "python")]
-            Communicator::TorchDistributed(_) => todo!(),
+            Communicator::TorchDistributed(_) => Err(TchError::Torch(
+                "copy_to_model_parallel_region not yet implemented for TorchDistributed".into(),
+            )),
             #[cfg(feature = "parallelism")]
             Communicator::NCCL(cnccl) => cnccl.copy_to_model_parallel(tensor),
         }
@@ -103,9 +109,13 @@ impl Communicator {
     #[allow(unused_variables)]
     pub fn reduce_from_model_parallel_region(&self, tensor: &Tensor) -> Result<Tensor, TchError> {
         match self {
-            Communicator::None => unimplemented!(),
+            Communicator::None => Err(TchError::Torch(
+                "reduce_from_model_parallel_region not supported on Communicator::None".into(),
+            )),
             #[cfg(feature = "python")]
-            Communicator::TorchDistributed(_) => todo!(),
+            Communicator::TorchDistributed(_) => Err(TchError::Torch(
+                "reduce_from_model_parallel_region not yet implemented for TorchDistributed".into(),
+            )),
             #[cfg(feature = "parallelism")]
             Communicator::NCCL(cnccl) => cnccl.reduce_from_model_parallel(tensor),
         }
@@ -114,9 +124,13 @@ impl Communicator {
     #[allow(unused_variables)]
     pub fn scatter_to_model_parallel_region(&self, tensor: &Tensor) -> Result<Tensor, TchError> {
         match self {
-            Communicator::None => unimplemented!(),
+            Communicator::None => Err(TchError::Torch(
+                "scatter_to_model_parallel_region not supported on Communicator::None".into(),
+            )),
             #[cfg(feature = "python")]
-            Communicator::TorchDistributed(_) => todo!(),
+            Communicator::TorchDistributed(_) => Err(TchError::Torch(
+                "scatter_to_model_parallel_region not yet implemented for TorchDistributed".into(),
+            )),
             #[cfg(feature = "parallelism")]
             Communicator::NCCL(cnccl) => cnccl.scatter_to_model_parallel(tensor),
         }
@@ -125,9 +139,13 @@ impl Communicator {
     #[allow(unused_variables)]
     pub fn gather_from_model_parallel_region(&self, tensor: &Tensor) -> Result<Tensor, TchError> {
         match self {
-            Communicator::None => unimplemented!(),
+            Communicator::None => Err(TchError::Torch(
+                "gather_from_model_parallel_region not supported on Communicator::None".into(),
+            )),
             #[cfg(feature = "python")]
-            Communicator::TorchDistributed(_) => todo!(),
+            Communicator::TorchDistributed(_) => Err(TchError::Torch(
+                "gather_from_model_parallel_region not yet implemented for TorchDistributed".into(),
+            )),
             #[cfg(feature = "parallelism")]
             Communicator::NCCL(cnccl) => cnccl.gather_from_model_parallel(tensor),
         }
@@ -140,7 +158,9 @@ impl Communicator {
         input_tensor: &Tensor,
     ) -> Result<(), TchError> {
         match self {
-            Communicator::None => unimplemented!(),
+            Communicator::None => Err(TchError::Torch(
+                "all_gather not supported on Communicator::None".into(),
+            )),
             #[cfg(feature = "python")]
             Communicator::TorchDistributed(torch) => torch
                 .all_gather(output_tensors, input_tensor)
@@ -157,9 +177,13 @@ impl Communicator {
         shape: impl IntList,
     ) -> Result<Tensor, TchError> {
         match self {
-            Communicator::None => unimplemented!(),
+            Communicator::None => Err(TchError::Torch(
+                "parallel_expand_heads not supported on Communicator::None".into(),
+            )),
             #[cfg(feature = "python")]
-            Communicator::TorchDistributed(_) => unimplemented!(),
+            Communicator::TorchDistributed(_) => Err(TchError::Torch(
+                "parallel_expand_heads not yet implemented for TorchDistributed".into(),
+            )),
             #[cfg(feature = "parallelism")]
             Communicator::NCCL(cnccl) => {
                 cnccl.parallel_expand_heads(tensor, cnccl.size(), cnccl.rank(), shape)
@@ -241,7 +265,7 @@ impl AllGather for Tensor {
                 comm.all_gather(output_tensors, self).unwrap();
             }
             None => {
-                todo!()
+                unreachable!("all_gather called without a communicator")
             }
         }
     }

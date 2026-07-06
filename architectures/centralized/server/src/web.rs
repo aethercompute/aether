@@ -89,10 +89,7 @@ async fn overview_partial(State(state): State<SharedState>) -> Html<String> {
             let total_steps = coord.config.total_steps;
             let epoch = coord.progress.epoch;
             let height = coord.epoch_state.rounds[coord.epoch_state.rounds_head as usize].height;
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
+            let now = current_unix_timestamp();
             let state_duration = now.saturating_sub(coord.run_state_start_unix_timestamp);
             let epoch_duration = if coord.epoch_state.start_timestamp > 0 {
                 format_duration(now.saturating_sub(coord.epoch_state.start_timestamp))
@@ -497,8 +494,8 @@ async fn model_partial(State(state): State<SharedState>) -> Html<String> {
 fn current_unix_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn format_eta(secs: Option<u64>) -> String {

@@ -7,9 +7,10 @@ use crate::{
     traits::{Document, LogLikelihoodTask},
     TaskType,
 };
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
 use psyche_data_provider::{Dataset, Row, RowAccessor, Split};
 use std::{collections::HashMap, fmt::Display};
+use tracing::warn;
 
 pub struct CEval {
     datasets: Vec<(Dataset, Dataset, String)>, // (val, dev, subject)
@@ -120,17 +121,29 @@ impl CEval {
             .unwrap_or("未知学科") // "Unknown Subject", should never reach here though.
     }
 
-    fn row_to_document(dataset: &Dataset, row: Row, subject_en: &str) -> Document {
+    fn row_to_document(dataset: &Dataset, row: Row, subject_en: &str) -> Result<Document> {
         let question = row
-            .get_string(dataset.get_column_id("question").unwrap())
-            .unwrap()
+            .get_string(
+                dataset
+                    .get_column_id("question")
+                    .context("column 'question'")?,
+            )
+            .context("question value")?
             .trim()
             .to_owned();
 
-        let option_a = row.get_string(dataset.get_column_id("A").unwrap()).unwrap();
-        let option_b = row.get_string(dataset.get_column_id("B").unwrap()).unwrap();
-        let option_c = row.get_string(dataset.get_column_id("C").unwrap()).unwrap();
-        let option_d = row.get_string(dataset.get_column_id("D").unwrap()).unwrap();
+        let option_a = row
+            .get_string(dataset.get_column_id("A").context("column 'A'")?)
+            .context("option A value")?;
+        let option_b = row
+            .get_string(dataset.get_column_id("B").context("column 'B'")?)
+            .context("option B value")?;
+        let option_c = row
+            .get_string(dataset.get_column_id("C").context("column 'C'")?)
+            .context("option C value")?;
+        let option_d = row
+            .get_string(dataset.get_column_id("D").context("column 'D'")?)
+            .context("option D value")?;
 
         let choices = vec![
             "A".to_owned(),
@@ -149,24 +162,24 @@ impl CEval {
         let text = format!("{description}{doc_to_text}");
 
         let answer_str = row
-            .get_string(dataset.get_column_id("answer").unwrap())
-            .unwrap();
+            .get_string(dataset.get_column_id("answer").context("column 'answer'")?)
+            .context("answer value")?;
         let answer = match answer_str.as_str() {
             "A" => 0,
             "B" => 1,
             "C" => 2,
             "D" => 3,
-            _ => panic!("Invalid answer: {answer_str}"),
+            _ => bail!("Invalid answer: {answer_str}"),
         };
 
-        Document {
+        Ok(Document {
             text,
             choices,
             answer,
             category: Some(subject.to_owned()),
             cot_content: None,
             eval_name: CEval::name().to_string(),
-        }
+        })
     }
 }
 
@@ -177,7 +190,15 @@ impl LogLikelihoodTask for CEval {
         for (val_dataset, _, subject) in &self.datasets {
             let documents: Vec<Document> = val_dataset
                 .iter()
-                .map(|row| CEval::row_to_document(val_dataset, row, subject))
+                .filter_map(
+                    |row| match CEval::row_to_document(val_dataset, row, subject) {
+                        Ok(doc) => Some(doc),
+                        Err(e) => {
+                            warn!("Skipping document: {e:#}");
+                            None
+                        }
+                    },
+                )
                 .collect();
             all_documents.extend(documents);
         }
@@ -191,7 +212,15 @@ impl LogLikelihoodTask for CEval {
         for (_, dev_dataset, subject) in &self.datasets {
             let documents: Vec<Document> = dev_dataset
                 .iter()
-                .map(|row| CEval::row_to_document(dev_dataset, row, subject))
+                .filter_map(
+                    |row| match CEval::row_to_document(dev_dataset, row, subject) {
+                        Ok(doc) => Some(doc),
+                        Err(e) => {
+                            warn!("Skipping fewshot document: {e:#}");
+                            None
+                        }
+                    },
+                )
                 .collect();
 
             for doc in documents {

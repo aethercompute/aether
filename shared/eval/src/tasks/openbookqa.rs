@@ -15,9 +15,10 @@ use crate::{
     traits::{Document, LogLikelihoodTask},
     TaskType,
 };
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
 use psyche_data_provider::{Dataset, ListAccessor, Row, RowAccessor, Split};
 use std::{collections::HashMap, fmt::Display};
+use tracing::warn;
 
 pub struct OpenbookQA {
     test_dataset: Dataset,
@@ -47,42 +48,59 @@ impl OpenbookQA {
         "OpenBookQA"
     }
 
-    fn row_to_document(dataset: &Dataset, row: Row) -> Document {
+    fn row_to_document(dataset: &Dataset, row: Row) -> Result<Document> {
         let question_stem = row
-            .get_string(dataset.get_column_id("question_stem").unwrap())
-            .unwrap()
+            .get_string(
+                dataset
+                    .get_column_id("question_stem")
+                    .context("column 'question_stem'")?,
+            )
+            .context("question_stem value")?
             .to_owned();
         let text = question_stem.to_string();
 
         let choices_group = row
-            .get_group(dataset.get_column_id("choices").unwrap())
-            .unwrap();
-        let choice_texts = choices_group.get_list(0).unwrap();
+            .get_group(
+                dataset
+                    .get_column_id("choices")
+                    .context("column 'choices'")?,
+            )
+            .context("choices group")?;
+        let choice_texts = choices_group.get_list(0).context("choice_texts list")?;
 
         let choices = (0..choice_texts.len())
-            .map(|i| choice_texts.get_string(i).unwrap().to_owned())
-            .collect::<Vec<_>>();
+            .map(|i| {
+                Ok(choice_texts
+                    .get_string(i)
+                    .context("choice string")?
+                    .to_owned())
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         let answer_key = row
-            .get_string(dataset.get_column_id("answerKey").unwrap())
-            .unwrap();
+            .get_string(
+                dataset
+                    .get_column_id("answerKey")
+                    .context("column 'answerKey'")?,
+            )
+            .context("answerKey value")?;
 
         let answer = match answer_key.to_string().as_str() {
             "A" => 0,
             "B" => 1,
             "C" => 2,
             "D" => 3,
-            _ => panic!("Invalid answer key"),
+            _ => bail!("Invalid answer key: {answer_key}"),
         };
 
-        Document {
+        Ok(Document {
             text,
             choices,
             answer,
             category: None,
             cot_content: None,
             eval_name: OpenbookQA::name().to_string(),
-        }
+        })
     }
 }
 
@@ -90,7 +108,15 @@ impl LogLikelihoodTask for OpenbookQA {
     fn get_documents(&self) -> Vec<Document> {
         self.test_dataset
             .iter()
-            .map(|row| OpenbookQA::row_to_document(&self.test_dataset, row))
+            .filter_map(
+                |row| match OpenbookQA::row_to_document(&self.test_dataset, row) {
+                    Ok(doc) => Some(doc),
+                    Err(e) => {
+                        warn!("Skipping document: {e:#}");
+                        None
+                    }
+                },
+            )
             .collect()
     }
 
@@ -99,7 +125,15 @@ impl LogLikelihoodTask for OpenbookQA {
         let docs: Vec<Document> = self
             .validation_dataset
             .iter()
-            .map(|row| OpenbookQA::row_to_document(&self.validation_dataset, row))
+            .filter_map(
+                |row| match OpenbookQA::row_to_document(&self.validation_dataset, row) {
+                    Ok(doc) => Some(doc),
+                    Err(e) => {
+                        warn!("Skipping fewshot document: {e:#}");
+                        None
+                    }
+                },
+            )
             .collect();
         fewshot_documents.insert("default".to_string(), docs);
         fewshot_documents
