@@ -1,0 +1,53 @@
+run_id = "aether0-500m-muon-bf16-topk6-warmup16"
+run_state = "WaitingForMembers"
+
+[config]
+warmup_time = 120
+cooldown_time = 5
+epoch_time = 360
+max_round_train_time = 40
+round_witness_time = 14
+min_clients = 1
+init_min_clients = 1
+
+# Experiment 6: does slower warmup reduce early Muon instability/noise?
+# Compare against state_muon_bf16_topk6.toml. Only change: warmup_steps 8 -> 16.
+global_batch_size_start = 768
+global_batch_size_end = 768
+global_batch_size_warmup_tokens = 0
+
+verification_percent = 0
+witness_nodes = 1
+total_steps = 64
+waiting_for_members_extra_time = 120
+
+[model.LLM]
+architecture = "HfDeepseek"
+data_type = "Pretraining"
+max_seq_len = 512
+cold_start_warmup_steps = 0
+
+[model.LLM.data_location]
+Server = "167.233.75.197:39406"
+
+[model.LLM.checkpoint.Hub]
+repo_id = "aethercompute/aether0-500m-muon-bf16-topk6-warmup16"
+
+[model.LLM.lr_schedule.Cosine]
+base_lr = 6.0e-3
+warmup_steps = 16
+warmup_init_lr = 0.0
+total_steps = 64
+final_lr = 6.0e-4
+
+[model.LLM.optimizer.Muon]
+momentum = 0.95
+weight_decay = 0.1
+clip_grad_norm = 1.0
+nesterov = true
+ns_steps = 5
+lookahead = false
+compression_decay = 1.0
+compression_topk = 6
+compression_chunk = 64
+quantize_1bit = false
