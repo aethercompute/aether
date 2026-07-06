@@ -1,13 +1,13 @@
 use crate::UploadInfo;
-use psyche_coordinator::{
+use aether_coordinator::{
     model::{self},
     Coordinator,
 };
-use psyche_data_provider::{upload_to_gcs, upload_to_hub, GcsManifestMetadata, UploadError};
-use psyche_event_sourcing::event;
+use aether_data_provider::{upload_to_gcs, upload_to_hub, GcsManifestMetadata, UploadError};
+use aether_event_sourcing::event;
 #[cfg(feature = "python")]
-use psyche_modeling::CausalLM;
-use psyche_modeling::{
+use aether_modeling::CausalLM;
+use aether_modeling::{
     save_tensors_into_safetensors, SaveSafetensorsError, Trainer, TrainerThreadCommunicationError,
 };
 use std::{

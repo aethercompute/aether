@@ -1,21 +1,21 @@
 [package]
-name = "psyche-client"
+name = "aether-client"
 version.workspace = true
 license.workspace = true
 edition = "2021"
 
 [dependencies]
-psyche-core = { workspace = true, features = ["rand"] }
-psyche-coordinator.workspace = true
-psyche-data-provider = { workspace = true, features = ["remote"] }
-psyche-event-sourcing.workspace = true
-psyche-eval.workspace = true
-psyche-metrics.workspace = true
-psyche-modeling.workspace = true
-psyche-network.workspace = true
-psyche-tui.workspace = true
-psyche-python-extension-impl = { workspace = true, optional = true }
-psyche-watcher.workspace = true
+aether-core = { workspace = true, features = ["rand"] }
+aether-coordinator.workspace = true
+aether-data-provider = { workspace = true, features = ["remote"] }
+aether-event-sourcing.workspace = true
+aether-eval.workspace = true
+aether-metrics.workspace = true
+aether-modeling.workspace = true
+aether-network.workspace = true
+aether-tui.workspace = true
+aether-python-extension-impl = { workspace = true, optional = true }
+aether-watcher.workspace = true
 postcard.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
@@ -40,8 +40,8 @@ sysinfo = "0.32.0"
 iroh-blobs.workspace = true
 
 [features]
-parallelism = ["psyche-modeling/parallelism"]
-python = ["psyche-python-extension-impl"]
+parallelism = ["aether-modeling/parallelism"]
+python = ["aether-python-extension-impl"]
 
 [lints]
 workspace = true

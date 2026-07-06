@@ -361,7 +361,7 @@ mod tests {
             },
         ];
         for v in variants {
-            let back = psyche_test_support::postcard_roundtrip(&v);
+            let back = aether_test_support::postcard_roundtrip(&v);
             assert_eq!(
                 format!("{v:?}"),
                 format!("{back:?}"),
@@ -550,7 +550,7 @@ mod tests {
         // CosineLR is the concrete scheduler that derives PartialEq+Debug, so it
         // can use the equality-checking roundtrip helper.
         let inner = CosineLR::new(0.01, 10, 0.001, 110, 0.0);
-        psyche_test_support::assert_postcard_roundtrip(&inner);
+        aether_test_support::assert_postcard_roundtrip(&inner);
         // Also confirm the enum form survives a postcard round-trip byte-for-byte
         // and dispatches identically afterwards.
         let outer: LearningRateSchedule = CosineLR::new(0.01, 10, 0.001, 110, 0.0).into();

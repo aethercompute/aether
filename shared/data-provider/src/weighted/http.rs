@@ -1,5 +1,5 @@
-use psyche_coordinator::model::HttpLLMTrainingDataLocation;
-use psyche_core::Shuffle;
+use aether_coordinator::model::HttpLLMTrainingDataLocation;
+use aether_core::Shuffle;
 
 use crate::http::{FileURLs, HttpDataProvider};
 
@@ -74,9 +74,9 @@ pub enum HttpProviderConfigs {
 
 #[cfg(test)]
 mod tests {
+    use aether_coordinator::model::{HttpLLMTrainingDataLocation, HttpTrainingDataLocation};
+    use aether_core::{BatchId, Shuffle, TokenSize};
     use anyhow::Result;
-    use psyche_coordinator::model::{HttpLLMTrainingDataLocation, HttpTrainingDataLocation};
-    use psyche_core::{BatchId, Shuffle, TokenSize};
     use std::{
         fs::{self, File},
         io::Write,

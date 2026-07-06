@@ -1,5 +1,5 @@
 //! aether-volunteer — branded launcher that onboards a volunteer and then
-//! execs the real `psyche-centralized-client` training binary.
+//! execs the real `aether-centralized-client` training binary.
 //!
 //! Keep this crate torch-free and dependency-light so it compiles in seconds
 //! (it's the first thing the installer builds). The heavy client is compiled

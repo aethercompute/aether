@@ -1,6 +1,6 @@
 use crate::{traits::TokenizedDataProvider, LengthKnownDataProvider, TokenizedData};
+use aether_core::BatchId;
 use anyhow::{bail, Result};
-use psyche_core::BatchId;
 
 pub struct DummyDataProvider {
     seq_len: usize,
@@ -9,7 +9,7 @@ pub struct DummyDataProvider {
 
 impl DummyDataProvider {
     pub fn new(
-        _token_size_in_bytes: psyche_core::TokenSize,
+        _token_size_in_bytes: aether_core::TokenSize,
         num_tokens_per_sequence: usize, // num tokens per sequence
         num_sequences: u64,
     ) -> Self {
@@ -48,7 +48,7 @@ impl LengthKnownDataProvider for DummyDataProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use psyche_core::{ClosedInterval, TokenSize};
+    use aether_core::{ClosedInterval, TokenSize};
 
     fn batch_id(start: u64, end: u64) -> BatchId {
         BatchId(ClosedInterval { start, end })

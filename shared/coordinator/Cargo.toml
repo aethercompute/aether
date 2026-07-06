@@ -1,11 +1,11 @@
 [package]
-name = "psyche-coordinator"
+name = "aether-coordinator"
 version.workspace = true
 license.workspace = true
 edition = "2021"
 
 [dependencies]
-psyche-core.workspace = true
+aether-core.workspace = true
 async-trait.workspace = true
 bytemuck.workspace = true
 serde_with.workspace = true
@@ -15,7 +15,7 @@ cfg_eval = "0.1.2"
 ts-rs.workspace = true
 
 [dev-dependencies]
-psyche-test-support.workspace = true
+aether-test-support.workspace = true
 postcard.workspace = true
 
 [lints]

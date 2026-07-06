@@ -1,10 +1,10 @@
+use aether_coordinator::RunState;
+use aether_core::BatchId;
 use chrono::{DateTime, Utc};
 use derive_more::Display;
 use first_class_variants::first_class_variants;
 use iroh::EndpointId;
 use iroh_blobs::Hash as BlobHash;
-use psyche_coordinator::RunState;
-use psyche_core::BatchId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display)]
@@ -50,12 +50,12 @@ pub enum EventData {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Display)]
-#[display("run started: node {node_id} version {psyche_version} run {run_id}")]
+#[display("run started: node {node_id} version {aether_version} run {run_id}")]
 pub struct RunStarted {
     pub run_id: String,
     pub node_id: String,
     pub config: String,
-    pub psyche_version: String,
+    pub aether_version: String,
 }
 
 impl From<RunStarted> for EventData {
@@ -122,7 +122,7 @@ pub enum P2P {
     #[display("connection changed")]
     ConnectionChanged {
         endpoint_id: EndpointId,
-        connection_path: Option<psyche_metrics::SelectedPath>,
+        connection_path: Option<aether_metrics::SelectedPath>,
     },
     #[display("latency to {endpoint_id} changed: {latency_ms}ms")]
     ConnectionLatencyChanged {
@@ -322,8 +322,8 @@ mod tests {
         client, cooldown, coordinator, train, warmup, BatchId, Client, Cooldown, Event, EventData,
         ResourceSnapshot, RpcCallType, RunStarted, SubscriptionStatus, Train, Warmup,
     };
+    use aether_core::ClosedInterval;
     use chrono::Utc;
-    use psyche_core::ClosedInterval;
 
     fn make_event(data: EventData) -> Event {
         Event {
@@ -334,8 +334,8 @@ mod tests {
 
     #[test]
     fn subscription_status_roundtrip() {
-        psyche_test_support::assert_postcard_roundtrip(&SubscriptionStatus::Up);
-        psyche_test_support::assert_postcard_roundtrip(&SubscriptionStatus::Down);
+        aether_test_support::assert_postcard_roundtrip(&SubscriptionStatus::Up);
+        aether_test_support::assert_postcard_roundtrip(&SubscriptionStatus::Down);
     }
 
     #[test]
@@ -348,7 +348,7 @@ mod tests {
             RpcCallType::Join,
             RpcCallType::Tick,
         ] {
-            psyche_test_support::assert_postcard_roundtrip(&ty);
+            aether_test_support::assert_postcard_roundtrip(&ty);
         }
     }
 
@@ -358,14 +358,14 @@ mod tests {
             run_id: "run-42".to_string(),
             node_id: "node-1".to_string(),
             config: "config".to_string(),
-            psyche_version: "0.2.0".to_string(),
+            aether_version: "0.2.0".to_string(),
         }));
-        let back = psyche_test_support::postcard_roundtrip(&event);
+        let back = aether_test_support::postcard_roundtrip(&event);
         match &back.data {
             EventData::RunStarted(rs) => {
                 assert_eq!(rs.run_id, "run-42");
                 assert_eq!(rs.node_id, "node-1");
-                assert_eq!(rs.psyche_version, "0.2.0");
+                assert_eq!(rs.aether_version, "0.2.0");
             }
             _ => panic!("wrong variant"),
         }
@@ -382,7 +382,7 @@ mod tests {
             network_bytes_recv_total: 2048,
             disk_space_available_bytes: 500_000_000_000,
         }));
-        let back = psyche_test_support::postcard_roundtrip(&event);
+        let back = aether_test_support::postcard_roundtrip(&event);
         match &back.data {
             EventData::ResourceSnapshot(rs) => {
                 assert_eq!(rs.gpu_mem_used_bytes, Some(8_000_000_000));
@@ -402,7 +402,7 @@ mod tests {
                 },
             ),
         ));
-        let back = psyche_test_support::postcard_roundtrip(&event);
+        let back = aether_test_support::postcard_roundtrip(&event);
         match &back.data {
             EventData::CoordinatorEvent(ce) => {
                 let s = format!("{ce}");
@@ -414,7 +414,7 @@ mod tests {
 
     #[test]
     fn client_state_changed_roundtrip() {
-        use psyche_coordinator::RunState;
+        use aether_coordinator::RunState;
         let event = make_event(EventData::Client(Client::StateChanged(
             client::StateChanged {
                 old_state: RunState::Uninitialized,
@@ -423,7 +423,7 @@ mod tests {
                 step: 2,
             },
         )));
-        let back = psyche_test_support::postcard_roundtrip(&event);
+        let back = aether_test_support::postcard_roundtrip(&event);
         match &back.data {
             EventData::Client(Client::StateChanged(sc)) => {
                 assert_eq!(sc.epoch, 1);
@@ -440,7 +440,7 @@ mod tests {
                 batch_id: BatchId(ClosedInterval { start: 10, end: 99 }),
             },
         )));
-        let back = psyche_test_support::postcard_roundtrip(&event);
+        let back = aether_test_support::postcard_roundtrip(&event);
         match &back.data {
             EventData::Train(Train::BatchAssigned(ba)) => {
                 assert_eq!(ba.batch_id, BatchId(ClosedInterval { start: 10, end: 99 }));
@@ -454,7 +454,7 @@ mod tests {
         let event = make_event(EventData::Warmup(Warmup::ModelLoadComplete(
             warmup::ModelLoadComplete,
         )));
-        let back = psyche_test_support::postcard_roundtrip(&event);
+        let back = aether_test_support::postcard_roundtrip(&event);
         assert!(matches!(
             back.data,
             EventData::Warmup(Warmup::ModelLoadComplete(_))
@@ -466,7 +466,7 @@ mod tests {
         let event = make_event(EventData::Cooldown(Cooldown::ModelSerializationStarted(
             cooldown::ModelSerializationStarted,
         )));
-        let back = psyche_test_support::postcard_roundtrip(&event);
+        let back = aether_test_support::postcard_roundtrip(&event);
         assert!(matches!(
             back.data,
             EventData::Cooldown(Cooldown::ModelSerializationStarted(_))

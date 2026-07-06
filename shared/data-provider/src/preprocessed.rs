@@ -6,9 +6,9 @@ use crate::{
 use parquet::file::reader::FileReader;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
+use aether_core::{BatchId, Shuffle};
 use anyhow::{anyhow, bail, Result};
 use parquet::record::RowAccessor;
-use psyche_core::{BatchId, Shuffle};
 use rand::seq::SliceRandom;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha8Rng;

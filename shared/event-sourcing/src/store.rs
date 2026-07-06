@@ -98,7 +98,7 @@ impl FileBackend {
 impl Backend for FileBackend {
     fn emit(&self, event: Event) {
         if self.tx.send(event).is_err() {
-            tracing::warn!("FileBackend event dropped: receiver task is gone");
+            warn!("FileBackend event dropped: receiver task is gone");
         }
     }
 
@@ -107,6 +107,12 @@ impl Backend for FileBackend {
     }
 }
 
+/// Global event store backed by a process-wide singleton.
+///
+/// The singleton is used so that any module can emit events via the
+/// `event!` macro without threading a handle through every call site.
+/// Tests must call [`EventStore::init`] (or [`EventStore::reset_for_testing`])
+/// at the start of each test to ensure isolation when running in parallel.
 pub struct EventStore {
     backends: Vec<Box<dyn Backend>>,
 }
@@ -126,6 +132,12 @@ impl EventStore {
 
     pub fn init(backends: Vec<Box<dyn Backend>>) {
         Self::instance().write().backends = backends;
+    }
+
+    /// Clear all backends. Intended for test isolation.
+    #[cfg(test)]
+    pub fn reset_for_testing() {
+        Self::instance().write().backends.clear();
     }
 
     pub fn emit(data: EventData, timestamp: DateTime<Utc>) {
@@ -288,8 +300,8 @@ impl FileWriterState {
 mod tests {
     use super::*;
     use crate::{event, events::*};
-    use psyche_coordinator::RunState;
-    use psyche_core::{BatchId, ClosedInterval};
+    use aether_coordinator::RunState;
+    use aether_core::{BatchId, ClosedInterval};
     use serial_test::serial;
     use std::fs;
     use std::sync::LazyLock;
@@ -304,7 +316,7 @@ mod tests {
             run_id: "test-run-123".into(),
             node_id: "node-1".into(),
             config: "abc123".into(),
-            psyche_version: "0.1.0".into(),
+            aether_version: "0.1.0".into(),
         }
     }
 

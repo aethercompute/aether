@@ -4,11 +4,11 @@
 //! # Usage
 //!
 //! Add this layer when building your subscriber stack, typically inside the
-//! psyche-logging crate:
+//! aether-logging crate:
 //!
 //! ```ignore
 //! use tracing_subscriber::prelude::*;
-//! use psyche_event_sourcing::EventStoreTracingLayer;
+//! use aether_event_sourcing::EventStoreTracingLayer;
 //!
 //! let subscriber = tracing_subscriber::registry()
 //!     .with(EventStoreTracingLayer)

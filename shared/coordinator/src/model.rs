@@ -1,10 +1,10 @@
 use crate::{coordinator::SOLANA_MAX_URL_STRING_LEN, SOLANA_MAX_STRING_LEN};
 
-use bytemuck::{Zeroable, ZeroableInOption};
-use psyche_core::{
+use aether_core::{
     ConstantLR, FixedString, FixedVec, LearningRateSchedule, OptimizerDefinition, Shuffle,
     TokenSize,
 };
+use bytemuck::{Zeroable, ZeroableInOption};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 use ts_rs::TS;
@@ -458,7 +458,7 @@ mod tests {
             repo_id: fixed("org/model"),
             revision: Some(fixed("main")),
         };
-        psyche_test_support::assert_postcard_roundtrip(&repo);
+        aether_test_support::assert_postcard_roundtrip(&repo);
     }
 
     #[test]
@@ -467,7 +467,7 @@ mod tests {
             bucket: fixed("my-bucket"),
             prefix: Some(fixed("prefix/path")),
         };
-        psyche_test_support::assert_postcard_roundtrip(&repo);
+        aether_test_support::assert_postcard_roundtrip(&repo);
     }
 
     #[test]
@@ -491,7 +491,7 @@ mod tests {
         ];
 
         for cp in cases {
-            let back = psyche_test_support::postcard_roundtrip(&cp);
+            let back = aether_test_support::postcard_roundtrip(&cp);
             assert!(
                 matches!(
                     (&cp, &back),
@@ -510,7 +510,7 @@ mod tests {
     #[test]
     fn llm_training_data_location_variants_roundtrip() {
         let dummy = LLMTrainingDataLocation::Dummy;
-        let back = psyche_test_support::postcard_roundtrip(&dummy);
+        let back = aether_test_support::postcard_roundtrip(&dummy);
         assert!(matches!(back, LLMTrainingDataLocation::Dummy));
 
         let local = LLMTrainingDataLocation::Local(LocalLLMTrainingDataLocation {
@@ -518,7 +518,7 @@ mod tests {
             token_size_in_bytes: TokenSize::TwoBytes,
             shuffle: Shuffle::Seeded([0u8; 32]),
         });
-        let back = psyche_test_support::postcard_roundtrip(&local);
+        let back = aether_test_support::postcard_roundtrip(&local);
         assert!(matches!(back, LLMTrainingDataLocation::Local(_)));
 
         let http = LLMTrainingDataLocation::Http(HttpLLMTrainingDataLocation {
@@ -526,7 +526,7 @@ mod tests {
             token_size_in_bytes: TokenSize::FourBytes,
             shuffle: Shuffle::DontShuffle,
         });
-        let back = psyche_test_support::postcard_roundtrip(&http);
+        let back = aether_test_support::postcard_roundtrip(&http);
         assert!(matches!(back, LLMTrainingDataLocation::Http(_)));
     }
 
@@ -545,7 +545,7 @@ mod tests {
             lr_schedule: LearningRateSchedule::Constant(ConstantLR::default()),
             optimizer: adamw(),
         };
-        let back = psyche_test_support::postcard_roundtrip(&llm);
+        let back = aether_test_support::postcard_roundtrip(&llm);
         assert_eq!(back.max_seq_len, 4096);
         assert_eq!(back.cold_start_warmup_steps, 100);
         assert!(matches!(back.architecture, LLMArchitecture::HfDeepseek));
@@ -555,7 +555,7 @@ mod tests {
     #[test]
     fn model_postcard_roundtrip() {
         let model = Model::LLM(valid_llm());
-        let back = psyche_test_support::postcard_roundtrip(&model);
+        let back = aether_test_support::postcard_roundtrip(&model);
         assert!(matches!(back, Model::LLM(_)));
     }
 }

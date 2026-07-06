@@ -1,9 +1,9 @@
 use crate::RelayKind;
+use aether_metrics::ClientMetrics;
 use anyhow::Result;
 use iroh::EndpointAddr;
 use iroh_blobs::api::Tag;
 use iroh_blobs::ticket::BlobTicket;
-use psyche_metrics::ClientMetrics;
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use tokio::{join, select, time::timeout};
@@ -195,7 +195,7 @@ async fn spawn_new_node(
         None,
         None,
         DiscoveryMode::Local,
-        RelayKind::Psyche,
+        RelayKind::Aether,
         peers,
         None,
         allowlist::AllowAll,

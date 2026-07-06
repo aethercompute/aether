@@ -140,7 +140,7 @@ impl TransformDCT {
     #[allow(unused)]
     fn dct(x: &Tensor, ortho: bool) -> Tensor {
         let x_shape = x.size();
-        let n = { *x_shape.last().unwrap() };
+        let n = { *x_shape.last().expect("tensor has at least 1 dim") };
         let x = x.contiguous().view([-1, n]);
 
         let v = Tensor::cat(
@@ -176,22 +176,26 @@ impl TransformDCT {
     #[allow(unused)]
     fn idct(x: &Tensor, ortho: bool) -> Tensor {
         let x_shape = x.size();
-        let n = { *x_shape.last().unwrap() };
+        let n = { *x_shape.last().expect("tensor has at least 1 dim") };
 
-        let mut x_v = x.contiguous().view([-1, n]).f_div_scalar(2.0).unwrap();
+        let mut x_v = x
+            .contiguous()
+            .view([-1, n])
+            .f_div_scalar(2.0)
+            .expect("f_div_scalar on reshaped tensor");
 
         if ortho {
             x_v.slice(1, 0, 1, 1)
                 .f_mul_scalar_((n as f64).sqrt() * 2.0)
-                .unwrap();
+                .expect("ortho scale on first slice");
             x_v.slice(1, 1, n, 1)
                 .f_mul_scalar_((n as f64 / 2.0).sqrt() * 2.0)
-                .unwrap();
+                .expect("ortho scale on remaining slices");
         }
 
         let k = Tensor::arange(n, (Kind::Float, x.device()))
             .f_mul_scalar(PI / (2.0 * n as f64))
-            .unwrap()
+            .expect("f_mul_scalar for arange")
             .unsqueeze(0);
 
         let w_r = k.cos();
@@ -200,14 +204,21 @@ impl TransformDCT {
         let v_t_r = &x_v;
         let v_t_i = Tensor::cat(
             &[
-                x_v.slice(1, 0, 1, 1).f_mul_scalar(0.0).unwrap(),
-                x_v.flip([1]).slice(1, 0, n - 1, 1).f_neg().unwrap(),
+                x_v.slice(1, 0, 1, 1)
+                    .f_mul_scalar(0.0)
+                    .expect("zero mul on first slice"),
+                x_v.flip([1])
+                    .slice(1, 0, n - 1, 1)
+                    .f_neg()
+                    .expect("f_neg on flipped slice"),
             ],
             1,
         );
 
-        let v_r = v_t_r.f_mul(&w_r).unwrap() - v_t_i.f_mul(&w_i).unwrap();
-        let v_i = v_t_r.f_mul(&w_i).unwrap() + v_t_i.f_mul(&w_r).unwrap();
+        let v_r = v_t_r.f_mul(&w_r).expect("f_mul real part")
+            - v_t_i.f_mul(&w_i).expect("f_mul imag part");
+        let v_i = v_t_r.f_mul(&w_i).expect("f_mul imag part")
+            + v_t_i.f_mul(&w_r).expect("f_mul real part");
 
         let v = Tensor::cat(&[v_r.unsqueeze(2), v_i.unsqueeze(2)], 2);
 
@@ -217,10 +228,10 @@ impl TransformDCT {
 
         x.slice(1, 0, n, 2)
             .f_add_(&v.slice(1, 0, n - (n / 2), 1))
-            .unwrap();
+            .expect("scatter add even indices");
         x.slice(1, 1, n, 2)
             .f_add_(&v.flip([1]).slice(1, 0, n / 2, 1))
-            .unwrap();
+            .expect("scatter add odd indices");
 
         x.view(x_shape.as_slice())
     }
@@ -254,10 +265,24 @@ impl TransformDCT {
 
         if ndim > 1 {
             // 2D+ weights - get chunk sizes for last two dimensions
-            let n1 = *self.shape_dict.get(&shape[ndim - 2]).unwrap();
-            let n2 = *self.shape_dict.get(&shape[ndim - 1]).unwrap();
-            let n1w = self.f_dict.get(&n1).unwrap().to_device(x.device());
-            let n2w = self.f_dict.get(&n2).unwrap().to_device(x.device());
+            let n1 = *self
+                .shape_dict
+                .get(&shape[ndim - 2])
+                .expect("shape pre-computed in new()");
+            let n2 = *self
+                .shape_dict
+                .get(&shape[ndim - 1])
+                .expect("shape pre-computed in new()");
+            let n1w = self
+                .f_dict
+                .get(&n1)
+                .expect("forward DCT matrix pre-computed")
+                .to_device(x.device());
+            let n2w = self
+                .f_dict
+                .get(&n2)
+                .expect("forward DCT matrix pre-computed")
+                .to_device(x.device());
             self.f_dict.insert(n1, n1w.copy());
             self.f_dict.insert(n2, n2w.copy());
 
@@ -272,8 +297,15 @@ impl TransformDCT {
             Self::einsum_2d(&x, &n1w, Some(&n2w))
         } else {
             // 1D weights
-            let n1 = *self.shape_dict.get(&shape[0]).unwrap();
-            let n1w = self.f_dict.get(&n1).unwrap().to_device(x.device());
+            let n1 = *self
+                .shape_dict
+                .get(&shape[0])
+                .expect("shape pre-computed in new()");
+            let n1w = self
+                .f_dict
+                .get(&n1)
+                .expect("forward DCT matrix pre-computed")
+                .to_device(x.device());
             self.f_dict.insert(n1, n1w.copy());
 
             // Equivalent to rearrange(x, "(x w) -> x w", w=n1)
@@ -293,8 +325,16 @@ impl TransformDCT {
             let n2 = x_shape[ndim - 1];
             let device = x.device();
 
-            let n1w = self.b_dict.get(&n1).unwrap().to_device(device);
-            let n2w = self.b_dict.get(&n2).unwrap().to_device(device);
+            let n1w = self
+                .b_dict
+                .get(&n1)
+                .expect("inverse DCT matrix pre-computed")
+                .to_device(device);
+            let n2w = self
+                .b_dict
+                .get(&n2)
+                .expect("inverse DCT matrix pre-computed")
+                .to_device(device);
 
             self.b_dict.insert(n1, n1w.copy());
             self.b_dict.insert(n2, n2w.copy());
@@ -314,7 +354,11 @@ impl TransformDCT {
             let n1 = x_shape[1];
             let device = x.device();
 
-            let n1w = self.b_dict.get(&n1).unwrap().to_device(device);
+            let n1w = self
+                .b_dict
+                .get(&n1)
+                .expect("inverse DCT matrix pre-computed")
+                .to_device(device);
             self.b_dict.insert(n1, n1w.copy());
 
             let x = Self::einsum_2d_t(x, &n1w, None);
@@ -356,7 +400,10 @@ impl CompressDCT {
             x.shallow_clone()
         };
 
-        let totalk = *x.size().last().unwrap();
+        let totalk = *x
+            .size()
+            .last()
+            .expect("compressed tensor has at least 1 dim");
         let topk = Self::clamp_topk(&x, topk);
 
         let idx = x.abs().topk(topk, -1, true, false).1;
@@ -477,7 +524,7 @@ impl Distro {
         weight_decay: f64,
     ) -> Self {
         let _no_grad = tch::no_grad_guard();
-        let mut sgd = COptimizer::sgd(0.1, 0.0, 0.0, 0.0, false).unwrap();
+        let mut sgd = COptimizer::sgd(0.1, 0.0, 0.0, 0.0, false).expect("SGD with valid params");
 
         let mut state = Vec::new();
         for variable in vs.variables() {
@@ -486,7 +533,8 @@ impl Distro {
             });
 
             let logical_tensor = variable.logical_tensor();
-            sgd.add_parameters(&logical_tensor, 0).unwrap();
+            sgd.add_parameters(&logical_tensor, 0)
+                .expect("add_parameters with valid tensor");
             variable.zero_grad();
         }
 
@@ -522,12 +570,16 @@ impl Distro {
                         .grad()
                         .norm_scalaropt_dtype(1, Kind::Float)
                         .try_into()
-                        .unwrap(),
+                        .expect("grad_energy scalar conversion"),
                 ),
                 _ => None,
             };
 
-            let delta_var = &mut self.state.get_mut(index).unwrap().delta;
+            let delta_var = &mut self
+                .state
+                .get_mut(index)
+                .expect("state vector aligned with variables")
+                .delta;
             let mut delta = delta_var.logical_tensor();
 
             let _t = variable.g_add_(&delta.sign().multiply_scalar(prev_lr));
@@ -590,7 +642,7 @@ impl Distro {
                     full_delta
                         .norm_scalaropt_dtype(1, Kind::Float)
                         .try_into()
-                        .unwrap(),
+                        .expect("delta_energy scalar conversion"),
                 ),
                 false => None,
             };
@@ -604,8 +656,14 @@ impl Distro {
                     true => {
                         let name = var.name();
                         Some(HashMap::from([
-                            (format!("{name}.delta_energy"), delta_energy.unwrap()),
-                            (format!("{name}.grad_energy"), grad_energy.unwrap()),
+                            (
+                                format!("{name}.delta_energy"),
+                                delta_energy.expect("stats=true guarantees delta_energy"),
+                            ),
+                            (
+                                format!("{name}.grad_energy"),
+                                grad_energy.expect("stats=true guarantees grad_energy"),
+                            ),
                         ]))
                     }
                     false => None,
@@ -659,7 +717,9 @@ impl Distro {
             let _t = variable.grad().sign_();
         }
         // SGD step
-        self.sgd.set_learning_rate(lr).unwrap();
+        self.sgd
+            .set_learning_rate(lr)
+            .expect("set_learning_rate with valid lr");
         let _ = self.sgd.step();
         for var in vars.variables() {
             var.zero_grad();
@@ -671,7 +731,10 @@ impl Distro {
         for (index, var) in vars.variables().enumerate() {
             let mut variable = var.logical_tensor();
 
-            let state = self.state.get_mut(index).unwrap();
+            let state = self
+                .state
+                .get_mut(index)
+                .expect("state vector aligned with variables");
 
             // Apply lookahead, the signed delta, multiplied by lr
             let _t = variable.g_sub_(&state.delta.logical_tensor().sign().multiply_scalar(prev_lr));

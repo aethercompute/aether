@@ -1,5 +1,5 @@
 [package]
-name = "psyche-core"
+name = "aether-core"
 version.workspace = true
 license.workspace = true
 edition = "2021"
@@ -29,7 +29,7 @@ rand = ["dep:rand"]
 approx = "0.5.1"
 proptest.workspace = true
 rstest.workspace = true
-psyche-test-support.workspace = true
+aether-test-support.workspace = true
 
 [lints]
 workspace = true

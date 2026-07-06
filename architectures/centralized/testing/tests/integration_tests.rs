@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use psyche_centralized_testing::{
+use aether_centralized_testing::{
     client::ClientHandle,
     server::CoordinatorServerHandle,
     test_utils::{
@@ -9,7 +9,7 @@ use psyche_centralized_testing::{
     },
     COOLDOWN_TIME, MAX_ROUND_TRAIN_TIME, ROUND_WITNESS_TIME,
 };
-use psyche_coordinator::{
+use aether_coordinator::{
     model::{Checkpoint, HubRepo},
     RunState,
 };

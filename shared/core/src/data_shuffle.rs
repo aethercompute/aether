@@ -33,7 +33,7 @@ mod tests {
     #[test]
     fn postcard_roundtrip_preserves_shuffle_mode() {
         for shuffle in [Shuffle::DontShuffle, Shuffle::Seeded([0xab; 32])] {
-            let decoded = psyche_test_support::postcard_roundtrip(&shuffle);
+            let decoded = aether_test_support::postcard_roundtrip(&shuffle);
             assert_eq!(decoded, shuffle);
         }
     }

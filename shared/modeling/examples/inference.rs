@@ -1,10 +1,10 @@
-use anyhow::{anyhow, Error, Result};
-use clap::{Args, Parser, Subcommand, ValueEnum};
-use psyche_data_provider::download_model_repo_sync;
-use psyche_modeling::{
+use aether_data_provider::download_model_repo_sync;
+use aether_modeling::{
     auto_model_for_causal_lm_from_pretrained, auto_tokenizer, AttentionImplementation, CausalLM,
     CommunicatorId, Devices, LogitsProcessor, Sampling, TokenOutputStream,
 };
+use anyhow::{anyhow, Error, Result};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::{
     io::Write,
     path::PathBuf,
@@ -177,15 +177,15 @@ fn inference(
         {
             let tp = args.tensor_parallelism.unwrap_or(1);
 
-            psyche_python_extension_impl::init_embedded_python()?;
+            aether_python_extension_impl::init_embedded_python()?;
 
             let attn_implementation = args
                 .attn_implementation
                 .map(|x| x.into())
                 .unwrap_or_default();
-            let source = psyche_modeling::PretrainedSource::RepoFiles(repo_files);
+            let source = aether_modeling::PretrainedSource::RepoFiles(repo_files);
             if tp == 1 {
-                Box::new(psyche_modeling::PythonCausalLM::new(
+                Box::new(aether_modeling::PythonCausalLM::new(
                     &args.python_arch,
                     &source,
                     device,
@@ -195,12 +195,12 @@ fn inference(
                 )?) as Box<dyn CausalLM>
             } else {
                 tracing::info!("Faking TP with FSDP");
-                Box::new(psyche_modeling::PythonDistributedCausalLM::new(
+                Box::new(aether_modeling::PythonDistributedCausalLM::new(
                     args.python_arch,
                     source,
                     device,
                     attn_implementation,
-                    psyche_modeling::ParallelismConfig { dp: tp, tp: 1 },
+                    aether_modeling::ParallelismConfig { dp: tp, tp: 1 },
                     None,
                     None,
                     Some(args.device.size() as i64),
@@ -283,7 +283,7 @@ fn inference(
 }
 
 fn main() -> Result<()> {
-    psyche_modeling::set_suggested_env_vars();
+    aether_modeling::set_suggested_env_vars();
 
     let _no_grad = tch::no_grad_guard();
     let cli_args = CliArgs::parse();

@@ -21,7 +21,7 @@ pub use iroh_metrics::Registry as IrohMetricsRegistry;
 use tracing::{debug, info, warn};
 
 #[derive(Debug)]
-/// metrics collector for Psyche clients
+/// metrics collector for Aether clients
 pub struct ClientMetrics {
     // opentelemtery instruments
 
@@ -163,7 +163,7 @@ impl ClientMetrics {
     }
 
     pub fn new(metrics_port: Option<u16>, print_metrics_interval: Option<Duration>) -> Self {
-        let meter = global::meter("psyche_client");
+        let meter = global::meter("aether_client");
 
         let tcp_metrics = Arc::new(Mutex::new(TcpMetrics::default()));
         let tcp_server = metrics_port.map(|port| Self::start_tcp_server(port, tcp_metrics.clone()));
@@ -174,19 +174,19 @@ impl ClientMetrics {
         Self {
             // broadcasts state
             broadcasts_seen_counter: meter
-                .u64_counter("psyche_broadcasts_seen_total")
+                .u64_counter("aether_broadcasts_seen_total")
                 .with_description("Total number of broadcasts seen by this node")
                 .build(),
             apply_message_success_counter: meter
-                .u64_counter("psyche_apply_message_success")
+                .u64_counter("aether_apply_message_success")
                 .with_description("Number of successfully applied broadcasts")
                 .build(),
             apply_message_failure_counter: meter
-                .u64_counter("psyche_apply_message_failure")
+                .u64_counter("aether_apply_message_failure")
                 .with_description("Number of broadcasts we failed to apply")
                 .build(),
             apply_message_ignored_counter: meter
-                .u64_counter("psyche_apply_message_ignored")
+                .u64_counter("aether_apply_message_ignored")
                 .with_description(
                     "Number of broadcasts we ignored during apply, probably due to rebroadcast",
                 )
@@ -194,137 +194,137 @@ impl ClientMetrics {
 
             // results state
             finishes_received_current_round_gauge: meter
-                .u64_gauge("psyche_finishes_received_this_round")
+                .u64_gauge("aether_finishes_received_this_round")
                 .with_description("Number of `ready` broadcasts received for the current round")
                 .build(),
             finishes_received_previous_round_gauge: meter
-                .u64_gauge("psyche_finishes_received_previous_round")
+                .u64_gauge("aether_finishes_received_previous_round")
                 .with_description("Number of `ready` broadcasts received for the previous round")
                 .build(),
             result_announcements_received_current_round_gauge: meter
-                .u64_gauge("psyche_result_announcements_received_current_round")
+                .u64_gauge("aether_result_announcements_received_current_round")
                 .with_description(
                     "Number of `training result` broadcasts received for the current round",
                 )
                 .build(),
             result_announcements_received_previous_round_gauge: meter
-                .u64_gauge("psyche_result_announcements_received_previous_round")
+                .u64_gauge("aether_result_announcements_received_previous_round")
                 .with_description(
                     "Number of `training result` broadcasts received for the previous round",
                 )
                 .build(),
             results_downloaded_current_round_gauge: meter
-                .u64_gauge("psyche_results_downloaded_current_round")
+                .u64_gauge("aether_results_downloaded_current_round")
                 .with_description("Number of training results downloaded for the current round")
                 .build(),
             results_downloaded_previous_round_gauge: meter
-                .u64_gauge("psyche_results_downloaded_previous_round")
+                .u64_gauge("aether_results_downloaded_previous_round")
                 .with_description("Number of training results downloaded for the previous round")
                 .build(),
 
             // downloads
             downloads_started_counter: meter
-                .u64_counter("psyche_downloads_started")
+                .u64_counter("aether_downloads_started")
                 .with_description("Number of downloads started")
                 .build(),
             downloads_finished_counter: meter
-                .u64_counter("psyche_downloads_finished")
+                .u64_counter("aether_downloads_finished")
                 .with_description("Number of downloads finished")
                 .build(),
             downloads_retry_counter: meter
-                .u64_counter("psyche_downloads_retry")
+                .u64_counter("aether_downloads_retry")
                 .with_description("Number of downloads retried")
                 .build(),
             downloads_failed_counter: meter
-                .u64_counter("psyche_downloads_failed_total")
+                .u64_counter("aether_downloads_failed_total")
                 .with_description("Total number of download attempts that failed")
                 .build(),
             downloads_perma_failed_counter: meter
-                .u64_counter("psyche_downloads_perma_failed_total")
+                .u64_counter("aether_downloads_perma_failed_total")
                 .with_description("Total number of downloads that permantently failed")
                 .build(),
             downloads_bytes_counter: meter
-                .u64_counter("psyche_download_bytes")
+                .u64_counter("aether_download_bytes")
                 .with_description("Total number of bytes recv'd thru blobs")
                 .build(),
 
             // witness
             witnesses_sent: meter
-                .u64_counter("psyche_witnesses_sent_total")
+                .u64_counter("aether_witnesses_sent_total")
                 .with_description("Total number of witness transactions sent")
                 .build(),
             participating_in_round: meter
-                .u64_gauge("psyche_participating_in_round")
+                .u64_gauge("aether_participating_in_round")
                 .with_description("Whether or not this node is participating in this round")
                 .build(),
             round_step_gauge: meter
-                .u64_gauge("psyche_round_step")
+                .u64_gauge("aether_round_step")
                 .with_description("Current step in the training round")
                 .build(),
 
             // network
             peer_connections: meter
-                .u64_gauge("psyche_peer_connections")
+                .u64_gauge("aether_peer_connections")
                 .with_description("Number of peer connections by type")
                 .build(),
             gossip_neighbors: meter
-                .u64_gauge("psyche_gossip_neighbors")
+                .u64_gauge("aether_gossip_neighbors")
                 .with_description("Number of neighbors in gossip network")
                 .build(),
             bandwidth: meter
-                .f64_gauge("psyche_bandwidth_bytes_per_second")
+                .f64_gauge("aether_bandwidth_bytes_per_second")
                 .with_description("Current bandwidth usage in bytes per second")
                 .build(),
             last_train_time_seconds: meter
-                .f64_gauge("psyche_last_train_time_seconds")
+                .f64_gauge("aether_last_train_time_seconds")
                 .with_description("Last training round's training time")
                 .build(),
             connection_latency: meter
-                .f64_histogram("psyche_connection_latency_seconds")
+                .f64_histogram("aether_connection_latency_seconds")
                 .with_description("Connection latency to peers")
                 .build(),
 
             // Training metrics
             training_loss: meter
-                .f64_gauge("psyche_training_loss")
+                .f64_gauge("aether_training_loss")
                 .with_description("Current training loss")
                 .build(),
             training_perplexity: meter
-                .f64_gauge("psyche_training_perplexity")
+                .f64_gauge("aether_training_perplexity")
                 .with_description("Current training perplexity")
                 .build(),
             training_confidence: meter
-                .f64_gauge("psyche_training_confidence")
+                .f64_gauge("aether_training_confidence")
                 .with_description("Current training confidence")
                 .build(),
             learning_rate: meter
-                .f64_gauge("psyche_learning_rate")
+                .f64_gauge("aether_learning_rate")
                 .with_description("Current learning rate")
                 .build(),
             total_tokens: meter
-                .u64_gauge("psyche_total_tokens")
+                .u64_gauge("aether_total_tokens")
                 .with_description("Total tokens processed")
                 .build(),
             tokens_per_second: meter
-                .f64_gauge("psyche_tokens_per_second")
+                .f64_gauge("aether_tokens_per_second")
                 .with_description("Tokens processed per second")
                 .build(),
             token_batch_size: meter
-                .u64_gauge("psyche_token_batch_size")
+                .u64_gauge("aether_token_batch_size")
                 .with_description("Current token batch size")
                 .build(),
             training_efficiency: meter
-                .f64_gauge("psyche_training_efficiency")
+                .f64_gauge("aether_training_efficiency")
                 .with_description("Training efficiency metric")
                 .build(),
 
             // Evals &
             eval_metrics: meter
-                .f64_gauge("psyche_eval_metrics")
+                .f64_gauge("aether_eval_metrics")
                 .with_description("Training eval metrics")
                 .build(),
             optimizer_stats: meter
-                .f64_gauge("psyche_optimizer_stats")
+                .f64_gauge("aether_optimizer_stats")
                 .with_description("Optimizer stats")
                 .build(),
 
@@ -336,7 +336,7 @@ impl ClientMetrics {
             num_params: OnceLock::new(),
             p2p_downloaded_params_percent: OnceLock::new(),
             p2p_params_download_failed_counter: meter
-                .u64_counter("psyche_p2p_params_download_failed_counter")
+                .u64_counter("aether_p2p_params_download_failed_counter")
                 .with_description("The total amount of p2p parameter sharing downloads that failed")
                 .build(),
         }
@@ -541,10 +541,10 @@ impl ClientMetrics {
     }
 
     pub fn initialize_model_parameters_gauge(&self, num_params: u64) {
-        let meter = global::meter("psyche_client");
+        let meter = global::meter("aether_client");
         let _ = self.num_params.set(num_params);
         let _ = self.p2p_downloaded_params_percent.set(meter
-            .f64_gauge("psyche_p2p_model_params_downloaded")
+            .f64_gauge("aether_p2p_model_params_downloaded")
             .with_description("Percentage of the total model parameters that have been downloaded from other peers")
             .build()
         );
@@ -614,11 +614,11 @@ impl ClientMetrics {
         let system = Arc::new(Mutex::new(System::new_all()));
 
         let cpu_usage = meter
-            .f64_gauge("psyche_cpu_usage_percent")
+            .f64_gauge("aether_cpu_usage_percent")
             .with_description("CPU usage percentage")
             .build();
         let memory_usage = meter
-            .u64_gauge("psyche_memory_usage_bytes")
+            .u64_gauge("aether_memory_usage_bytes")
             .with_description("Memory usage in bytes")
             .build();
 
@@ -632,15 +632,15 @@ impl ClientMetrics {
         let gpu_meters = Nvml::init().ok().map(|nvml| GpuMeters {
             nvml,
             gpu_usage: meter
-                .f64_gauge("psyche_gpu_usage_percent")
+                .f64_gauge("aether_gpu_usage_percent")
                 .with_description("GPU usage percentage")
                 .build(),
             gpu_memory: meter
-                .u64_gauge("psyche_gpu_memory")
+                .u64_gauge("aether_gpu_memory")
                 .with_description("GPU memory usage")
                 .build(),
             gpu_temp: meter
-                .u64_gauge("psyche_gpu_temp")
+                .u64_gauge("aether_gpu_temp")
                 .with_description("GPU usage percentage")
                 .build(),
         });

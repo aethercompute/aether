@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use crate::client::ClientHandle;
 use crate::server::CoordinatorServerHandle;
+use aether_client::TrainArgs;
 use clap::Parser;
-use psyche_client::TrainArgs;
 use rand::distr::{Alphanumeric, SampleString};
 use std::env;
 use tokio_util::sync::CancellationToken;
@@ -98,7 +98,7 @@ pub async fn assert_witnesses_healthy_score(
     // calculate score
     let mut score = 0;
     clients.iter().for_each(|client| {
-        score += psyche_coordinator::Coordinator::trainer_healthy_score_by_witnesses(
+        score += aether_coordinator::Coordinator::trainer_healthy_score_by_witnesses(
             &client.id, witnesses,
         );
     });

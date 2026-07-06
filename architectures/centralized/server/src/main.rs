@@ -2,14 +2,14 @@ mod app;
 mod dashboard;
 mod web;
 
-use anyhow::{bail, Context, Result};
-use app::{App, DataServerInfo};
-use clap::{ArgAction, Parser};
-use psyche_coordinator::Coordinator;
-use psyche_tui::{
+use aether_coordinator::Coordinator;
+use aether_tui::{
     logging::{MetricsDestination, OpenTelemetry, RemoteLogsDestination, TraceDestination},
     LogOutput, ServiceInfo,
 };
+use anyhow::{bail, Context, Result};
+use app::{App, DataServerInfo};
+use clap::{ArgAction, Parser};
 use serde::Deserialize;
 use std::{
     path::{Path, PathBuf},
@@ -210,7 +210,7 @@ fn load_experiment(
 #[tokio::main]
 async fn main() -> Result<()> {
     #[cfg(feature = "python")]
-    psyche_python_extension_impl::init_embedded_python()?;
+    aether_python_extension_impl::init_embedded_python()?;
 
     let args = Args::parse();
 
@@ -221,7 +221,7 @@ async fn main() -> Result<()> {
             data_config: data_config_path,
         } => {
             let config = load_config_state(state_path.clone(), data_config_path);
-            let _ = psyche_tui::logging::logging().init()?;
+            let _ = aether_tui::logging::logging().init()?;
             match config {
                 Ok(_) => info!("Configs are OK!"),
                 Err(err) => {
@@ -242,7 +242,7 @@ async fn main() -> Result<()> {
                     .map(|(coordinator, data)| (coordinator, data, Vec::new())),
                 (None, None) => bail!("either --state or --experiment must be provided"),
             };
-            let logger = psyche_tui::logging::logging()
+            let logger = aether_tui::logging::logging()
                 .with_output(if run_args.tui {
                     LogOutput::TUI
                 } else {
@@ -270,9 +270,9 @@ async fn main() -> Result<()> {
                     })
                 }))
                 .with_service_info(ServiceInfo {
-                    name: "psyche-centralized-server".to_string(),
+                    name: "aether-centralized-server".to_string(),
                     instance_id: "server".to_string(),
-                    namespace: "psyche".to_string(),
+                    namespace: "aether".to_string(),
                     deployment_environment: std::env::var("DEPLOYMENT_ENV")
                         .unwrap_or("development".to_string()),
                     run_id: None,

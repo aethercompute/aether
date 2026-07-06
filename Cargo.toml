@@ -16,27 +16,27 @@ resolver = "2"
 exclude = ["vendor/ts-rs", "vendor/ts-rs-macros"]
 
 [workspace.metadata.crane]
-name = "psyche-workspace"
+name = "aether-workspace"
 
 [workspace.package]
 version = "0.2.0"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-psyche-coordinator = { path = "./shared/coordinator" }
-psyche-core = { path = "./shared/core" }
-psyche-client = { path = "./shared/client" }
-psyche-data-provider = { path = "./shared/data-provider" }
-psyche-eval = { path = "./shared/eval" }
-psyche-inference = { path = "./shared/inference" }
-psyche-network = { path = "./shared/network" }
-psyche-modeling = { path = "./shared/modeling" }
-psyche-python-extension = { path = "./python" }
-psyche-python-extension-impl = { path = "./python/extension-impl" }
-psyche-tui = { path = "./shared/tui" }
-psyche-watcher = { path = "./shared/watcher" }
-psyche-metrics = { path = "./shared/metrics" }
-psyche-event-sourcing = { path = "./shared/event-sourcing" }
+aether-coordinator = { path = "./shared/coordinator" }
+aether-core = { path = "./shared/core" }
+aether-client = { path = "./shared/client" }
+aether-data-provider = { path = "./shared/data-provider" }
+aether-eval = { path = "./shared/eval" }
+aether-inference = { path = "./shared/inference" }
+aether-network = { path = "./shared/network" }
+aether-modeling = { path = "./shared/modeling" }
+aether-python-extension = { path = "./python" }
+aether-python-extension-impl = { path = "./python/extension-impl" }
+aether-tui = { path = "./shared/tui" }
+aether-watcher = { path = "./shared/watcher" }
+aether-metrics = { path = "./shared/metrics" }
+aether-event-sourcing = { path = "./shared/event-sourcing" }
 
 hf-hub = { git = "https://github.com/NousResearch/hf-hub.git", rev = "269dc3df4e194f9071ddbdbd25ed90d4990f9262" }
 tokio = { version = "1", features = [
@@ -114,7 +114,7 @@ pretty_assertions = "1.4.1"
 serial_test = "3.2.0"
 rstest = "0.25.0"
 proptest = "1.5.0"
-psyche-test-support = { path = "./shared/test-support" }
+aether-test-support = { path = "./shared/test-support" }
 
 [profile.dev]
 opt-level = 1

@@ -1,21 +1,21 @@
 [package]
-name = "psyche-centralized-client"
+name = "aether-centralized-client"
 version.workspace = true
 license.workspace = true
 edition = "2021"
 
 [dependencies]
-psyche-centralized-shared = { path = "../shared" }
-psyche-core.workspace = true
-psyche-client.workspace = true
-psyche-event-sourcing.workspace = true
-psyche-coordinator.workspace = true
-psyche-eval.workspace = true
-psyche-network.workspace = true
-psyche-tui.workspace = true
-psyche-watcher.workspace = true
-psyche-modeling.workspace = true
-psyche-metrics.workspace = true
+aether-centralized-shared = { path = "../shared" }
+aether-core.workspace = true
+aether-client.workspace = true
+aether-event-sourcing.workspace = true
+aether-coordinator.workspace = true
+aether-eval.workspace = true
+aether-network.workspace = true
+aether-tui.workspace = true
+aether-watcher.workspace = true
+aether-modeling.workspace = true
+aether-metrics.workspace = true
 rand.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
@@ -28,12 +28,12 @@ time.workspace = true
 bytemuck.workspace = true
 clap-markdown.workspace = true
 hex = "0.4.3"
-psyche-python-extension-impl = { workspace = true, optional = true }
+aether-python-extension-impl = { workspace = true, optional = true }
 tikv-jemallocator.workspace = true
 
 [features]
-parallelism = ["psyche-client/parallelism"]
-python = ["psyche-python-extension-impl"]
+parallelism = ["aether-client/parallelism"]
+python = ["aether-python-extension-impl"]
 
 [lints]
 workspace = true

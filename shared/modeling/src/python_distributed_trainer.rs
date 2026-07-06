@@ -5,7 +5,7 @@ use crate::{
     TrainOutput, Trainer, TrainerThreadCommunicationError,
 };
 
-use psyche_core::{Barrier, CancelledBarrier, LearningRateSchedule, OptimizerDefinition};
+use aether_core::{Barrier, CancelledBarrier, LearningRateSchedule, OptimizerDefinition};
 use pyo3::{PyErr, PyResult};
 use std::{
     collections::HashMap,

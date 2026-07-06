@@ -1,5 +1,7 @@
 use crate::errors::UploadError;
 use crate::hub::model::HubRepo;
+use aether_coordinator::model;
+use aether_core::FixedString;
 use hf_hub::{
     api::{
         tokio::{ApiError, UploadSource},
@@ -7,8 +9,6 @@ use hf_hub::{
     },
     Cache, Repo, RepoType,
 };
-use psyche_coordinator::model;
-use psyche_core::FixedString;
 use std::{path::PathBuf, time::Instant};
 use tokio::sync::mpsc;
 use tracing::{error, info};

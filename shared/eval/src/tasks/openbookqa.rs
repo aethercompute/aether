@@ -15,8 +15,8 @@ use crate::{
     traits::{Document, LogLikelihoodTask},
     TaskType,
 };
+use aether_data_provider::{Dataset, ListAccessor, Row, RowAccessor, Split};
 use anyhow::{bail, Context, Result};
-use psyche_data_provider::{Dataset, ListAccessor, Row, RowAccessor, Split};
 use std::{collections::HashMap, fmt::Display};
 use tracing::warn;
 

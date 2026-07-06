@@ -1,4 +1,4 @@
-use psyche_tui::{
+use aether_tui::{
     crossterm::event::{Event, KeyCode, KeyModifiers},
     ratatui::{
         layout::{Constraint, Direction, Layout},
@@ -7,7 +7,7 @@ use psyche_tui::{
     },
     CustomWidget,
 };
-use psyche_watcher::{CoordinatorTuiState, TuiRunState};
+use aether_watcher::{CoordinatorTuiState, TuiRunState};
 use std::sync::Arc;
 use tokio::sync::Notify;
 
@@ -28,8 +28,8 @@ impl CustomWidget for DashboardTui {
 
     fn render(
         &mut self,
-        area: psyche_tui::ratatui::prelude::Rect,
-        buf: &mut psyche_tui::ratatui::prelude::Buffer,
+        area: aether_tui::ratatui::prelude::Rect,
+        buf: &mut aether_tui::ratatui::prelude::Buffer,
         state: &Self::Data,
     ) {
         let vertical = Layout::vertical([Constraint::Length(3), Constraint::Fill(1)]).split(area);

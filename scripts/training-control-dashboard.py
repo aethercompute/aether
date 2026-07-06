@@ -432,7 +432,7 @@ def run_background_sequence(name: str, commands: list[list[str]], on_success=Non
 
 def validate_command(config: dict) -> list[str]:
     return [
-        "psyche-centralized-server",
+        "aether-centralized-server",
         "validate-config",
         "--state",
         config["server"]["state_path"],
@@ -442,7 +442,7 @@ def validate_command(config: dict) -> list[str]:
 def server_command(config: dict) -> list[str]:
     server = config["server"]
     command = [
-        "psyche-centralized-server",
+        "aether-centralized-server",
         "run",
         "--state",
         server["state_path"],
@@ -466,7 +466,7 @@ def experiment_server_command(config: dict) -> list[str]:
     server = config["server"]
     experiment_path = server.get("experiment_path", "config/experiment-run.toml")
     command = [
-        "psyche-centralized-server",
+        "aether-centralized-server",
         "run",
         "--experiment",
         experiment_path,

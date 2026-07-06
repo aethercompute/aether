@@ -1,5 +1,5 @@
+use aether_core::{BatchId, ClosedInterval, Shuffle, TokenSize};
 use anyhow::{anyhow, bail, Result};
-use psyche_core::{BatchId, ClosedInterval, Shuffle, TokenSize};
 use rand::seq::SliceRandom;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha8Rng;

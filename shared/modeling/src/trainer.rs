@@ -3,8 +3,8 @@ use crate::{
     Distro, DistroResult, EosToks, Fp32GradientAccumulator, Optimizer, ReduceType,
     StableVariableIterator,
 };
+use aether_core::{Barrier, BatchId, LearningRateSchedule, OptimizerDefinition};
 use anyhow::{Error, Result};
-use psyche_core::{Barrier, BatchId, LearningRateSchedule, OptimizerDefinition};
 use std::{
     collections::HashMap,
     ops::ControlFlow,
@@ -779,8 +779,8 @@ impl LocalTrainer {
                 }
             };
             data_parallel = Some((
-                #[allow(clippy::arc_with_non_send_sync)]
-                // TODO: analyze how we're using Arc here, is this right?
+                // SAFETY: Communicator::NCCL wraps CNCCL whose collective
+                // operations are internally synchronized across ranks.
                 Arc::new(Communicator::NCCL(comm)),
                 data_parallel_def.barrier,
             ))

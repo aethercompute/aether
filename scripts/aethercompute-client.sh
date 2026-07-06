@@ -49,7 +49,7 @@ AETHER_HOME="${AETHER_HOME:-$HOME/.aethercompute}"
 REPO_URL="${AETHER_REPO_URL:-https://github.com/alkinun/aether.git}"
 REPO_REF="${AETHER_REPO_REF:-main}"
 
-VOLUNTEER_CRATE="psyche-centralized-volunteer"
+VOLUNTEER_CRATE="aether-centralized-volunteer"
 RUST_PROFILE="minimal"
 # Pinned torch used by torch-sys/tch. Do not mix arbitrary system torch with this
 # build: minor torch releases change C++ symbols and can fail at link time.

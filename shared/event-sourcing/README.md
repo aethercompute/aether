@@ -1,11 +1,11 @@
 # event-sourcing
 
-structured event logging for psyche runs. uses postcard for compact serialization and COBS framing for crash-safe streaming writes to disk.
+structured event logging for aether runs. uses postcard for compact serialization and COBS framing for crash-safe streaming writes to disk.
 
 ## usage
 
 ```rust
-use psyche_event_sourcing::*;
+use aether_event_sourcing::*;
 
 // init with backends you want
 EventStore::init(vec![
@@ -17,7 +17,7 @@ EventStore::init(vec![
             run_id: "run-123".into(),
             node_id: "node-1".into(), // probably pubkey
             config: "abc123".into(), // this should have args like dp/tp/whatever. maybe structure it?
-            psyche_version: "0.1.0".into(), // gitcommit / docker image sha256
+            aether_version: "0.1.0".into(), // gitcommit / docker image sha256
         }
     )?),
 ]);

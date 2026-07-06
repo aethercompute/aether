@@ -1,12 +1,12 @@
+use aether_core::RunningAverage;
+use aether_data_provider::{download_model_from_gcs_sync, download_model_repo_sync};
+use aether_eval::{
+    progress_bar_template_with_task, tasktype_from_name, EvalTaskOptions, Task, ALL_TASK_NAMES,
+};
+use aether_modeling::{auto_model_for_causal_lm_from_pretrained, auto_tokenizer, CausalLM};
 use anyhow::Result;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
-use psyche_core::RunningAverage;
-use psyche_data_provider::{download_model_from_gcs_sync, download_model_repo_sync};
-use psyche_eval::{
-    progress_bar_template_with_task, tasktype_from_name, EvalTaskOptions, Task, ALL_TASK_NAMES,
-};
-use psyche_modeling::{auto_model_for_causal_lm_from_pretrained, auto_tokenizer, CausalLM};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -235,14 +235,14 @@ fn run_data_parallel(
             let mut model: Box<dyn CausalLM> = if python {
                 #[cfg(feature = "python")]
                 {
-                    psyche_python_extension_impl::init_embedded_python()?;
+                    aether_python_extension_impl::init_embedded_python()?;
 
-                    Box::new(psyche_modeling::PythonDistributedCausalLM::new(
+                    Box::new(aether_modeling::PythonDistributedCausalLM::new(
                         python_arch,
-                        psyche_modeling::PretrainedSource::RepoFiles(repo),
+                        aether_modeling::PretrainedSource::RepoFiles(repo),
                         device,
-                        psyche_modeling::AttentionImplementation::default(),
-                        psyche_modeling::ParallelismConfig {
+                        aether_modeling::AttentionImplementation::default(),
+                        aether_modeling::ParallelismConfig {
                             dp: data_parallelism,
                             tp: 1,
                         },

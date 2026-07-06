@@ -1,15 +1,15 @@
 [package]
-name = "psyche-data-provider"
+name = "aether-data-provider"
 version.workspace = true
 license.workspace = true
 edition = "2021"
 
 [dependencies]
-psyche-coordinator.workspace = true
-psyche-core.workspace = true
-psyche-watcher = { workspace = true, optional = true }
-psyche-tui = { workspace = true, optional = true }
-psyche-network = { workspace = true, optional = true }
+aether-coordinator.workspace = true
+aether-core.workspace = true
+aether-watcher = { workspace = true, optional = true }
+aether-tui = { workspace = true, optional = true }
+aether-network = { workspace = true, optional = true }
 hf-hub.workspace = true
 parquet = "51.0.0"
 tokio.workspace = true
@@ -33,10 +33,10 @@ ts-rs.workspace = true
 rayon.workspace = true
 
 [features]
-remote = ["psyche-network", "psyche-tui", "psyche-watcher"]
+remote = ["aether-network", "aether-tui", "aether-watcher"]
 
 [dev-dependencies]
-psyche-tui.workspace = true
+aether-tui.workspace = true
 tokenizers.workspace = true
 pretty_assertions.workspace = true
 test-log.workspace = true

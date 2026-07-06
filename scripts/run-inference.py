@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Run inference with a trained Psyche checkpoint using HF Transformers."""
+"""Run inference with a trained Aether checkpoint using HF Transformers."""
 import argparse
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Run inference with trained Psyche model')
+    parser = argparse.ArgumentParser(description='Run inference with trained Aether model')
     parser.add_argument('checkpoint', default='checkpoints/ds-v3-dense-160m-ufw-step1999',
                         help='Path to checkpoint directory')
     parser.add_argument('--prompt', default='The future of AI is',

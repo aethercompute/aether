@@ -4,7 +4,7 @@ use crate::{
     ParallelismConfig, PretrainedSource, PythonCausalLM, ReduceType, StableVariableIterator,
 };
 
-use psyche_core::BatchId;
+use aether_core::BatchId;
 use pyo3::{prelude::*, types::PyDict, PyErr, PyResult, Python};
 use pyo3_tch::PyTensor;
 use std::{
@@ -340,7 +340,7 @@ impl PythonDistributedCausalLM {
             .map(|rank| {
                 let res = Command::new("python")
                     .arg("-m")
-                    .arg("psyche.sidecar")
+                    .arg("aether.sidecar")
                     .arg("--parent-pid")
                     .arg(pid.clone())
                     .arg("--backend")
@@ -496,8 +496,8 @@ impl CausalLM for PythonDistributedCausalLM {
     }
 
     fn communicator(&self) -> Option<Arc<Communicator>> {
-        #[allow(clippy::arc_with_non_send_sync)]
-        // TODO: analyze how we're using Arc here, is this right?
+        // SAFETY: TorchDistributedCommunicator wraps a Python store accessed
+        // under the GIL. Collective ops are called sequentially per rank.
         Some(Arc::new(self.comm.clone().into()))
     }
 

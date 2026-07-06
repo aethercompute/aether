@@ -37,8 +37,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
     export LD_LIBRARY_PATH="$(python3 -c "import os, torch; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))"):${LD_LIBRARY_PATH}" \
-    && cargo build --release -p psyche-centralized-server \
-    && cp target/release/psyche-centralized-server /usr/local/bin/psyche-centralized-server
+    && cargo build --release -p aether-centralized-server \
+    && cp target/release/aether-centralized-server /usr/local/bin/aether-centralized-server
 
 FROM python:3.12-slim-bookworm AS runtime
 
@@ -63,7 +63,7 @@ RUN pip install --no-cache-dir torch==${TORCH_VERSION} --index-url ${TORCH_INDEX
     && pip install --no-cache-dir ${PYTHON_TRAINING_DEPS}
 
 WORKDIR /app
-COPY --from=builder /usr/local/bin/psyche-centralized-server /usr/local/bin/psyche-centralized-server
+COPY --from=builder /usr/local/bin/aether-centralized-server /usr/local/bin/aether-centralized-server
 COPY config ./config
 COPY scripts ./scripts
 

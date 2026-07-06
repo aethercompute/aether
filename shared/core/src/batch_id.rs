@@ -119,6 +119,6 @@ mod tests {
             start: 1,
             end: 1_000_000,
         });
-        psyche_test_support::assert_postcard_roundtrip(&b);
+        aether_test_support::assert_postcard_roundtrip(&b);
     }
 }

@@ -143,7 +143,7 @@ impl TryFrom<&SerializableTensor> for Tensor {
 
 #[cfg(test)]
 mod tests {
-    use psyche_modeling::set_torch_rng_seed;
+    use aether_modeling::set_torch_rng_seed;
     use tch::{Device, Kind, Tensor};
 
     use crate::serializable_tensor::SerializableTensor;

@@ -1,7 +1,7 @@
+use aether_core::RunningAverage;
+use aether_eval::{EvalTaskOptions, Task};
+use aether_modeling::Trainer;
 use futures::future::try_join_all;
-use psyche_core::RunningAverage;
-use psyche_eval::{EvalTaskOptions, Task};
-use psyche_modeling::Trainer;
 use rand::{seq::SliceRandom, Rng};
 use std::sync::Arc;
 use thiserror::Error;
@@ -31,7 +31,7 @@ pub enum EnumModelTask {
 
 #[derive(Debug)]
 pub struct EvalTask {
-    pub task: psyche_eval::PreparedTask,
+    pub task: aether_eval::PreparedTask,
     results: Arc<RunningAverage>,
     next_indices: std::sync::Mutex<Vec<usize>>,
 }

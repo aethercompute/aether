@@ -3,16 +3,16 @@ use crate::{
     Broadcast, BroadcastType, ClientTUIState,
 };
 
-use iroh_blobs::api::Tag;
-use psyche_coordinator::{
+use aether_coordinator::{
     model::{Checkpoint, Model},
     Committee, Coordinator, RunState, Witness, WitnessProof,
 };
-use psyche_core::{sha256, IntegrationTestLogMarker, MerkleRoot, MerkleTree, NodeIdentity};
-use psyche_event_sourcing::event;
-use psyche_modeling::{DistroResult, Trainer};
-use psyche_network::{BlobTicket, Hash, P2PEndpointInfo, TransmittableDistroResult};
-use psyche_watcher::OpportunisticData;
+use aether_core::{sha256, IntegrationTestLogMarker, MerkleRoot, MerkleTree, NodeIdentity};
+use aether_event_sourcing::event;
+use aether_modeling::{DistroResult, Trainer};
+use aether_network::{BlobTicket, Hash, P2PEndpointInfo, TransmittableDistroResult};
+use aether_watcher::OpportunisticData;
+use iroh_blobs::api::Tag;
 use std::{
     fmt,
     sync::{Arc, Mutex},
@@ -1060,7 +1060,7 @@ impl RunManager {
 
     pub fn apply_distro_result(
         &mut self,
-        hash: psyche_network::Hash,
+        hash: aether_network::Hash,
         distro_result: TransmittableDistroResult,
         self_result: Option<Vec<DistroResult>>,
     ) {

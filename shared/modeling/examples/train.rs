@@ -1,18 +1,18 @@
-use anyhow::{Context, Result};
-use clap::{Args, Parser, Subcommand, ValueEnum};
-use psyche_core::{
+use aether_core::{
     Barrier, BatchId, CancellableBarrier, ClosedInterval, CosineLR, OptimizerDefinition, Shuffle,
 };
-use psyche_data_provider::{
+use aether_data_provider::{
     download_model_repo_sync, DataProvider, LengthKnownDataProvider, LocalDataProvider,
     PreprocessedDataProvider, Split, TokenizedDataProvider,
 };
-use psyche_modeling::{
+use aether_modeling::{
     auto_model_for_causal_lm_from_pretrained, save_tensors_into_safetensors,
     AttentionImplementation, Batch, BatchData, BatchDataCPU, CausalLM, CommunicatorId,
     DataParallel, Devices, LocalTrainer, ModelLoadError, ParallelModels, Trainer,
 };
-use psyche_tui::{logging, setup_ctrl_c};
+use aether_tui::{logging, setup_ctrl_c};
+use anyhow::{Context, Result};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::{sync::Arc, thread::JoinHandle, time::SystemTime};
 use tch::Kind;
 use tracing::info;
@@ -171,7 +171,7 @@ struct RunArgs {
 #[tokio::main]
 async fn main() -> Result<()> {
     let logger = logging().init()?;
-    psyche_modeling::set_suggested_env_vars();
+    aether_modeling::set_suggested_env_vars();
 
     // For ctrl-c handling
     let cancel = setup_ctrl_c();
@@ -329,27 +329,27 @@ async fn main() -> Result<()> {
     if python {
         #[cfg(feature = "python")]
         {
-            psyche_python_extension_impl::init_embedded_python()?;
+            aether_python_extension_impl::init_embedded_python()?;
 
-            let source = psyche_modeling::PretrainedSource::RepoFiles(repo_files);
+            let source = aether_modeling::PretrainedSource::RepoFiles(repo_files);
             let dp = args.data_parallelism.unwrap_or(1);
             let tp = args.tensor_parallelism.unwrap_or(1);
 
             let trainer_load_handle: JoinHandle<std::result::Result<Trainer, anyhow::Error>> =
                 std::thread::spawn(move || {
                     if dp != 1 || tp != 1 {
-                        let model = psyche_modeling::PythonDistributedCausalLM::new(
+                        let model = aether_modeling::PythonDistributedCausalLM::new(
                             args.python_arch,
                             source,
                             target_device,
                             args.attn_implementation.map(Into::into).unwrap_or_default(),
-                            psyche_modeling::ParallelismConfig { dp, tp },
+                            aether_modeling::ParallelismConfig { dp, tp },
                             Some(args.sequence_length),
                             None,
                             Some(args.device.size() as i64),
                         )?;
 
-                        Ok(psyche_modeling::PythonDistributedTrainer::new(
+                        Ok(aether_modeling::PythonDistributedTrainer::new(
                             model,
                             schedule.into(),
                             optimizer,
@@ -359,7 +359,7 @@ async fn main() -> Result<()> {
                         )?
                         .into())
                     } else {
-                        let models = vec![Box::new(psyche_modeling::PythonCausalLM::new(
+                        let models = vec![Box::new(aether_modeling::PythonCausalLM::new(
                             &args.python_arch,
                             &source,
                             target_device,

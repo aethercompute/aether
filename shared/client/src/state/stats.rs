@@ -1,10 +1,10 @@
-use psyche_coordinator::{
+use aether_coordinator::{
     model, Coordinator, WitnessEvalResult, WitnessMetadata, MAX_TOKENS_TO_SEND,
 };
-use psyche_core::{BoundedQueue, FixedVec, LearningRateSchedule};
-use psyche_metrics::ClientMetrics;
-use psyche_modeling::Trainer;
-use psyche_network::P2PEndpointInfo;
+use aether_core::{BoundedQueue, FixedVec, LearningRateSchedule};
+use aether_metrics::ClientMetrics;
+use aether_modeling::Trainer;
+use aether_network::P2PEndpointInfo;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokenizers::Tokenizer;
 use tracing::{debug, trace, warn};

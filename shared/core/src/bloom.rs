@@ -352,7 +352,7 @@ mod tests {
         for item in &items {
             bloom.add(item);
         }
-        let back = psyche_test_support::postcard_roundtrip(&bloom);
+        let back = aether_test_support::postcard_roundtrip(&bloom);
         for item in &items {
             assert!(back.contains(item));
         }

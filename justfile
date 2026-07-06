@@ -6,11 +6,11 @@ default:
 # Everything else (modeling/eval/network/client/centralized-*/python) pulls in
 # `tch` unconditionally and needs the torch toolchain — see the *-torch recipes.
 # ─────────────────────────────────────────────────────────────────────────────
-torch-free-crates := "psyche-core psyche-coordinator psyche-event-sourcing psyche-metrics psyche-tui psyche-watcher psyche-data-provider psyche-centralized-shared psyche-centralized-volunteer psyche-centralized-local-testnet psyche-test-support"
+torch-free-crates := "aether-core aether-coordinator aether-event-sourcing aether-metrics aether-tui aether-watcher aether-data-provider aether-centralized-shared aether-centralized-volunteer aether-centralized-local-testnet aether-test-support"
 
 # Build the centralized training server used by the root Dockerfile.
 build-server:
-    cargo build --release -p psyche-centralized-server
+    cargo build --release -p aether-centralized-server
 
 # Run the centralized control dashboard from the root Dockerfile locally.
 dashboard:
@@ -18,14 +18,14 @@ dashboard:
 
 # Spin up a local centralized testnet.
 local-testnet *args='':
-    cargo run -p psyche-centralized-local-testnet -- start --events-dir ./events/local-testnet {{ args }}
+    cargo run -p aether-centralized-local-testnet -- start --events-dir ./events/local-testnet {{ args }}
 
 # Run centralized integration tests.
 integration-test test_name="":
     if [ "{{ test_name }}" = "" ]; then \
-        cargo test --release -p psyche-centralized-testing --test integration_tests; \
+        cargo test --release -p aether-centralized-testing --test integration_tests; \
     else \
-        cargo test --release -p psyche-centralized-testing --test integration_tests -- --nocapture "{{ test_name }}"; \
+        cargo test --release -p aether-centralized-testing --test integration_tests -- --nocapture "{{ test_name }}"; \
     fi
 
 # ── formatting ───────────────────────────────────────────────────────────────

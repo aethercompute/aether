@@ -1,13 +1,13 @@
 use crate::{test_utils::sample_rand_run_id, COOLDOWN_TIME};
 use crate::{MAX_ROUND_TRAIN_TIME, ROUND_WITNESS_TIME, WARMUP_TIME};
-use bytemuck::Zeroable;
-use psyche_centralized_server::app::App as ServerApp;
-use psyche_coordinator::{
+use aether_centralized_server::app::App as ServerApp;
+use aether_coordinator::{
     model::{Checkpoint, Model, LLM},
     Coordinator, CoordinatorConfig, CoordinatorEpochState, RunState, SOLANA_MAX_NUM_CLIENTS,
 };
-use psyche_coordinator::{Client, Round};
-use psyche_core::{FixedVec, NodeIdentity};
+use aether_coordinator::{Client, Round};
+use aether_core::{FixedVec, NodeIdentity};
+use bytemuck::Zeroable;
 use std::{collections::HashSet, mem::Discriminant, ops::ControlFlow};
 use tokio::{
     select,

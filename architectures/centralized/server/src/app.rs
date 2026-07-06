@@ -1,22 +1,22 @@
-use anyhow::{anyhow, bail, Result};
-use async_trait::async_trait;
-use psyche_centralized_shared::{ClientToServerMessage, ServerToClientMessage};
-use psyche_coordinator::model::{self, Checkpoint, LLMTrainingDataLocation, Model, LLM};
-use psyche_coordinator::{
+use aether_centralized_shared::{ClientToServerMessage, ServerToClientMessage};
+use aether_coordinator::model::{self, Checkpoint, LLMTrainingDataLocation, Model, LLM};
+use aether_coordinator::{
     Client, Coordinator, CoordinatorError, HealthChecks, Round, RunState, TickResult,
     SOLANA_MAX_NUM_CLIENTS,
 };
+use anyhow::{anyhow, bail, Result};
+use async_trait::async_trait;
 
-use psyche_core::{FixedVec, NodeIdentity, Shuffle, SizedIterator, TokenSize};
-use psyche_data_provider::{
+use aether_core::{FixedVec, NodeIdentity, Shuffle, SizedIterator, TokenSize};
+use aether_data_provider::{
     download_model_from_gcs_async, download_model_repo_async, DataProviderTcpServer, DataServerTui,
     LocalDataProvider,
 };
-use psyche_network::{ClientNotification, PublicKey, TcpServer};
-use psyche_tui::{
+use aether_network::{ClientNotification, PublicKey, TcpServer};
+use aether_tui::{
     logging::LoggerWidget, maybe_start_render_loop, CustomWidget, MaybeTui, TabbedWidget,
 };
-use psyche_watcher::{CoordinatorTui, OpportunisticData};
+use aether_watcher::{CoordinatorTui, OpportunisticData};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -84,7 +84,7 @@ impl ChannelCoordinatorBackend {
 }
 
 #[async_trait]
-impl psyche_watcher::Backend for ChannelCoordinatorBackend {
+impl aether_watcher::Backend for ChannelCoordinatorBackend {
     async fn wait_for_new_state(&mut self) -> Result<Coordinator> {
         Ok(self.rx.recv().await.expect("channel closed? :("))
     }
@@ -876,7 +876,7 @@ impl From<&App> for DashboardState {
 /// if `WANDB_API_KEY` is unset or the wandb backend is unreachable.
 ///
 /// - `WANDB_API_KEY`  (required to enable)
-/// - `WANDB_PROJECT`  (default: `psyche`)
+/// - `WANDB_PROJECT`  (default: `aether`)
 /// - `WANDB_RUN`      (default: `server-<run_id>-<UTC timestamp>`)
 /// - `WANDB_ENTITY`   (optional)
 /// - `WANDB_GROUP`    (optional)

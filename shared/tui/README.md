@@ -3,6 +3,6 @@
 ## Examples
 
 There's a minimal example you can run with
-`cargo run -p psyche-tui --example minimal`
+`cargo run -p aether-tui --example minimal`
 
 The source code is in [./examples/minimal.rs](./examples/minimal.rs)!

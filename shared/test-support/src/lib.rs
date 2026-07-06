@@ -1,4 +1,4 @@
-//! Shared test helpers for the psyche workspace.
+//! Shared test helpers for the aether workspace.
 //!
 //! Pulled in as a `[dev-dependencies]` entry by crates that want:
 //!   - reproducible randomness ([`seeded_rng`]),

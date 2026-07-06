@@ -55,7 +55,7 @@ mod tests {
             data_hash: [1u8; 32],
             signature: [2u8; 64],
         };
-        let back = psyche_test_support::postcard_roundtrip(&c);
+        let back = aether_test_support::postcard_roundtrip(&c);
         assert_eq!(c.data_hash, back.data_hash);
         assert_eq!(c.signature, back.signature);
     }

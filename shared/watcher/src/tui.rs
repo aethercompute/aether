@@ -3,8 +3,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use psyche_coordinator::{model::Model, Coordinator, RunState};
-use psyche_tui::ratatui::{
+use aether_coordinator::{model::Model, Coordinator, RunState};
+use aether_tui::ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Rect},
     text::Line,
@@ -14,7 +14,7 @@ use psyche_tui::ratatui::{
 #[derive(Default, Debug)]
 pub struct CoordinatorTui;
 
-impl psyche_tui::CustomWidget for CoordinatorTui {
+impl aether_tui::CustomWidget for CoordinatorTui {
     type Data = CoordinatorTuiState;
 
     fn render(&mut self, area: Rect, buf: &mut Buffer, state: &Self::Data) {

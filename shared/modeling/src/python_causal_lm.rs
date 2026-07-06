@@ -135,8 +135,8 @@ impl PythonCausalLM {
     ) -> Result<PythonCausalLM, PythonCausalLMError> {
         let config = source.get_config()?;
         let result: PyResult<PyObject> = Python::with_gil(|py| {
-            let psyche = Python::import(py, "psyche")?;
-            let make_causal_lm = psyche.getattr("make_causal_lm")?;
+            let aether = Python::import(py, "aether")?;
+            let make_causal_lm = aether.getattr("make_causal_lm")?;
             let source: PyObject = match source {
                 PretrainedSource::RepoFiles(path_bufs) => {
                     let files = PyList::new(
@@ -146,7 +146,7 @@ impl PythonCausalLM {
                             .map(|x| x.to_string_lossy().into_owned())
                             .collect::<Vec<_>>(),
                     )?;
-                    let class = psyche.getattr("PretrainedSourceRepoFiles")?;
+                    let class = aether.getattr("PretrainedSourceRepoFiles")?;
                     let args = (files,);
                     class.call1(args)?.into()
                 }
@@ -161,7 +161,7 @@ impl PythonCausalLM {
                         })
                         .collect::<Result<Vec<_>, _>>()?
                         .into_py_dict(py)?;
-                    let class = psyche.getattr("PretrainedSourceStateDict")?;
+                    let class = aether.getattr("PretrainedSourceStateDict")?;
                     let args = (config_json, state_dict);
                     class.call1(args)?.into()
                 }
@@ -392,15 +392,15 @@ pub struct StablePythonParametersIterator {
 impl StablePythonParametersIterator {
     pub fn new(causal_lm: &PyObject) -> Self {
         let entries: PyResult<Vec<PythonCausalLMVariable>> = Python::with_gil(|py| {
-            let psyche = py.import("psyche.dtensor_helpers")?;
-            let full_tensor_shape = psyche.getattr("full_tensor_shape")?;
-            let gather_full_tensor = psyche.getattr("gather_full_tensor")?.unbind();
+            let aether = py.import("aether.dtensor_helpers")?;
+            let full_tensor_shape = aether.getattr("full_tensor_shape")?;
+            let gather_full_tensor = aether.getattr("gather_full_tensor")?.unbind();
             let calculate_local_tensor_from_full =
-                psyche.getattr("calculate_local_tensor_from_full")?.unbind();
-            let zeros_like = psyche.getattr("zeros_like")?.unbind();
-            let local_tensor = psyche.getattr("local_tensor")?;
-            let set_grad = psyche.getattr("set_grad")?.unbind();
-            let zero_grad = psyche.getattr("zero_grad")?.unbind();
+                aether.getattr("calculate_local_tensor_from_full")?.unbind();
+            let zeros_like = aether.getattr("zeros_like")?.unbind();
+            let local_tensor = aether.getattr("local_tensor")?;
+            let set_grad = aether.getattr("set_grad")?.unbind();
+            let zero_grad = aether.getattr("zero_grad")?.unbind();
             let dtensor_references = Arc::new(DTensorReferences {
                 gather_full_tensor,
                 calculate_local_tensor_from_full,

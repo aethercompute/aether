@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
+use aether_core::{BatchId, Shuffle};
+use aether_data_provider::{PreprocessedDataProvider, Split, TokenizedDataProvider};
 use pretty_assertions::assert_eq;
-use psyche_core::{BatchId, Shuffle};
-use psyche_data_provider::{PreprocessedDataProvider, Split, TokenizedDataProvider};
 use serde::Deserialize;
 use tokio::fs::read_to_string;
 

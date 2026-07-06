@@ -6,7 +6,7 @@ use crate::{
 #[cfg(feature = "remote")]
 use crate::DataProviderTcpClient;
 
-use psyche_core::BatchId;
+use aether_core::BatchId;
 
 pub enum DataProvider {
     Http(HttpDataProvider),

@@ -1,14 +1,14 @@
 [package]
-name = "psyche-network"
+name = "aether-network"
 version.workspace = true
 license.workspace = true
 edition = "2021"
 
 [dependencies]
-psyche-tui.workspace = true
-psyche-core.workspace = true
-psyche-modeling.workspace = true
-psyche-metrics.workspace = true
+aether-tui.workspace = true
+aether-core.workspace = true
+aether-modeling.workspace = true
+aether-metrics.workspace = true
 iroh.workspace = true
 iroh-blobs.workspace = true
 iroh-gossip.workspace = true
@@ -39,7 +39,7 @@ iroh-services = { version = "0.12", features = [
   "client_host",
   "net_diagnostics",
 ] }
-psyche-event-sourcing.workspace = true
+aether-event-sourcing.workspace = true
 
 [dev-dependencies]
 # for examples

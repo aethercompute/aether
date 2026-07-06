@@ -1,5 +1,5 @@
-use psyche_core::BatchId;
-use psyche_modeling::DistroResult;
+use aether_core::BatchId;
+use aether_modeling::DistroResult;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -180,7 +180,7 @@ impl<R: Read> Iterator for DistroResultIterator<R> {
 
 #[cfg(test)]
 mod tests {
-    use psyche_modeling::CompressDCT;
+    use aether_modeling::CompressDCT;
     use tch::{Device, Kind, Tensor};
 
     use crate::serializable_tensor::SerializableTensor;

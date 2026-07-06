@@ -1,8 +1,8 @@
 use crate::state::prompt_texts::get_prompt_texts;
-use psyche_coordinator::MAX_TOKENS_TO_SEND;
-use psyche_core::FixedVec;
-use psyche_modeling::{CausalLM, EosToks};
-use psyche_modeling::{LogitsProcessor, Sampling, Trainer};
+use aether_coordinator::MAX_TOKENS_TO_SEND;
+use aether_core::FixedVec;
+use aether_modeling::{CausalLM, EosToks};
+use aether_modeling::{LogitsProcessor, Sampling, Trainer};
 use std::sync::{Mutex, RwLock};
 use tch::Tensor;
 use tokenizers::Tokenizer;

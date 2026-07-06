@@ -2,8 +2,8 @@ use crate::{
     traits::{LengthKnownDataProvider, TokenizedDataProvider},
     TokenizedData,
 };
+use aether_core::{BatchId, ClosedInterval, Shuffle};
 use anyhow::{anyhow, Result};
-use psyche_core::{BatchId, ClosedInterval, Shuffle};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 

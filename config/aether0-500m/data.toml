@@ -1,4 +1,4 @@
-# Training-data server config — passed to `psyche-centralized-server run` via
+# Training-data server config — passed to `aether-centralized-server run` via
 # --data-config. Only consulted because state.toml declares
 #   [model.LLM.data_location] Server = "train.aethercompute.org:39406"
 # which makes the coordinator also host a DataProviderTcpServer, so volunteers

@@ -1,3 +1,5 @@
+use aether_event_sourcing::event;
+use aether_metrics::{ClientMetrics, PeerConnection};
 use allowlist::Allowlist;
 use anyhow::{anyhow, Context, Result};
 use bytes::Bytes;
@@ -24,8 +26,6 @@ pub use p2p_model_sharing::{
     ModelConfigSharingMessage, ParameterSharingMessage, PeerManagerHandle,
     MODEL_REQUEST_TIMEOUT_SECS,
 };
-use psyche_event_sourcing::event;
-use psyche_metrics::{ClientMetrics, PeerConnection};
 use router::{spawn_router, SupportedProtocols};
 use state::State;
 use std::str::FromStr;
@@ -135,8 +135,8 @@ impl FromStr for DiscoveryMode {
 pub enum RelayKind {
     /// No relays (for local tests)
     Disabled,
-    /// Psyche-specific relays
-    Psyche,
+    /// Aether-specific relays
+    Aether,
     /// N0 default relays
     N0,
 }
@@ -147,7 +147,7 @@ impl FromStr for RelayKind {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "disabled" => Ok(RelayKind::Disabled),
-            "psyche" => Ok(RelayKind::Psyche),
+            "psyche" => Ok(RelayKind::Aether),
             "n0" => Ok(RelayKind::N0),
             _ => Err(format!(
                 "Invalid relay kind: '{}'. Expected 'psyche' or 'n0'",
@@ -160,7 +160,7 @@ impl FromStr for RelayKind {
 #[derive(Debug, Clone)]
 pub struct P2PEndpointInfo {
     pub id: EndpointId,
-    pub selected_path: Option<psyche_metrics::SelectedPath>,
+    pub selected_path: Option<aether_metrics::SelectedPath>,
     pub bandwidth: f64,
     pub latency: f64,
 }
@@ -350,7 +350,7 @@ where
             let relay_mode = match relay_kind {
                 RelayKind::Disabled => RelayMode::Disabled,
                 RelayKind::N0 => RelayMode::Default,
-                RelayKind::Psyche => RelayMode::Custom(psyche_relay_map()),
+                RelayKind::Aether => RelayMode::Custom(aether_relay_map()),
             };
             debug!("Using relay servers: {}", fmt_relay_mode(&relay_mode));
 
@@ -980,13 +980,13 @@ async fn on_update_stats(
     Ok(())
 }
 
-/// Get the Psyche [`RelayMap`].
-pub fn psyche_relay_map() -> RelayMap {
-    RelayMap::from_iter([psyche_use_relay_node(), psyche_usw_relay_node()])
+/// Get the Aether [`RelayMap`].
+pub fn aether_relay_map() -> RelayMap {
+    RelayMap::from_iter([aether_use_relay_node(), aether_usw_relay_node()])
 }
 
-/// Get the Psyche [`RelayConfig`] for US East.
-pub fn psyche_use_relay_node() -> RelayConfig {
+/// Get the Aether [`RelayConfig`] for US East.
+pub fn aether_use_relay_node() -> RelayConfig {
     let url: Url = format!("https://{USE_RELAY_HOSTNAME}")
         .parse()
         .expect("default url");
@@ -996,8 +996,8 @@ pub fn psyche_use_relay_node() -> RelayConfig {
     }
 }
 
-/// Get the Psyche [`RelayConfig`] for US West.
-pub fn psyche_usw_relay_node() -> RelayConfig {
+/// Get the Aether [`RelayConfig`] for US West.
+pub fn aether_usw_relay_node() -> RelayConfig {
     let url: Url = format!("https://{USW_RELAY_HOSTNAME}")
         .parse()
         .expect("default_url");

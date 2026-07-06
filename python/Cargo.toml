@@ -1,19 +1,19 @@
 [package]
-name = "psyche-python-extension"
+name = "aether-python-extension"
 version.workspace = true
 license.workspace = true
 edition = "2021"
 build = "build.rs"
 
 [lib]
-name = "psyche_python_extension"
+name = "aether_python_extension"
 crate-type = ["cdylib"]
 
 [dependencies]
-psyche-python-extension-impl.workspace = true
+aether-python-extension-impl.workspace = true
 
 [features]
-parallelism = ["psyche-python-extension-impl/parallelism"]
+parallelism = ["aether-python-extension-impl/parallelism"]
 
 [lints]
 workspace = true

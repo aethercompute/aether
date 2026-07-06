@@ -3,21 +3,21 @@ use crate::{
     state::types::{DeserializeError, PayloadState},
 };
 
-use futures::{future::try_join_all, stream::FuturesUnordered, StreamExt};
-use psyche_coordinator::{
+use aether_coordinator::{
     assign_data_for_state, get_batch_ids_for_node, get_batch_ids_for_round, model, Commitment,
     CommitteeSelection, Coordinator, CoordinatorError, HealthChecks, BLOOM_FALSE_RATE,
 };
-use psyche_core::{BatchId, Bloom, IntegrationTestLogMarker, NodeIdentity, OptimizerDefinition};
-use psyche_event_sourcing::event;
-use psyche_modeling::{
+use aether_core::{BatchId, Bloom, IntegrationTestLogMarker, NodeIdentity, OptimizerDefinition};
+use aether_event_sourcing::event;
+use aether_modeling::{
     ApplyDistroResultError, Batch, BatchData, DistroResult, TrainOutput, Trainer,
     TrainerThreadCommunicationError,
 };
-use psyche_network::{
+use aether_network::{
     distro_results_to_bytes, Hash, SerializeDistroResultError, SerializedDistroResult,
     TransmittableDistroResult,
 };
+use futures::{future::try_join_all, stream::FuturesUnordered, StreamExt};
 use std::{
     collections::{BTreeMap, HashMap},
     path::PathBuf,

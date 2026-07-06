@@ -1,7 +1,7 @@
 use std::time::Duration;
 
+use aether_tui::{logging, logging::LoggerWidget, start_render_loop, CustomWidget};
 use minimal::MinimalWidget;
-use psyche_tui::{logging, logging::LoggerWidget, start_render_loop, CustomWidget};
 use rand::RngCore;
 use ratatui::layout::{Constraint, Direction, Layout};
 use tokio::{select, time::interval};
@@ -54,7 +54,7 @@ impl CustomWidget for MinimalAndLogs {
 #[allow(dead_code)]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let logger = logging().with_output(psyche_tui::LogOutput::TUI).init()?;
+    let logger = logging().with_output(aether_tui::LogOutput::TUI).init()?;
 
     let (cancel, tx) = start_render_loop(MinimalAndLogs::new())?;
     let mut interval = interval(Duration::from_secs(2));

@@ -1,5 +1,5 @@
+use aether_data_provider::{Dataset, Split};
 use anyhow::{bail, Result};
-use psyche_data_provider::{Dataset, Split};
 
 mod harness;
 mod tasks;
@@ -37,7 +37,7 @@ pub fn load_dataset(
     split: Split,
     subset: Option<String>,
 ) -> Result<Dataset> {
-    let repo_files = psyche_data_provider::download_dataset_repo_sync(
+    let repo_files = aether_data_provider::download_dataset_repo_sync(
         repo_id,
         Some(revision.unwrap_or("refs/convert/parquet".to_owned())),
         None,

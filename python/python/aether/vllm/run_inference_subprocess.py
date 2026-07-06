@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 
 def run_inference(model_name: str, prompt: str) -> str:
-    from psyche.vllm.engine import UpdatableLLMEngine
+    from aether.vllm.engine import UpdatableLLMEngine
 
     original_stdout = sys.stdout
     original_stderr = sys.stderr

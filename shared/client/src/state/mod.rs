@@ -13,8 +13,8 @@ mod train;
 mod warmup;
 mod witness;
 
+pub use aether_data_provider::{GcsUploadInfo, HubUploadInfo};
 pub use init::{InitRunError, RunInitConfig, RunInitConfigAndIO};
-pub use psyche_data_provider::{GcsUploadInfo, HubUploadInfo};
 pub use round_state::RoundState;
 pub use steps::{ApplyMessageOutcome, RunManager};
 pub use types::{CheckpointConfig, DistroBroadcastAndPayload, FinishedBroadcast, UploadInfo};

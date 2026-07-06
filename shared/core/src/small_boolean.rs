@@ -134,7 +134,7 @@ mod tests {
     #[test]
     fn serde_roundtrip_preserves_truthiness() {
         for sb in [SmallBoolean::FALSE, SmallBoolean::TRUE, SmallBoolean(7)] {
-            let back = psyche_test_support::postcard_roundtrip(&sb);
+            let back = aether_test_support::postcard_roundtrip(&sb);
             assert_eq!(back.is_true(), sb.is_true());
         }
     }

@@ -1,6 +1,6 @@
 use crate::traits::Backend;
+use aether_coordinator::{Client, Coordinator, RunState};
 use anyhow::Result;
-use psyche_coordinator::{Client, Coordinator, RunState};
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hasher};
 
@@ -71,9 +71,9 @@ where
 mod tests {
     use super::*;
     use crate::OpportunisticData;
+    use aether_coordinator::{model, Client, ClientState, HealthChecks, RunState};
+    use aether_core::{FixedVec, NodeIdentity};
     use async_trait::async_trait;
-    use psyche_coordinator::{model, Client, ClientState, HealthChecks, RunState};
-    use psyche_core::{FixedVec, NodeIdentity};
 
     struct MockBackend {
         states: Vec<Coordinator>,

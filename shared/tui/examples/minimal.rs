@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use psyche_tui::{start_render_loop, CustomWidget};
+use aether_tui::{start_render_loop, CustomWidget};
 use rand::RngCore;
 use ratatui::{
     layout::{Constraint, Direction, Layout},

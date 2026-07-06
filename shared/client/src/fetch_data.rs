@@ -1,8 +1,8 @@
-use psyche_coordinator::{get_batch_ids_for_node, Coordinator};
-use psyche_core::{BatchId, NodeIdentity};
-use psyche_data_provider::{DataProvider, TokenizedDataProvider};
-use psyche_event_sourcing::event;
-use psyche_modeling::{Batch, BatchData, BatchDataCPU};
+use aether_coordinator::{get_batch_ids_for_node, Coordinator};
+use aether_core::{BatchId, NodeIdentity};
+use aether_data_provider::{DataProvider, TokenizedDataProvider};
+use aether_event_sourcing::event;
+use aether_modeling::{Batch, BatchData, BatchDataCPU};
 use std::{
     collections::{BTreeMap, HashSet},
     sync::Arc,

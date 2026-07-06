@@ -1,10 +1,10 @@
 use std::{str::FromStr, time::Duration};
 
+use aether_coordinator::model::HttpTrainingDataLocation;
+use aether_core::{BatchId, Shuffle, TokenSize};
 use anyhow::{anyhow, bail, Context, Result};
 use futures::future::join_all;
 use google_cloud_storage::http::objects::list::ListObjectsRequest;
-use psyche_coordinator::model::HttpTrainingDataLocation;
-use psyche_core::{BatchId, Shuffle, TokenSize};
 use rand::seq::SliceRandom;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha8Rng;

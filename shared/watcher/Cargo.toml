@@ -1,13 +1,13 @@
 [package]
-name = "psyche-watcher"
+name = "aether-watcher"
 version.workspace = true
 license.workspace = true
 edition = "2021"
 
 [dependencies]
-psyche-core.workspace = true
-psyche-coordinator.workspace = true
-psyche-tui.workspace = true
+aether-core.workspace = true
+aether-coordinator.workspace = true
+aether-tui.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 bytemuck.workspace = true

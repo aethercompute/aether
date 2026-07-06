@@ -1,5 +1,5 @@
 use crate::{CausalLM, Distro, MuonOptimizer};
-use psyche_core::OptimizerDefinition;
+use aether_core::OptimizerDefinition;
 use tch::COptimizer;
 
 pub enum Optimizer {

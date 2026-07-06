@@ -1,16 +1,11 @@
-use anyhow::{bail, Result};
-use chrono::{Local, Timelike};
-use clap::{ArgAction, Args, Parser, Subcommand};
-use iroh::{PublicKey, RelayMode, RelayUrl};
-use iroh_blobs::api::Tag;
-use psyche_metrics::ClientMetrics;
-use psyche_network::Hash;
-use psyche_network::RelayKind;
-use psyche_network::{
+use aether_metrics::ClientMetrics;
+use aether_network::Hash;
+use aether_network::RelayKind;
+use aether_network::{
     allowlist, fmt_bytes, BlobTicket, DiscoveryMode, DownloadType, NetworkConnection, NetworkEvent,
     NetworkTUIState, NetworkTui,
 };
-use psyche_tui::{
+use aether_tui::{
     logging::LoggerWidget,
     maybe_start_render_loop,
     ratatui::{
@@ -19,6 +14,11 @@ use psyche_tui::{
     },
     CustomWidget, LogOutput,
 };
+use anyhow::{bail, Result};
+use chrono::{Local, Timelike};
+use clap::{ArgAction, Args, Parser, Subcommand};
+use iroh::{PublicKey, RelayMode, RelayUrl};
+use iroh_blobs::api::Tag;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -98,8 +98,8 @@ impl CustomWidget for Tui {
 
     fn render(
         &mut self,
-        area: psyche_tui::ratatui::prelude::Rect,
-        buf: &mut psyche_tui::ratatui::prelude::Buffer,
+        area: aether_tui::ratatui::prelude::Rect,
+        buf: &mut aether_tui::ratatui::prelude::Buffer,
         state: &Self::Data,
     ) {
         let chunks = Layout::default()
@@ -278,7 +278,7 @@ async fn main() -> Result<()> {
 
     let args = cli_args.run_args;
 
-    let logger = psyche_tui::logging()
+    let logger = aether_tui::logging()
         .with_output(if args.tui {
             LogOutput::TUI
         } else {
@@ -317,7 +317,7 @@ async fn main() -> Result<()> {
         args.bind_port,
         args.bind_interface,
         DiscoveryMode::N0,
-        RelayKind::Psyche,
+        RelayKind::Aether,
         single_endpoint_id.into_iter().collect(),
         secret_key,
         allowlist::AllowAll,

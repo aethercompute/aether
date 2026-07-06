@@ -3,9 +3,9 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use aether_coordinator::{assign_data_for_state, CommitteeSelection, Coordinator};
 use chrono::{DateTime, Utc};
 use indexmap::IndexMap;
-use psyche_coordinator::{assign_data_for_state, CommitteeSelection, Coordinator};
 
 use crate::events::Event;
 use crate::projection::{ClusterProjection, ClusterSnapshot, CoordinatorStateSnapshot};
@@ -56,7 +56,7 @@ fn coordinator_to_snapshot(
     coord: &Coordinator,
 ) -> CoordinatorStateSnapshot {
     let checkpoint = match coord.model {
-        psyche_coordinator::model::Model::LLM(llm) => llm.checkpoint,
+        aether_coordinator::model::Model::LLM(llm) => llm.checkpoint,
     };
     let client_ids: Vec<String> = coord
         .epoch_state

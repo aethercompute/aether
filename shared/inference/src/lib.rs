@@ -1,4 +1,4 @@
-//! Psyche Inference
+//! Aether Inference
 
 pub mod node;
 pub mod protocol;

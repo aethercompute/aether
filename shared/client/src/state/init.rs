@@ -1,26 +1,26 @@
 use crate::{fetch_data::DataFetcher, WandBInfo};
-use psyche_coordinator::{
+use aether_coordinator::{
     model::{self, HttpLLMTrainingDataLocation, LLMTrainingDataLocation},
     Coordinator, HealthChecks,
 };
-use psyche_core::{
+use aether_core::{
     Barrier, CancellableBarrier, IntegrationTestLogMarker, NodeIdentity, Shuffle, TokenSize,
 };
-use psyche_data_provider::{
+use aether_data_provider::{
     download_dataset_repo_async, download_model_from_gcs_async, download_model_repo_async,
     http::{FileURLs, HttpDataProvider},
     DataProvider, DataProviderTcpClient, DownloadError, DummyDataProvider, LocalDataProvider,
     PreprocessedDataProvider, Split, WeightedDataProvider,
 };
-use psyche_event_sourcing::event;
-use psyche_metrics::ClientMetrics;
-use psyche_modeling::{
+use aether_event_sourcing::event;
+use aether_metrics::ClientMetrics;
+use aether_modeling::{
     auto_tokenizer, AttentionImplementation, AutoConfig, AutoTokenizerError, CausalLM,
     CommunicatorId, DataParallel, DeepseekForCausalLM, Devices, DummyModel, LlamaConfig,
     LlamaForCausalLM, LocalTrainer, ModelLoadError, ParallelModels, PretrainedSource, Trainer,
 };
-use psyche_network::{BlobTicket, SecretKey};
-use psyche_watcher::OpportunisticData;
+use aether_network::{BlobTicket, SecretKey};
+use aether_watcher::OpportunisticData;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tch::{Kind, Tensor};
 use thiserror::Error;
@@ -59,7 +59,7 @@ pub struct RunInitConfig {
 
     // evaluation
     pub eval_task_max_docs: Option<usize>,
-    pub eval_tasks: Vec<psyche_eval::Task>,
+    pub eval_tasks: Vec<aether_eval::Task>,
     pub prompt_task: bool,
 
     // logging
@@ -177,23 +177,23 @@ pub enum InitRunError {
 
     #[cfg(feature = "python")]
     #[error("Python distributed error: {0}")]
-    PythonDistributedError(#[from] psyche_modeling::PythonDistributedCausalLMError),
+    PythonDistributedError(#[from] aether_modeling::PythonDistributedCausalLMError),
 
     #[cfg(feature = "python")]
     #[error("Python model error: {0}")]
-    PythonModelError(#[from] psyche_modeling::PythonCausalLMError),
+    PythonModelError(#[from] aether_modeling::PythonCausalLMError),
 
     #[cfg(feature = "python")]
     #[error("Python distributed trainer error: {0}")]
-    PythonDistributedTrainerError(#[from] psyche_modeling::PythonDistributedTrainerError),
+    PythonDistributedTrainerError(#[from] aether_modeling::PythonDistributedTrainerError),
 }
 
 enum RawLoadedModelType {
     ParallelNativeModels(Vec<Box<dyn CausalLM>>),
     #[cfg(feature = "python")]
-    Python(psyche_modeling::PythonCausalLM),
+    Python(aether_modeling::PythonCausalLM),
     #[cfg(feature = "python")]
-    PythonDistributed(psyche_modeling::PythonDistributedCausalLM),
+    PythonDistributed(aether_modeling::PythonDistributedCausalLM),
 }
 
 struct RawLoadedModel {
@@ -256,7 +256,7 @@ impl RunInitConfigAndIO {
         // Check device availability early
         if !init_config.device.is_probably_available() {
             return Err(InitRunError::ModelLoad(
-                psyche_modeling::ModelLoadError::UnavailbleDevice(init_config.device),
+                aether_modeling::ModelLoadError::UnavailbleDevice(init_config.device),
             ));
         }
 
@@ -373,10 +373,11 @@ impl RunInitConfigAndIO {
                             0,
                         ),
                     };
-                    #[allow(clippy::arc_with_non_send_sync)]
+                    // SAFETY: Tensor is !Sync but this Arc is consumed during
+                    // model loading in a sequential context.
                     let config = &PretrainedSource::ConfigAndTensors(
                         AutoConfig::Llama(LlamaConfig::dummy()),
-                        Arc::new(psyche_modeling::get_dummy_parameters()),
+                        Arc::new(aether_modeling::get_dummy_parameters()),
                     )
                     .serialize_config()?;
                     let tokenizer = tokenizer.to_string(false).unwrap();
@@ -483,7 +484,7 @@ impl RunInitConfigAndIO {
                                         #[cfg(feature = "python")]
                                         {
                                             AutoConfig::Auto(serde_json::from_str::<
-                                                psyche_modeling::PythonModelConfig,
+                                                aether_modeling::PythonModelConfig,
                                             >(
                                                 &model_config
                                             )?)
@@ -506,7 +507,8 @@ impl RunInitConfigAndIO {
                                 tx_parameters_req
                                     .send((parameter_names, tx_params_response))
                                     .unwrap();
-                                #[allow(clippy::arc_with_non_send_sync)]
+                                // SAFETY: Tensor is !Sync but these parameters
+                                // are loaded sequentially before model init.
                                 let parameters = Arc::new(
                                     rx_params_response
                                         .await
@@ -615,12 +617,12 @@ impl RunInitConfigAndIO {
 
                                     tokio::task::spawn_blocking(move || {
                                         if tp != 1 || dp != 1 {
-                                            psyche_modeling::PythonDistributedCausalLM::new(
+                                            aether_modeling::PythonDistributedCausalLM::new(
                                                 llm.architecture.to_string(),
                                                 source.try_into()?,
                                                 tch::Device::cuda_if_available(),
                                                 attn_implementation.unwrap_or_default(),
-                                                psyche_modeling::ParallelismConfig { dp, tp },
+                                                aether_modeling::ParallelismConfig { dp, tp },
                                                 Some(llm.max_seq_len as usize),
                                                 init_config.sidecar_port,
                                                 Some(num_local_ranks),
@@ -637,7 +639,7 @@ impl RunInitConfigAndIO {
                                                         init_config.device,
                                                     )
                                                 })?;
-                                            psyche_modeling::PythonCausalLM::new(
+                                            aether_modeling::PythonCausalLM::new(
                                                 &llm.architecture.to_string(),
                                                 &source.try_into()?,
                                                 device,
@@ -903,10 +905,10 @@ impl RunInitConfigAndIO {
             }
             #[cfg(feature = "python")]
             RawLoadedModelType::Python(model) => {
-                vec![psyche_modeling::LocalTrainer::new(
+                vec![aether_modeling::LocalTrainer::new(
                     ParallelModels {
                         models: vec![Box::new(model) as Box<dyn CausalLM>],
-                        barrier: Arc::new(psyche_modeling::NopBarrier) as Arc<dyn Barrier>,
+                        barrier: Arc::new(aether_modeling::NopBarrier) as Arc<dyn Barrier>,
                         data_parallel: None,
                     },
                     llm.lr_schedule,
@@ -919,7 +921,7 @@ impl RunInitConfigAndIO {
             }
             #[cfg(feature = "python")]
             RawLoadedModelType::PythonDistributed(model) => {
-                vec![psyche_modeling::PythonDistributedTrainer::new(
+                vec![aether_modeling::PythonDistributedTrainer::new(
                     model,
                     llm.lr_schedule,
                     llm.optimizer,

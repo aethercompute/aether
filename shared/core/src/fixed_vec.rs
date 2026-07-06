@@ -711,7 +711,7 @@ mod tests {
         let mut vec: FixedVec<u32, 6> = FixedVec::new();
         vec.extend([1, 2, 3]).unwrap();
 
-        psyche_test_support::assert_postcard_roundtrip(&vec);
+        aether_test_support::assert_postcard_roundtrip(&vec);
     }
 
     #[test]

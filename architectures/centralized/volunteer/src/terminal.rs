@@ -1,5 +1,5 @@
 //! Minimal crossterm + ratatui terminal setup. We intentionally do NOT pull in
-//! `psyche-tui` here (it drags opentelemetry/iroh/logfire) so this crate stays
+//! `aether-tui` here (it drags opentelemetry/iroh/logfire) so this crate stays
 //! tiny and fast to compile.
 
 use crossterm::{

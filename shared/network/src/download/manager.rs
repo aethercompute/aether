@@ -4,6 +4,7 @@ use crate::{
     ModelRequestType, Networkable,
 };
 
+use aether_event_sourcing::event;
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures_util::future::select_all;
@@ -11,7 +12,6 @@ use iroh::PublicKey;
 use iroh_blobs::api::downloader::DownloadProgressItem;
 use iroh_blobs::api::Tag;
 use iroh_blobs::ticket::BlobTicket;
-use psyche_event_sourcing::event;
 use serde::{Deserialize, Serialize};
 use std::{fmt::Debug, future::Future, marker::PhantomData, pin::Pin, sync::Arc};
 use tokio::{

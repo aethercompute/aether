@@ -1,9 +1,9 @@
 // Integration test for InferenceNode
 
 #[cfg(feature = "vllm-tests")]
-use psyche_inference::node::InferenceNode;
+use aether_inference::node::InferenceNode;
 #[cfg(feature = "vllm-tests")]
-use psyche_inference::protocol::InferenceRequest;
+use aether_inference::protocol::InferenceRequest;
 #[cfg(feature = "vllm-tests")]
 use serial_test::serial;
 
@@ -14,7 +14,7 @@ fn test_inference_node_local() {
     pyo3::prepare_freethreaded_python();
 
     pyo3::Python::with_gil(|py| {
-        let check = py.import("psyche.vllm.rust_bridge");
+        let check = py.import("aether.vllm.rust_bridge");
         if check.is_err() {
             println!("Skipping test: vLLM not available");
             return;
@@ -71,7 +71,7 @@ fn test_inference_node_multiple_requests() {
     pyo3::prepare_freethreaded_python();
 
     pyo3::Python::with_gil(|py| {
-        let check = py.import("psyche.vllm.rust_bridge");
+        let check = py.import("aether.vllm.rust_bridge");
         if check.is_err() {
             println!("Skipping test: vLLM not available");
             return;

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use psyche_coordinator::Committee;
-use psyche_tui::ratatui::{
+use aether_coordinator::Committee;
+use aether_tui::ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Rect},
     style::{Style, Stylize},
@@ -9,7 +9,7 @@ use psyche_tui::ratatui::{
     text::Line,
     widgets::{Axis, Chart, Dataset, GraphType, LegendPosition, Paragraph, Widget},
 };
-use psyche_watcher::TuiRunState;
+use aether_watcher::TuiRunState;
 
 lazy_static::lazy_static! {
     static ref GRAPH_COLORS: [Style; 4] = [Style::default().red(), Style::default().magenta(), Style::default().green(), Style::default().cyan()];
@@ -56,7 +56,7 @@ fn convert_tokens(tokens: u64) -> String {
     }
 }
 
-impl psyche_tui::CustomWidget for ClientTUI {
+impl aether_tui::CustomWidget for ClientTUI {
     type Data = ClientTUIState;
 
     fn render(&mut self, area: Rect, buf: &mut Buffer, state: &Self::Data) {

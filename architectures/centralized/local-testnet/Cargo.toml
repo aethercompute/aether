@@ -1,5 +1,5 @@
 [package]
-name = "psyche-centralized-local-testnet"
+name = "aether-centralized-local-testnet"
 edition = "2021"
 version.workspace = true
 license.workspace = true
@@ -12,10 +12,10 @@ serde = { workspace = true, features = ["derive"] }
 time.workspace = true
 toml = "0.8.19"
 clap-markdown.workspace = true
-psyche-python-extension-impl = { workspace = true, optional = true }
+aether-python-extension-impl = { workspace = true, optional = true }
 
 [features]
-python = ["psyche-python-extension-impl"]
+python = ["aether-python-extension-impl"]
 
 [lints]
 workspace = true

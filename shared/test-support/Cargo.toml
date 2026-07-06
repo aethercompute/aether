@@ -1,10 +1,10 @@
 [package]
-name = "psyche-test-support"
+name = "aether-test-support"
 version.workspace = true
 license.workspace = true
 edition = "2021"
 publish = false
-description = "Shared test helpers for the psyche workspace (deterministic RNG, serde/postcard round-trip asserts)."
+description = "Shared test helpers for the aether workspace (deterministic RNG, serde/postcard round-trip asserts)."
 
 [dependencies]
 serde.workspace = true

@@ -1,8 +1,6 @@
 use crate::{util::fmt_bytes, NetworkConnection, Networkable, P2PEndpointInfo};
 
-use futures_util::StreamExt;
-use iroh::EndpointId;
-use psyche_tui::ratatui::{
+use aether_tui::ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
@@ -12,12 +10,14 @@ use psyche_tui::ratatui::{
         Widget, Wrap,
     },
 };
+use futures_util::StreamExt;
+use iroh::EndpointId;
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Default, Debug)]
 pub struct NetworkTui;
 
-impl psyche_tui::CustomWidget for NetworkTui {
+impl aether_tui::CustomWidget for NetworkTui {
     type Data = NetworkTUIState;
 
     fn render(&mut self, area: Rect, buf: &mut Buffer, state: &Self::Data) {

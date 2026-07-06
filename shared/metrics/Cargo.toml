@@ -1,11 +1,11 @@
 [package]
-name = "psyche-metrics"
+name = "aether-metrics"
 version.workspace = true
 license.workspace = true
 edition = "2021"
 
 [dependencies]
-psyche-core = { workspace = true, features = ["rand"] }
+aether-core = { workspace = true, features = ["rand"] }
 anyhow.workspace = true
 opentelemetry = "0.28.0"
 sysinfo = "0.32.0"

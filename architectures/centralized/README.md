@@ -1,8 +1,8 @@
-# Psyche Centralized Server and Client
+# Aether Centralized Server and Client
 
 ## Local Testing
 
-You can use the `psyche-centralized-local-testnet` binary in `/architectures/centralized/local-testnet`, which automates the process of launching a centralized server and multiple clients using tmux.
+You can use the `aether-centralized-local-testnet` binary in `/architectures/centralized/local-testnet`, which automates the process of launching a centralized server and multiple clients using tmux.
 
 ### Prerequisites
 
@@ -14,7 +14,7 @@ You can use the `psyche-centralized-local-testnet` binary in `/architectures/cen
 ### Usage
 
 ```
-cargo run -p psyche-centralized-local-testnet -- --help
+cargo run -p aether-centralized-local-testnet -- --help
 ```
 
 ### Example Invocations
@@ -22,7 +22,7 @@ cargo run -p psyche-centralized-local-testnet -- --help
 #### Demo
 
 ```bash
-cargo run -p psyche-centralized-local-testnet start --num-clients 3 --config-path ../../config/llama2-20m-dolma-noverify-no-checkpointer --write-distro-data ./distro-data/llama2-20m-noverify --tui false
+cargo run -p aether-centralized-local-testnet start --num-clients 3 --config-path ../../config/llama2-20m-dolma-noverify-no-checkpointer --write-distro-data ./distro-data/llama2-20m-noverify --tui false
 ```
 
 This command launches a server and 3 clients, using the configuration in `/path/to/config`, writing gradient data, and disabling the TUI for clients.
@@ -30,7 +30,7 @@ This command launches a server and 3 clients, using the configuration in `/path/
 #### Testing against node crashes
 
 ```bash
-just psyche-centralized-local-testnet --num-clients 3 --config-path ./config/kill-test-short-epoch-checkpoint/ --random-kill-num 1 --allowed-to-kill 2,3 --first-client-checkpoint bug-free-chainsaw/tiny-local-20m --hf-token xxxxxxxxxxxxx --write-log
+just aether-centralized-local-testnet --num-clients 3 --config-path ./config/kill-test-short-epoch-checkpoint/ --random-kill-num 1 --allowed-to-kill 2,3 --first-client-checkpoint bug-free-chainsaw/tiny-local-20m --hf-token xxxxxxxxxxxxx --write-log
 ```
 
 This command launches a server with 3 clients, using the config "kill-test-short-epoch-checkpoint".

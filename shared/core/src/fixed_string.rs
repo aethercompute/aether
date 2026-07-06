@@ -168,7 +168,7 @@ mod tests {
     #[test]
     fn serde_roundtrip_preserves_content() {
         let fs = FixedString::<16>::try_from("hello world").unwrap();
-        let back = psyche_test_support::postcard_roundtrip(&fs);
+        let back = aether_test_support::postcard_roundtrip(&fs);
         assert_eq!(String::from(&back), "hello world");
     }
 }

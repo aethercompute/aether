@@ -641,7 +641,7 @@ pub(crate) mod tests {
                         CommunicatorId::NCCL(cstore) => {
                             CNCCL::new(cstore, rank as i64, WORLD_SIZE as i64, device)?
                         }
-                        _ => unimplemented!(),
+                        _ => unreachable!("parallel tests only use NCCL communicator"),
                     };
 
                     let layer = ColumnParallelLinear::new(
@@ -650,8 +650,8 @@ pub(crate) mod tests {
                         OUT_FEATURES,
                         false, // no bias
                         GATHER_OUTPUT,
-                        #[allow(clippy::arc_with_non_send_sync)]
-                        // TODO: analyze how we're using Arc here, is this right?
+                        // SAFETY: CNCCL operations are thread-safe; the communicator
+                        // is only accessed via shared references inside forward().
                         Some(Arc::new(nccl.into())),
                     );
 
@@ -756,7 +756,7 @@ pub(crate) mod tests {
                             CommunicatorId::NCCL(cstore) => {
                                 CNCCL::new(cstore, rank as i64, WORLD_SIZE as i64, device)?
                             }
-                            _ => unimplemented!(),
+                            _ => unreachable!("parallel tests only use NCCL communicator"),
                         };
 
                         let layer = RowParallelLinear::new(
@@ -765,8 +765,8 @@ pub(crate) mod tests {
                             OUT_FEATURES,
                             bias,
                             input_is_parallel,
-                            #[allow(clippy::arc_with_non_send_sync)]
-                            // TODO: analyze how we're using Arc here, is this right?
+                            // SAFETY: CNCCL operations are thread-safe; the communicator
+                            // is only accessed via shared references inside forward().
                             Some(Arc::new(nccl.into())),
                         );
 

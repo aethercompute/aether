@@ -4,7 +4,7 @@
 //!
 //! # Architecture
 //!
-//! For production use in Psyche inference nodes:
+//! For production use in Aether inference nodes:
 //! - Each inference node runs as a long-running Python subprocess
 //! - The subprocess creates ONE vLLM engine and handles many inference requests
 //! - When checkpoint updates arrive, the subprocess is killed and a new one spawned
@@ -102,7 +102,7 @@ pub fn create_engine(
     max_model_len: Option<i32>,
     gpu_memory_utilization: Option<f64>,
 ) -> PyResult<EngineCreationResult> {
-    let rust_bridge = py.import("psyche.vllm.rust_bridge")?;
+    let rust_bridge = py.import("aether.vllm.rust_bridge")?;
 
     let kwargs = PyDict::new(py);
     kwargs.set_item("engine_id", engine_id)?;
@@ -147,7 +147,7 @@ pub fn run_inference(
     top_p: Option<f64>,
     max_tokens: Option<i32>,
 ) -> PyResult<InferenceResult> {
-    let rust_bridge = py.import("psyche.vllm.rust_bridge")?;
+    let rust_bridge = py.import("aether.vllm.rust_bridge")?;
 
     let kwargs = PyDict::new(py);
     kwargs.set_item("engine_id", engine_id)?;
@@ -191,7 +191,7 @@ pub fn run_inference(
 
 /// Shutdown an engine
 pub fn shutdown_engine(py: Python, engine_id: &str) -> PyResult<ShutdownResult> {
-    let rust_bridge = py.import("psyche.vllm.rust_bridge")?;
+    let rust_bridge = py.import("aether.vllm.rust_bridge")?;
 
     let result = rust_bridge.call_method1("shutdown_engine", (engine_id,))?;
     let dict = result.downcast::<PyDict>()?;
@@ -209,7 +209,7 @@ pub fn shutdown_engine(py: Python, engine_id: &str) -> PyResult<ShutdownResult> 
 
 /// Get stats about an engine
 pub fn get_engine_stats(py: Python, engine_id: &str) -> PyResult<EngineStats> {
-    let rust_bridge = py.import("psyche.vllm.rust_bridge")?;
+    let rust_bridge = py.import("aether.vllm.rust_bridge")?;
 
     let result = rust_bridge.call_method1("get_engine_stats", (engine_id,))?;
     let dict = result.downcast::<PyDict>()?;
@@ -230,7 +230,7 @@ pub fn get_engine_stats(py: Python, engine_id: &str) -> PyResult<EngineStats> {
 
 /// List all registered engines
 pub fn list_engines(py: Python) -> PyResult<EngineList> {
-    let rust_bridge = py.import("psyche.vllm.rust_bridge")?;
+    let rust_bridge = py.import("aether.vllm.rust_bridge")?;
 
     let result = rust_bridge.call_method0("list_engines")?;
     let dict = result.downcast::<PyDict>()?;
@@ -260,7 +260,7 @@ mod tests {
     fn test_list_engines() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
-            if py.import("psyche.vllm.rust_bridge").is_err() {
+            if py.import("aether.vllm.rust_bridge").is_err() {
                 return;
             }
 

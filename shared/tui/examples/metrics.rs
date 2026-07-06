@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use psyche_tui::{
+use aether_tui::{
     logging::{
         logging, MetricsDestination, OpenTelemetry, RemoteLogsDestination, TraceDestination,
     },
@@ -26,7 +26,7 @@ async fn main() {
         .with_service_info(ServiceInfo {
             name: "metrics-example".to_string(),
             instance_id: "local".to_string(),
-            namespace: "psyche".to_string(),
+            namespace: "aether".to_string(),
             deployment_environment: "development".to_string(),
             run_id: Some("run_id_test".to_string()),
         })

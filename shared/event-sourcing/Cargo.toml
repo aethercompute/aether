@@ -1,5 +1,5 @@
 [package]
-name = "psyche-event-sourcing"
+name = "aether-event-sourcing"
 version.workspace = true
 license.workspace = true
 edition = "2021"
@@ -14,8 +14,8 @@ iroh.workspace = true
 iroh-blobs.workspace = true
 
 bytemuck.workspace = true
-psyche-core.workspace = true
-psyche-coordinator.workspace = true
+aether-core.workspace = true
+aether-coordinator.workspace = true
 
 parking_lot = "0.12"
 derive_more = { version = "2.1.1", features = ["from", "display"] }
@@ -24,10 +24,10 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", default-features = false }
 indexmap.workspace = true
-psyche-metrics.workspace = true
+aether-metrics.workspace = true
 
 [dev-dependencies]
-psyche-test-support.workspace = true
+aether-test-support.workspace = true
 serial_test.workspace = true
 rand.workspace = true
 tempfile = "3"

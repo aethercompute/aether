@@ -1,6 +1,6 @@
 use crate::TokenizedData;
 
-use psyche_core::BatchId;
+use aether_core::BatchId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

@@ -1,6 +1,6 @@
-use psyche_coordinator::{Commitment, CommitteeProof};
-use psyche_core::{BatchId, MerkleRoot};
-use psyche_network::{BlobTicket, NetworkConnection, TransmittableDownload};
+use aether_coordinator::{Commitment, CommitteeProof};
+use aether_core::{BatchId, MerkleRoot};
+use aether_network::{BlobTicket, NetworkConnection, TransmittableDownload};
 use serde::{Deserialize, Serialize};
 
 pub type NC = NetworkConnection<Broadcast, TransmittableDownload>;

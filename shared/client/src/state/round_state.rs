@@ -1,10 +1,10 @@
 use crate::{fetch_data::BatchIdSet, Finished, TrainingResult};
 
-use psyche_coordinator::{
+use aether_coordinator::{
     Commitment, CommitteeProof, CommitteeSelection, WitnessBloom, WitnessProof,
 };
-use psyche_core::{BatchId, NodeIdentity};
-use psyche_modeling::DistroResult;
+use aether_core::{BatchId, NodeIdentity};
+use aether_modeling::DistroResult;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::{Arc, Mutex},
@@ -17,7 +17,7 @@ pub struct RoundState {
     pub step: u32,
     pub sent_witness: bool,
     pub sent_finished: bool,
-    pub downloads: Arc<Mutex<HashMap<psyche_network::Hash, PayloadState>>>,
+    pub downloads: Arc<Mutex<HashMap<aether_network::Hash, PayloadState>>>,
     #[allow(clippy::type_complexity)]
     pub results: HashMap<BatchId, Vec<(NodeIdentity, (Commitment, TrainingResult))>>,
     pub clients_finished: HashMap<NodeIdentity, Finished>,
@@ -48,7 +48,7 @@ impl RoundState {
         }
     }
 
-    pub fn distro_result_blob_downloaded(&self, hash: &psyche_network::Hash) -> bool {
+    pub fn distro_result_blob_downloaded(&self, hash: &aether_network::Hash) -> bool {
         self.downloads.lock().unwrap().contains_key(hash)
     }
 }

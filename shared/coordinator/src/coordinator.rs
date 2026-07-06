@@ -3,8 +3,8 @@ use crate::{
     Commitment, Committee, CommitteeProof, CommitteeSelection, WitnessProof,
 };
 
+use aether_core::{sha256, Bloom, FixedString, FixedVec, MerkleRoot, NodeIdentity, SmallBoolean};
 use bytemuck::{Pod, Zeroable};
-use psyche_core::{sha256, Bloom, FixedString, FixedVec, MerkleRoot, NodeIdentity, SmallBoolean};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, hash::Hash};
 use tracing::warn;
@@ -1206,8 +1206,8 @@ impl CoordinatorProgress {
 mod tests {
     use super::*;
     use crate::model::{HubRepo, LLM};
+    use aether_core::{sha256, FixedVec, NodeIdentity, OptimizerDefinition};
     use bytemuck::Zeroable;
-    use psyche_core::{sha256, FixedVec, NodeIdentity, OptimizerDefinition};
 
     fn identity(n: u8) -> NodeIdentity {
         let mut key = [0u8; 32];

@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
-use psyche_coordinator::CommitteeProof;
-use psyche_core::{BatchId, MerkleRoot, NodeIdentity};
-use psyche_data_provider::{GcsUploadInfo, HubUploadInfo};
-use psyche_modeling::DistroResult;
-use psyche_network::{BlobTicket, TransmittableDistroResult};
+use aether_coordinator::CommitteeProof;
+use aether_core::{BatchId, MerkleRoot, NodeIdentity};
+use aether_data_provider::{GcsUploadInfo, HubUploadInfo};
+use aether_modeling::DistroResult;
+use aether_network::{BlobTicket, TransmittableDistroResult};
 use tch::TchError;
 use thiserror::Error;
 use tokio::task::JoinHandle;

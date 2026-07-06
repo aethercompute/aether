@@ -1,5 +1,5 @@
 [package]
-name = "psyche-centralized-volunteer"
+name = "aether-centralized-volunteer"
 version.workspace = true
 license.workspace = true
 edition = "2021"

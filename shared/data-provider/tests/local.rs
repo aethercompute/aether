@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
+use aether_core::{BatchId, Shuffle, TokenSize};
+use aether_data_provider::{LocalDataProvider, TokenizedDataProvider};
 use pretty_assertions::assert_eq;
-use psyche_core::{BatchId, Shuffle, TokenSize};
-use psyche_data_provider::{LocalDataProvider, TokenizedDataProvider};
 use tokenizers::Tokenizer;
 use tokio::fs::read_to_string;
 

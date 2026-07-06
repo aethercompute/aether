@@ -3,9 +3,9 @@ use crate::{
     ArcChallenge, ArcEasy, BoolQ, Hellaswag, MMLUPro, OpenbookQA, ASCII_UPPERCASE, MMLU, MMLUCF,
     PIQA,
 };
+use aether_core::RunningAverage;
+use aether_modeling::{CausalLM, LogitsProcessor, Sampling};
 use indicatif::{ProgressBar, ProgressStyle};
-use psyche_core::RunningAverage;
-use psyche_modeling::{CausalLM, LogitsProcessor, Sampling};
 use rand::{seq::SliceRandom, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use regex::Regex;

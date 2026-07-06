@@ -1,5 +1,5 @@
+use aether_coordinator::{model, Coordinator, HealthChecks, Witness, WitnessMetadata};
 use anyhow::Result;
-use psyche_coordinator::{model, Coordinator, HealthChecks, Witness, WitnessMetadata};
 use serde::{Deserialize, Serialize};
 
 #[allow(clippy::large_enum_variant)]

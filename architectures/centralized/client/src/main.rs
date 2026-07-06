@@ -1,14 +1,14 @@
 use crate::app::{build_app, Tabs, TAB_NAMES};
 
-use anyhow::Result;
-use clap::{Parser, Subcommand};
-use psyche_client::{print_identity_keys, read_identity_secret_key, TrainArgs};
-use psyche_event_sourcing::{EventStore, FileBackend, RunStarted};
-use psyche_network::SecretKey;
-use psyche_tui::{
+use aether_client::{print_identity_keys, read_identity_secret_key, TrainArgs};
+use aether_event_sourcing::{EventStore, FileBackend, RunStarted};
+use aether_network::SecretKey;
+use aether_tui::{
     logging::{MetricsDestination, OpenTelemetry, RemoteLogsDestination, TraceDestination},
     maybe_start_render_loop, LogOutput, ServiceInfo,
 };
+use anyhow::Result;
+use clap::{Parser, Subcommand};
 use std::{path::PathBuf, time::Duration};
 use time::OffsetDateTime;
 use tokio::runtime::Builder;
@@ -58,7 +58,7 @@ async fn async_main() -> Result<()> {
             identity_secret_key_path,
         } => print_identity_keys(identity_secret_key_path.as_ref()),
         Commands::Train { args, server_addr } => {
-            psyche_client::prepare_environment();
+            aether_client::prepare_environment();
 
             info!(
                 "============ Client Startup at {} ============",
@@ -76,7 +76,7 @@ async fn async_main() -> Result<()> {
                     run_id: args.run_id.clone(),
                     node_id,
                     config: format!("{args:?}"),
-                    psyche_version: env!("CARGO_PKG_VERSION").to_string(),
+                    aether_version: env!("CARGO_PKG_VERSION").to_string(),
                 };
                 EventStore::init(vec![Box::new(FileBackend::new(
                     &node_events_dir,
@@ -86,7 +86,7 @@ async fn async_main() -> Result<()> {
                 )?)]);
             }
 
-            let logger = psyche_tui::logging()
+            let logger = aether_tui::logging()
                 .with_output(args.logs)
                 .with_log_file(args.write_log.clone())
                 .with_metrics_destination(args.oltp_metrics_url.clone().map(|endpoint| {
@@ -111,9 +111,9 @@ async fn async_main() -> Result<()> {
                     })
                 }))
                 .with_service_info(ServiceInfo {
-                    name: "psyche-centralized-client".to_string(),
+                    name: "aether-centralized-client".to_string(),
                     instance_id: identity_secret_key.public().to_string(),
-                    namespace: "psyche".to_string(),
+                    namespace: "aether".to_string(),
                     deployment_environment: std::env::var("DEPLOYMENT_ENV")
                         .unwrap_or("development".to_string()),
                     run_id: Some(args.run_id.clone()),
@@ -147,7 +147,7 @@ async fn async_main() -> Result<()> {
 
 fn main() -> Result<()> {
     #[cfg(feature = "python")]
-    psyche_python_extension_impl::init_embedded_python()?;
+    aether_python_extension_impl::init_embedded_python()?;
 
     // let shutdown_handler =
     let runtime = Builder::new_multi_thread()

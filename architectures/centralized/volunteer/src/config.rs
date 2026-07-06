@@ -10,8 +10,8 @@ pub const DEFAULT_SERVER_PORT: &str = "39405";
 pub const DEFAULT_MICRO_BATCH: &str = "1";
 pub const DEFAULT_SLOT: &str = "1";
 
-pub const CLIENT_CRATE: &str = "psyche-centralized-client";
-pub const CLIENT_BIN_NAME: &str = "psyche-centralized-client";
+pub const CLIENT_CRATE: &str = "aether-centralized-client";
+pub const CLIENT_BIN_NAME: &str = "aether-centralized-client";
 
 /// Repo root, resolved at runtime from this crate's compile-time manifest dir
 /// (the volunteer crate lives at `<root>/architectures/centralized/volunteer`).

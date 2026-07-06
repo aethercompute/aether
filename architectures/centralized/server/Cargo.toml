@@ -1,18 +1,18 @@
 [package]
-name = "psyche-centralized-server"
+name = "aether-centralized-server"
 version.workspace = true
 license.workspace = true
 edition = "2021"
 
 [dependencies]
-psyche-centralized-shared = { path = "../shared" }
-psyche-client.workspace = true
-psyche-coordinator.workspace = true
-psyche-core.workspace = true
-psyche-data-provider = { workspace = true, features = ["remote"] }
-psyche-network.workspace = true
-psyche-tui.workspace = true
-psyche-watcher.workspace = true
+aether-centralized-shared = { path = "../shared" }
+aether-client.workspace = true
+aether-coordinator.workspace = true
+aether-core.workspace = true
+aether-data-provider = { workspace = true, features = ["remote"] }
+aether-network.workspace = true
+aether-tui.workspace = true
+aether-watcher.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
@@ -34,12 +34,12 @@ futures.workspace = true
 bytemuck.workspace = true
 toml.workspace = true
 clap-markdown.workspace = true
-psyche-python-extension-impl = { workspace = true, optional = true }
+aether-python-extension-impl = { workspace = true, optional = true }
 tikv-jemallocator.workspace = true
 wandb = { git = "https://github.com/NousResearch/wandb-rs.git", rev = "db6118e3bf3526718c1097baecf36f564233a735" }
 
 [features]
-python = ["psyche-python-extension-impl"]
+python = ["aether-python-extension-impl"]
 
 [lints]
 workspace = true

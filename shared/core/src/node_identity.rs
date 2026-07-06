@@ -79,7 +79,7 @@ mod tests {
     #[test]
     fn node_identity_postcard_roundtrip() {
         let id = NodeIdentity::new([1u8; 32], [2u8; 32]);
-        let back = psyche_test_support::postcard_roundtrip(&id);
+        let back = aether_test_support::postcard_roundtrip(&id);
         assert_eq!(id.signer(), back.signer());
         assert_eq!(id.p2p_identity(), back.p2p_identity());
     }
@@ -87,7 +87,7 @@ mod tests {
     #[test]
     fn node_identity_from_single_key_roundtrip() {
         let id = NodeIdentity::from_single_key([42u8; 32]);
-        let back = psyche_test_support::postcard_roundtrip(&id);
+        let back = aether_test_support::postcard_roundtrip(&id);
         assert_eq!(id.signer(), back.signer());
         assert_eq!(id.p2p_identity(), back.p2p_identity());
     }

@@ -1,5 +1,5 @@
 [package]
-name = "psyche-modeling"
+name = "aether-modeling"
 version.workspace = true
 license.workspace = true
 edition = "2021"
@@ -19,7 +19,7 @@ safetensors = "0.3.0"
 itertools = "0.14"
 thiserror.workspace = true
 tokio-util.workspace = true
-psyche-core.workspace = true
+aether-core.workspace = true
 pyo3 = { workspace = true, optional = true }
 pyo3-tch = { workspace = true, optional = true }
 flume.workspace = true
@@ -28,10 +28,10 @@ flume.workspace = true
 [dev-dependencies]
 clap.workspace = true
 clap-markdown.workspace = true
-psyche-data-provider.workspace = true
-psyche-network.workspace = true
-psyche-python-extension-impl.workspace = true
-psyche-tui.workspace = true
+aether-data-provider.workspace = true
+aether-network.workspace = true
+aether-python-extension-impl.workspace = true
+aether-tui.workspace = true
 tokio.workspace = true
 
 [features]

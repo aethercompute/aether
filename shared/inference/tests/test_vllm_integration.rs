@@ -1,7 +1,7 @@
 // Integration test for vLLM Rust bindings
 
 #[cfg(feature = "vllm-tests")]
-use psyche_inference::vllm;
+use aether_inference::vllm;
 #[cfg(feature = "vllm-tests")]
 use pyo3::Python;
 #[cfg(feature = "vllm-tests")]
@@ -79,7 +79,7 @@ fn test_run_inference() {
 
     Python::with_gil(|py| {
         // Check if vLLM is available
-        let check = py.import("psyche.vllm.rust_bridge");
+        let check = py.import("aether.vllm.rust_bridge");
         if check.is_err() {
             println!("Skipping test: vLLM not available");
             return;

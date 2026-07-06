@@ -1,9 +1,9 @@
-use axum::{extract::State, response::Html, routing::get, Router};
-use psyche_coordinator::{
+use aether_coordinator::{
     model::{Checkpoint, LLMArchitecture, LLMTrainingDataType, Model},
     ClientState, Coordinator, RunState, NUM_STORED_ROUNDS,
 };
-use psyche_core::{LearningRateSchedule, OptimizerDefinition};
+use aether_core::{LearningRateSchedule, OptimizerDefinition};
+use axum::{extract::State, response::Html, routing::get, Router};
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -833,28 +833,35 @@ fn render_throughput_svg(losses: &[LossPoint]) -> String {
 }
 
 async fn loss_partial(State(state): State<SharedState>) -> Html<String> {
-    let s = state.lock().unwrap();
-    let svg = render_loss_svg(&s.loss_history);
-    Html(svg)
+    let history = state.lock().unwrap().loss_history.clone();
+    Html(render_loss_svg(&history))
 }
 
 async fn throughput_partial(State(state): State<SharedState>) -> Html<String> {
-    let s = state.lock().unwrap();
-    let svg = render_throughput_svg(&s.loss_history);
-    Html(svg)
+    let history = state.lock().unwrap().loss_history.clone();
+    Html(render_throughput_svg(&history))
 }
 
 async fn api_state(State(state): State<SharedState>) -> impl axum::response::IntoResponse {
-    let s = state.lock().unwrap();
-    let json = serde_json::json!({
-        "coordinator": &s.coordinator,
-        "loss_history": &s.loss_history,
-        "syncing_clients": &s.syncing_clients,
-        "ready_clients": &s.ready_clients,
-        "server_addr": &s.server_addr,
-        "wandb": &s.wandb,
-    });
-    axum::Json(json)
+    let (coordinator, loss_history, syncing_clients, ready_clients, server_addr, wandb) = {
+        let s = state.lock().unwrap();
+        (
+            s.coordinator.clone(),
+            s.loss_history.clone(),
+            s.syncing_clients.clone(),
+            s.ready_clients.clone(),
+            s.server_addr.clone(),
+            s.wandb.clone(),
+        )
+    };
+    axum::Json(serde_json::json!({
+        "coordinator": &coordinator,
+        "loss_history": &loss_history,
+        "syncing_clients": &syncing_clients,
+        "ready_clients": &ready_clients,
+        "server_addr": &server_addr,
+        "wandb": &wandb,
+    }))
 }
 
 fn format_duration(secs: u64) -> String {

@@ -1,11 +1,11 @@
 use std::time::Duration;
 
+use aether_centralized_client::app::build_app as build_client_app;
+use aether_centralized_client::app::App as ClientApp;
+use aether_client::RunInitConfig;
+use aether_client::NC;
+use aether_network::allowlist;
 use anyhow::{Error, Result};
-use psyche_centralized_client::app::build_app as build_client_app;
-use psyche_centralized_client::app::App as ClientApp;
-use psyche_client::RunInitConfig;
-use psyche_client::NC;
-use psyche_network::allowlist;
 use tokio::select;
 use tokio::task::JoinHandle;
 use tracing::debug;

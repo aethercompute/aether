@@ -1,10 +1,10 @@
+use aether_coordinator::{model::Checkpoint, RunState};
+use aether_core::BatchId;
+use aether_metrics::SelectedPath;
 use chrono::{DateTime, Utc};
 use indexmap::IndexMap;
 use iroh::EndpointId;
 use iroh_blobs::Hash as BlobHash;
-use psyche_coordinator::{model::Checkpoint, RunState};
-use psyche_core::BatchId;
-use psyche_metrics::SelectedPath;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::events::{
@@ -777,7 +777,7 @@ mod tests {
     }
 
     fn batch(start: u64, end: u64) -> BatchId {
-        BatchId(psyche_core::ClosedInterval { start, end })
+        BatchId(aether_core::ClosedInterval { start, end })
     }
 
     fn coordinator_update(
@@ -789,7 +789,7 @@ mod tests {
             run_state: RunState::RoundTrain,
             epoch: 0,
             step,
-            checkpoint: psyche_coordinator::model::Checkpoint::Ephemeral,
+            checkpoint: aether_coordinator::model::Checkpoint::Ephemeral,
             client_ids: vec![],
             min_clients: 1,
             batch_assignments: assignments
@@ -900,7 +900,7 @@ mod tests {
             node_id,
             &make_event(EventData::Train(crate::events::Train::TrainingFinished(
                 train::TrainingFinished {
-                    batch_id: BatchId(psyche_core::ClosedInterval { start: 0, end: 0 }),
+                    batch_id: BatchId(aether_core::ClosedInterval { start: 0, end: 0 }),
                     step: 5,
                     loss: Some(2.5),
                 },
@@ -949,7 +949,7 @@ mod tests {
     fn test_batch_assigned_tracked() {
         let mut proj = ClusterProjection::new();
         let node_id = "node-5";
-        let batch_id = BatchId(psyche_core::ClosedInterval { start: 0, end: 9 });
+        let batch_id = BatchId(aether_core::ClosedInterval { start: 0, end: 9 });
 
         proj.apply_node_event(
             node_id,
@@ -1035,8 +1035,8 @@ mod tests {
     fn test_coordinator_step_batches() {
         let mut proj = ClusterProjection::new();
 
-        let b1 = BatchId(psyche_core::ClosedInterval { start: 0, end: 4 });
-        let b2 = BatchId(psyche_core::ClosedInterval { start: 5, end: 9 });
+        let b1 = BatchId(aether_core::ClosedInterval { start: 0, end: 4 });
+        let b2 = BatchId(aether_core::ClosedInterval { start: 5, end: 9 });
 
         let mut assignments = BTreeMap::new();
         assignments.insert(b1, "node-A".to_string());
@@ -1047,7 +1047,7 @@ mod tests {
             run_state: RunState::RoundTrain,
             epoch: 0,
             step: 1,
-            checkpoint: psyche_coordinator::model::Checkpoint::Ephemeral,
+            checkpoint: aether_coordinator::model::Checkpoint::Ephemeral,
             client_ids: vec![],
             min_clients: 1,
             batch_assignments: assignments,
@@ -1068,7 +1068,7 @@ mod tests {
             run_state: RunState::RoundTrain,
             epoch: 0,
             step: 2,
-            checkpoint: psyche_coordinator::model::Checkpoint::Ephemeral,
+            checkpoint: aether_coordinator::model::Checkpoint::Ephemeral,
             client_ids: vec![],
             min_clients: 1,
             batch_assignments: BTreeMap::new(),
@@ -1080,7 +1080,7 @@ mod tests {
     #[test]
     fn test_gossip_and_download_tracking() {
         let mut proj = ClusterProjection::new();
-        let b1 = BatchId(psyche_core::ClosedInterval { start: 0, end: 4 });
+        let b1 = BatchId(aether_core::ClosedInterval { start: 0, end: 4 });
         let blob = iroh_blobs::Hash::from_bytes([42u8; 32]);
 
         // Set up coordinator with a batch assigned to node-A.
@@ -1091,7 +1091,7 @@ mod tests {
             run_state: RunState::RoundTrain,
             epoch: 0,
             step: 1,
-            checkpoint: psyche_coordinator::model::Checkpoint::Ephemeral,
+            checkpoint: aether_coordinator::model::Checkpoint::Ephemeral,
             client_ids: vec![],
             min_clients: 1,
             batch_assignments: assignments,

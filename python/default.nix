@@ -12,14 +12,14 @@ let
     rustWorkspaceArgs
     ;
 
-  # build the actual rust extension that the python psyche code loads
+  # build the actual rust extension that the python aether code loads
   rustExtension = craneLib.buildPackage (
     rustWorkspaceArgs
     // {
       inherit cargoArtifacts;
-      pname = "psyche-python-extension";
+      pname = "aether-python-extension";
       cargoExtraArgs =
-        " --package psyche-python-extension"
+        " --package aether-python-extension"
         + lib.optionalString (config.cudaSupport) " --features parallelism";
       doCheck = false;
     }
@@ -29,27 +29,27 @@ let
   ext = if stdenvNoCC.isDarwin then "dylib" else "so";
 
 in
-# a combination of the python files and rust ext for the psyche python code
+# a combination of the python files and rust ext for the aether python code
 stdenvNoCC.mkDerivation {
   __structuredAttrs = true;
 
-  name = "psyche";
+  name = "aether";
   version = "0.1.0";
 
-  src = ./python/psyche;
+  src = ./python/aether;
 
   installPhase = ''
     runHook preInstall
 
     # create python package dir
-    mkdir -p $out/${python312.sitePackages}/psyche
+    mkdir -p $out/${python312.sitePackages}/aether
 
     # copy all python files
-    cp -r * $out/${python312.sitePackages}/psyche/
+    cp -r * $out/${python312.sitePackages}/aether/
 
     # copy the extension binary file
     cp ${rustExtension}/lib/lib${builtins.replaceStrings [ "-" ] [ "_" ] rustExtension.pname}.${ext} \
-       $out/${python312.sitePackages}/psyche/_psyche_ext.so
+       $out/${python312.sitePackages}/aether/_aether_ext.so
 
     runHook postInstall
   '';

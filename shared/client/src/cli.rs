@@ -1,13 +1,13 @@
 use crate::{CheckpointConfig, WandBInfo};
 
 use crate::UploadInfo;
+use aether_data_provider::{GcsUploadInfo, HubUploadInfo};
+use aether_eval::tasktype_from_name;
+use aether_modeling::Devices;
+use aether_network::{DiscoveryMode, RelayKind, SecretKey};
+use aether_tui::LogOutput;
 use anyhow::{anyhow, bail, Result};
 use clap::Args;
-use psyche_data_provider::{GcsUploadInfo, HubUploadInfo};
-use psyche_eval::tasktype_from_name;
-use psyche_modeling::Devices;
-use psyche_network::{DiscoveryMode, RelayKind, SecretKey};
-use psyche_tui::LogOutput;
 use std::{path::PathBuf, time::Duration};
 
 pub fn read_identity_secret_key(
@@ -63,8 +63,8 @@ pub struct TrainArgs {
     #[clap(long, env)]
     pub bind_p2p_interface: Option<String>,
 
-    /// What relays to use - public n0 or the private Psyche ones
-    #[clap(long, env, default_value = "psyche")]
+    /// What relays to use - public n0 or the private Aether ones
+    #[clap(long, env, default_value = "aether")]
     pub iroh_relay: RelayKind,
 
     /// What discovery to use - public n0 or local
@@ -223,7 +223,7 @@ impl TrainArgs {
     pub fn wandb_info(&self, run_name: String) -> Result<Option<WandBInfo>> {
         let wandb_info = match std::env::var("WANDB_API_KEY") {
             Ok(wandb_api_key) => Some(WandBInfo {
-                project: self.wandb_project.clone().unwrap_or("psyche".to_string()),
+                project: self.wandb_project.clone().unwrap_or("aether".to_string()),
                 run: self.wandb_run.clone().unwrap_or(run_name),
                 entity: self.wandb_entity.clone(),
                 api_key: wandb_api_key,
@@ -316,7 +316,7 @@ impl TrainArgs {
         })))
     }
 
-    pub fn eval_tasks(&self) -> Result<Vec<psyche_eval::Task>> {
+    pub fn eval_tasks(&self) -> Result<Vec<aether_eval::Task>> {
         let eval_tasks = match &self.eval_tasks {
             Some(eval_tasks) => Self::eval_tasks_from_args(eval_tasks, self.eval_seed)?,
             None => Vec::new(),
@@ -327,8 +327,8 @@ impl TrainArgs {
     pub fn eval_tasks_from_args(
         eval_tasks: &str,
         eval_seed: u64,
-    ) -> Result<Vec<psyche_eval::Task>> {
-        let result: Result<Vec<psyche_eval::Task>> = eval_tasks
+    ) -> Result<Vec<aether_eval::Task>> {
+        let result: Result<Vec<aether_eval::Task>> = eval_tasks
             .split(",")
             .map(|eval_task| {
                 let fewshot = match eval_task {
@@ -336,7 +336,7 @@ impl TrainArgs {
                     _ => 0,
                 };
                 tasktype_from_name(eval_task)
-                    .map(|task_type| psyche_eval::Task::new(task_type, fewshot, eval_seed))
+                    .map(|task_type| aether_eval::Task::new(task_type, fewshot, eval_seed))
             })
             .collect();
         result
@@ -344,7 +344,7 @@ impl TrainArgs {
 }
 
 pub fn prepare_environment() {
-    psyche_modeling::set_suggested_env_vars();
+    aether_modeling::set_suggested_env_vars();
 
     #[cfg(target_os = "windows")]
     {

@@ -1,5 +1,5 @@
-use psyche_core::{Barrier, BatchId, ClosedInterval, LearningRateSchedule, OptimizerDefinition};
-use psyche_modeling::{
+use aether_core::{Barrier, BatchId, ClosedInterval, LearningRateSchedule, OptimizerDefinition};
+use aether_modeling::{
     Batch, BatchData, BatchDataGPU, CausalLM, NopBarrier, ParallelModels, PythonCausalLM,
 };
 use pyo3::exceptions::PyRuntimeError;
@@ -35,12 +35,12 @@ fn start_process_watcher(pid: usize, duration: Duration) -> PyResult<()> {
 
 #[pyclass]
 pub struct Trainer {
-    trainer: RwLock<Option<psyche_modeling::LocalTrainer>>,
+    trainer: RwLock<Option<aether_modeling::LocalTrainer>>,
     cancel: CancellationToken,
 }
 
 impl Trainer {
-    fn take_trainer(&self) -> PyResult<psyche_modeling::LocalTrainer> {
+    fn take_trainer(&self) -> PyResult<aether_modeling::LocalTrainer> {
         self.trainer
             .write()
             .map_err(|_| PyRuntimeError::new_err("trainer lock poisoned"))?
@@ -48,7 +48,7 @@ impl Trainer {
             .ok_or_else(|| PyRuntimeError::new_err("trainer is already in use"))
     }
 
-    fn replace_trainer(&self, trainer: psyche_modeling::LocalTrainer) -> PyResult<()> {
+    fn replace_trainer(&self, trainer: aether_modeling::LocalTrainer) -> PyResult<()> {
         *self
             .trainer
             .write()
@@ -86,7 +86,7 @@ impl DistroResult {
     pub fn to_native(
         py: Python<'_>,
         distro_results: Option<Vec<Vec<Py<Self>>>>,
-    ) -> PyResult<Option<Vec<Vec<psyche_modeling::DistroResult>>>> {
+    ) -> PyResult<Option<Vec<Vec<aether_modeling::DistroResult>>>> {
         match distro_results {
             Some(distro_results) => {
                 let mut ret = vec![];
@@ -96,7 +96,7 @@ impl DistroResult {
                         let borrowed = y.borrow(py);
                         let sparse_idx: PyTensor = borrowed.sparse_idx.extract(py)?;
                         let sparse_val: PyTensor = borrowed.sparse_val.extract(py)?;
-                        vec.push(psyche_modeling::DistroResult {
+                        vec.push(aether_modeling::DistroResult {
                             sparse_idx: sparse_idx.0,
                             sparse_val: sparse_val.0,
                             xshape: borrowed.xshape.clone(),
@@ -137,7 +137,7 @@ impl Trainer {
         let optimizer: OptimizerDefinition = serde_json::from_str(optimizer_json)
             .map_err(|err| PyRuntimeError::new_err(format!("{err}")))?;
 
-        let trainer = psyche_modeling::LocalTrainer::new(
+        let trainer = aether_modeling::LocalTrainer::new(
             ParallelModels {
                 models,
                 barrier: Arc::new(NopBarrier) as Arc<dyn Barrier>,
@@ -198,7 +198,7 @@ impl Trainer {
             })
             .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
         let trainer = match output.trainer {
-            psyche_modeling::Trainer::Local(local_trainer) => local_trainer,
+            aether_modeling::Trainer::Local(local_trainer) => local_trainer,
             _ => {
                 return Err(PyRuntimeError::new_err(
                     "got a distributed trainer in local training mode",
@@ -271,8 +271,8 @@ impl Trainer {
 }
 
 #[pymodule]
-#[pyo3(name = "_psyche_ext")]
-pub fn psyche(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+#[pyo3(name = "_aether_ext")]
+pub fn aether(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     py.import("torch")?;
     m.add_function(wrap_pyfunction!(add_one, m)?)?;
     m.add_function(wrap_pyfunction!(start_process_watcher, m)?)?;
@@ -282,5 +282,5 @@ pub fn psyche(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 pub fn load_module() {
-    pyo3::append_to_inittab!(psyche);
+    pyo3::append_to_inittab!(aether);
 }

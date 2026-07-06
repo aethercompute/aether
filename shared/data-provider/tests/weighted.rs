@@ -1,9 +1,9 @@
-use anyhow::Result;
-use psyche_core::{BatchId, ClosedInterval, Shuffle, TokenSize};
-use psyche_data_provider::{
+use aether_core::{BatchId, ClosedInterval, Shuffle, TokenSize};
+use aether_data_provider::{
     DummyDataProvider, LengthKnownDataProvider, TokenizedData, TokenizedDataProvider,
     WeightedDataProvider,
 };
+use anyhow::Result;
 use std::collections::HashMap;
 use test_log::test;
 

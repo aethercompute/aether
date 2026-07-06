@@ -1,18 +1,18 @@
-use anyhow::{Error, Result};
-use bytemuck::Zeroable;
-use psyche_centralized_shared::{ClientToServerMessage, ServerToClientMessage};
-use psyche_client::{
+use aether_centralized_shared::{ClientToServerMessage, ServerToClientMessage};
+use aether_client::{
     read_identity_secret_key, Client, ClientTUI, ClientTUIState, RunInitConfig, TrainArgs, NC,
 };
-use psyche_coordinator::{model, Coordinator, HealthChecks};
-use psyche_core::NodeIdentity;
-use psyche_event_sourcing::event;
-use psyche_event_sourcing::events::RpcCallType;
-use psyche_metrics::ClientMetrics;
-use psyche_network::{allowlist, EndpointId, NetworkTUIState, NetworkTui, SecretKey, TcpClient};
-use psyche_tui::logging::LoggerWidget;
-use psyche_tui::{CustomWidget, TabbedWidget};
-use psyche_watcher::{Backend as WatcherBackend, CoordinatorTui, OpportunisticData};
+use aether_coordinator::{model, Coordinator, HealthChecks};
+use aether_core::NodeIdentity;
+use aether_event_sourcing::event;
+use aether_event_sourcing::events::RpcCallType;
+use aether_metrics::ClientMetrics;
+use aether_network::{allowlist, EndpointId, NetworkTUIState, NetworkTui, SecretKey, TcpClient};
+use aether_tui::logging::LoggerWidget;
+use aether_tui::{CustomWidget, TabbedWidget};
+use aether_watcher::{Backend as WatcherBackend, CoordinatorTui, OpportunisticData};
+use anyhow::{Error, Result};
+use bytemuck::Zeroable;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::Sender;

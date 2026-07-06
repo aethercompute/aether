@@ -260,8 +260,8 @@ mod tests {
             role: "user".to_string(),
             content: "Hello, world!".to_string(),
         };
-        psyche_test_support::assert_postcard_roundtrip(&msg);
-        psyche_test_support::assert_serde_json_roundtrip(&msg);
+        aether_test_support::assert_postcard_roundtrip(&msg);
+        aether_test_support::assert_serde_json_roundtrip(&msg);
     }
 
     #[test]
@@ -283,7 +283,7 @@ mod tests {
             top_p: 0.95,
             stream: true,
         };
-        let back = psyche_test_support::postcard_roundtrip(&req);
+        let back = aether_test_support::postcard_roundtrip(&req);
         assert_eq!(back.request_id, "req-1");
         assert_eq!(back.messages.len(), 2);
         assert_eq!(back.max_tokens, 512);
@@ -300,7 +300,7 @@ mod tests {
             full_text: "What is Rust? Rust is a systems language.".to_string(),
             finish_reason: Some("length".to_string()),
         };
-        psyche_test_support::assert_postcard_roundtrip(&resp);
+        aether_test_support::assert_postcard_roundtrip(&resp);
     }
 
     #[test]
@@ -311,14 +311,14 @@ mod tests {
             capabilities: vec!["chat".to_string(), "stream".to_string()],
             timestamp_ms: 42,
         };
-        let back = psyche_test_support::postcard_roundtrip(&msg);
+        let back = aether_test_support::postcard_roundtrip(&msg);
         assert!(matches!(back, InferenceGossipMessage::NodeAvailable { .. }));
     }
 
     #[test]
     fn gossip_message_node_unavailable_roundtrip() {
         let msg = InferenceGossipMessage::NodeUnavailable;
-        let back = psyche_test_support::postcard_roundtrip(&msg);
+        let back = aether_test_support::postcard_roundtrip(&msg);
         assert!(matches!(back, InferenceGossipMessage::NodeUnavailable));
     }
 
@@ -328,7 +328,7 @@ mod tests {
             model_name: "gpt2".to_string(),
             model_source: ModelSource::Local("/tmp/model".to_string()),
         };
-        let back = psyche_test_support::postcard_roundtrip(&msg);
+        let back = aether_test_support::postcard_roundtrip(&msg);
         assert!(matches!(back, InferenceGossipMessage::LoadModel { .. }));
     }
 
@@ -338,7 +338,7 @@ mod tests {
             checkpoint_id: "ckpt-abc".to_string(),
             checkpoint_source: "/tmp/ckpt".to_string(),
         };
-        let back = psyche_test_support::postcard_roundtrip(&msg);
+        let back = aether_test_support::postcard_roundtrip(&msg);
         assert!(matches!(
             back,
             InferenceGossipMessage::ReloadCheckpoint { .. }
@@ -372,7 +372,7 @@ mod tests {
         ];
 
         for msg in msgs {
-            let back = psyche_test_support::postcard_roundtrip(&msg);
+            let back = aether_test_support::postcard_roundtrip(&msg);
             assert!(
                 matches!(
                     (&msg, &back),
@@ -399,7 +399,7 @@ mod tests {
             ModelSource::Local("/path/to/model".to_string()),
         ];
         for source in sources {
-            psyche_test_support::assert_postcard_roundtrip(&source);
+            aether_test_support::assert_postcard_roundtrip(&source);
         }
     }
 }

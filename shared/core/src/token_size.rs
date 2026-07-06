@@ -54,7 +54,7 @@ mod tests {
     #[test]
     fn postcard_roundtrip_preserves_variant() {
         for token_size in [TokenSize::TwoBytes, TokenSize::FourBytes] {
-            let decoded = psyche_test_support::postcard_roundtrip(&token_size);
+            let decoded = aether_test_support::postcard_roundtrip(&token_size);
             assert_eq!(decoded, token_size);
         }
     }

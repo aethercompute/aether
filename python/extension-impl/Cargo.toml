@@ -1,5 +1,5 @@
 [package]
-name = "psyche-python-extension-impl"
+name = "aether-python-extension-impl"
 version.workspace = true
 license.workspace = true
 edition = "2021"
@@ -7,8 +7,8 @@ edition = "2021"
 [dependencies]
 tch.workspace = true
 torch-sys.workspace = true
-psyche-core.workspace = true
-psyche-modeling = { workspace = true, features = ["python"] }
+aether-core.workspace = true
+aether-modeling = { workspace = true, features = ["python"] }
 serde_json.workspace = true
 tokio-util.workspace = true
 pyo3.workspace = true
@@ -18,7 +18,7 @@ take_mut = "0.2.2"
 tracing.workspace = true
 
 [features]
-parallelism = ["psyche-modeling/parallelism"]
+parallelism = ["aether-modeling/parallelism"]
 
 [lints]
 workspace = true

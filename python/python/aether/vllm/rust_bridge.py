@@ -16,7 +16,7 @@ def create_engine(
     gpu_memory_utilization: float = 0.90,
 ) -> Dict[str, Any]:
     try:
-        from psyche.vllm.engine import UpdatableLLMEngine
+        from aether.vllm.engine import UpdatableLLMEngine
 
         logger.info(f"Creating engine '{engine_id}' with model '{model_name}'")
 

@@ -478,7 +478,7 @@ mod tests {
                 "owned proof verify failed at leaf {i}"
             );
 
-            let roundtripped = psyche_test_support::postcard_roundtrip(&owned);
+            let roundtripped = aether_test_support::postcard_roundtrip(&owned);
             assert!(
                 roundtripped.verify(leaf_hash),
                 "roundtripped owned proof failed at leaf {i}"

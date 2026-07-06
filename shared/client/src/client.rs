@@ -3,20 +3,20 @@ use crate::{
     Broadcast, BroadcastType, ClientTUIState, Finished, RunInitConfig, RunInitConfigAndIO,
     TrainingResult, NC,
 };
+use aether_coordinator::{Commitment, CommitteeSelection, Coordinator, RunState};
+use aether_core::IntegrationTestLogMarker;
+use aether_event_sourcing::event;
 use anyhow::anyhow;
 use anyhow::{bail, Error, Result};
-use psyche_coordinator::{Commitment, CommitteeSelection, Coordinator, RunState};
-use psyche_core::IntegrationTestLogMarker;
-use psyche_event_sourcing::event;
 
-use psyche_metrics::{ClientMetrics, ClientRoleInRound, PeerConnection};
-use psyche_network::{
+use aether_metrics::{ClientMetrics, ClientRoleInRound, PeerConnection};
+use aether_network::{
     allowlist, blob_ticket_param_request_task, raw_p2p_verify, DownloadComplete,
     DownloadSchedulerHandle, DownloadType, EndpointId, ModelRequestType, NetworkEvent,
     NetworkTUIState, PeerManagerHandle, RetryConfig, RetryQueueResult, SharableModel,
     TransmittableDownload,
 };
-use psyche_watcher::{Backend, BackendWatcher};
+use aether_watcher::{Backend, BackendWatcher};
 use tokenizers::Tokenizer;
 
 use iroh_blobs::api::Tag;

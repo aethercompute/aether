@@ -51,10 +51,10 @@ jobs:
       # Member crates inherit `warnings = deny` from [workspace.lints]; vendored
       # crates do not, so their pre-existing warnings stay non-fatal.
       - run: >
-          cargo clippy -p psyche-core -p psyche-coordinator -p psyche-event-sourcing
-          -p psyche-metrics -p psyche-tui -p psyche-watcher -p psyche-data-provider
-          -p psyche-inference -p psyche-centralized-shared -p psyche-centralized-volunteer
-          -p psyche-centralized-local-testnet -p psyche-test-support --all-targets -- -D warnings
+          cargo clippy -p aether-core -p aether-coordinator -p aether-event-sourcing
+          -p aether-metrics -p aether-tui -p aether-watcher -p aether-data-provider
+          -p aether-inference -p aether-centralized-shared -p aether-centralized-volunteer
+          -p aether-centralized-local-testnet -p aether-test-support --all-targets -- -D warnings
 
   test-fast:
     runs-on: ubuntu-latest
@@ -65,10 +65,10 @@ jobs:
           python-version: "3.13"
       - uses: Swatinem/rust-cache@v2
       - run: >
-          cargo test -p psyche-core -p psyche-coordinator -p psyche-event-sourcing
-          -p psyche-metrics -p psyche-tui -p psyche-watcher -p psyche-data-provider
-          -p psyche-inference -p psyche-centralized-shared -p psyche-centralized-volunteer
-          -p psyche-centralized-local-testnet -p psyche-test-support
+          cargo test -p aether-core -p aether-coordinator -p aether-event-sourcing
+          -p aether-metrics -p aether-tui -p aether-watcher -p aether-data-provider
+          -p aether-inference -p aether-centralized-shared -p aether-centralized-volunteer
+          -p aether-centralized-local-testnet -p aether-test-support
 
   coverage:
     runs-on: ubuntu-latest
@@ -89,10 +89,10 @@ jobs:
         run: |
           mkdir -p ./coverage
           cargo llvm-cov --no-report \
-            -p psyche-core -p psyche-coordinator -p psyche-event-sourcing \
-            -p psyche-metrics -p psyche-tui -p psyche-watcher -p psyche-data-provider \
-            -p psyche-inference -p psyche-centralized-shared -p psyche-centralized-volunteer \
-            -p psyche-centralized-local-testnet -p psyche-test-support
+            -p aether-core -p aether-coordinator -p aether-event-sourcing \
+            -p aether-metrics -p aether-tui -p aether-watcher -p aether-data-provider \
+            -p aether-inference -p aether-centralized-shared -p aether-centralized-volunteer \
+            -p aether-centralized-local-testnet -p aether-test-support
           cargo llvm-cov report --cobertura --output-path ./coverage/cobertura.xml
           cargo llvm-cov report --html --output-dir ./coverage
       - name: Upload coverage report
@@ -125,9 +125,9 @@ jobs:
       - name: clippy (torch-bound crates)
         run: >
           cargo clippy --workspace
-          --exclude psyche-python-extension
-          --exclude psyche-python-extension-impl
-          --exclude psyche-inference
+          --exclude aether-python-extension
+          --exclude aether-python-extension-impl
+          --exclude aether-inference
           --all-targets
       # Inference/vLLM tests need a live vLLM runtime (gated behind the
       # `vllm-tests` feature); the python cdylib has no unit tests. Everything
@@ -135,9 +135,9 @@ jobs:
       - name: test (torch-bound crates)
         run: >
           cargo test --workspace
-          --exclude psyche-python-extension
-          --exclude psyche-python-extension-impl
-          --exclude psyche-inference
+          --exclude aether-python-extension
+          --exclude aether-python-extension-impl
+          --exclude aether-inference
 
   integration:
     runs-on: ubuntu-latest
@@ -159,4 +159,4 @@ jobs:
           echo "LD_LIBRARY_PATH=$(python -c 'import torch, os; print(os.path.join(os.path.dirname(torch.__file__), "lib"))')" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
       - name: centralized integration tests
-        run: cargo test --release -p psyche-centralized-testing --test integration_tests
+        run: cargo test --release -p aether-centralized-testing --test integration_tests

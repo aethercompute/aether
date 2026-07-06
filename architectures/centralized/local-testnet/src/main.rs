@@ -75,7 +75,7 @@ struct StartArgs {
     random_kill_interval: u64,
 
     /// Sets the level of the logging for more granular information
-    #[clap(long, default_value = "warn,psyche=debug")]
+    #[clap(long, default_value = "warn,aether=debug")]
     log: String,
 
     /// HF repo where the first client could get the model and the configuration to use.
@@ -152,7 +152,7 @@ fn run_command(command: &mut Command, description: &str) -> Result<()> {
 
 fn main() -> Result<()> {
     #[cfg(feature = "python")]
-    psyche_python_extension_impl::init_embedded_python()?;
+    aether_python_extension_impl::init_embedded_python()?;
 
     let args = Args::parse();
     let command = args.command;
@@ -172,12 +172,12 @@ fn main() -> Result<()> {
 
             // Pre-build packages
             run_command(
-                Command::new("cargo").args(["build", "-p", "psyche-centralized-server"]),
+                Command::new("cargo").args(["build", "-p", "aether-centralized-server"]),
                 "build server",
             )?;
 
             run_command(
-                Command::new("cargo").args(["build", "-p", "psyche-centralized-client"]),
+                Command::new("cargo").args(["build", "-p", "aether-centralized-client"]),
                 "build client",
             )?;
 
@@ -186,7 +186,7 @@ fn main() -> Result<()> {
             validate_cmd.args([
                 "run",
                 "-p",
-                "psyche-centralized-server",
+                "aether-centralized-server",
                 "validate-config",
                 "--state",
             ]);
@@ -200,7 +200,7 @@ fn main() -> Result<()> {
 
             // Create tmux session
             run_command(
-                Command::new("tmux").args(["new-session", "-d", "-s", "psyche"]),
+                Command::new("tmux").args(["new-session", "-d", "-s", "aether"]),
                 "create tmux session",
             )?;
 
@@ -237,7 +237,7 @@ fn main() -> Result<()> {
 
             // Start server
             let mut server_cmd = format!(
-                "RUST_LOG={} cargo run -p psyche-centralized-server run --state {} --server-port {} --tui {}",
+                "RUST_LOG={} cargo run -p aether-centralized-server run --state {} --server-port {} --tui {}",
                 start_args.log,
                 state_path.display(),
                 start_args.server_port,
@@ -289,7 +289,7 @@ fn main() -> Result<()> {
 
             // // Attach to tmux session
             let mut tmux_session = Command::new("tmux")
-                .args(["attach-session", "-t", "psyche"])
+                .args(["attach-session", "-t", "aether"])
                 .spawn()?;
 
             if let Some(kill_num) = start_args.random_kill_num {
@@ -347,7 +347,7 @@ fn main() -> Result<()> {
 
             // failsafe kill
             run_command(
-                Command::new("tmux").args(["kill-session", "-t", "psyche"]),
+                Command::new("tmux").args(["kill-session", "-t", "aether"]),
                 "kill tmux session",
             )?;
 
@@ -388,7 +388,7 @@ fn start_client(
     let metrics_local_port = 6269 + i - 1;
 
     cmd.push(format!(
-        "METRICS_LOCAL_PORT={metrics_local_port} RUST_LOG={} RUST_BACKTRACE=1 RAW_IDENTITY_SECRET_KEY={} cargo run -p psyche-centralized-client train --run-id {} --server-addr localhost:{} --logs {}",
+        "METRICS_LOCAL_PORT={metrics_local_port} RUST_LOG={} RUST_BACKTRACE=1 RAW_IDENTITY_SECRET_KEY={} cargo run -p aether-centralized-client train --run-id {} --server-addr localhost:{} --logs {}",
         args.log,
         raw_key,
         run_id,

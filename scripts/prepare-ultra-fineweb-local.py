@@ -14,7 +14,7 @@ from transformers import AutoTokenizer
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Stream Ultra-FineWeb and write Psyche LocalDataProvider binary shards."
+        description="Stream Ultra-FineWeb and write Aether LocalDataProvider binary shards."
     )
     parser.add_argument("--dataset", default="openbmb/Ultra-FineWeb")
     parser.add_argument("--split", default="en", help="Ultra-FineWeb exposes `en` and `zh` splits")
@@ -150,7 +150,7 @@ def main():
         "sequence_length": args.sequence_length,
         "num_sequences": total_sequences,
         "token_bytes": args.token_bytes,
-        "format": "psyche-local-bin",
+        "format": "aether-local-bin",
         "seed": args.seed,
     }
     (output_dir / "subset_metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")

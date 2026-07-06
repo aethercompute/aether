@@ -1,5 +1,5 @@
 [package]
-name = "psyche-eval"
+name = "aether-eval"
 version.workspace = true
 license.workspace = true
 edition = "2021"
@@ -9,9 +9,9 @@ parallelism = ["tch/nccl", "torch-sys/nccl"]
 python = ["pyo3", "pyo3-tch"]
 
 [dependencies]
-psyche-core.workspace = true
-psyche-data-provider.workspace = true
-psyche-modeling.workspace = true
+aether-core.workspace = true
+aether-data-provider.workspace = true
+aether-modeling.workspace = true
 anyhow.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
@@ -28,7 +28,7 @@ tokio-util.workspace = true
 # for examples
 [dev-dependencies]
 clap.workspace = true
-psyche-python-extension-impl.workspace = true
+aether-python-extension-impl.workspace = true
 tracing-subscriber = "0.3"
 
 [lints]

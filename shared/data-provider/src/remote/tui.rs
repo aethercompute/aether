@@ -1,10 +1,10 @@
-use psyche_tui::ratatui::{
+use aether_tui::ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Rect},
     text::{Line, Text},
     widgets::{Block, Gauge, Paragraph, Widget},
 };
-use psyche_watcher::Backend;
+use aether_watcher::Backend;
 
 use crate::{traits::LengthKnownDataProvider, TokenizedDataProvider};
 
@@ -13,7 +13,7 @@ use super::DataProviderTcpServer;
 #[derive(Default, Debug)]
 pub struct DataServerTui;
 
-impl psyche_tui::CustomWidget for DataServerTui {
+impl aether_tui::CustomWidget for DataServerTui {
     type Data = DataServerTuiState;
 
     fn render(&mut self, area: Rect, buf: &mut Buffer, state: &Self::Data) {
