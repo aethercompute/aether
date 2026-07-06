@@ -1,13 +1,14 @@
 default:
     just --list
 
-# All tests are treated as one suite. The full workspace needs the torch
-# toolchain configured (LIBTORCH_USE_PYTORCH=1 + LD_LIBRARY_PATH pointing at
-# torch's lib dir — see the root Dockerfile for the canonical setup).
+# All tests are treated as one suite. Rust commands that link torch run through
+# scripts/with-libtorch-env.sh, which uses AETHER_PYTHON (default: python3.12)
+# to locate PyTorch and configure LIBTORCH_USE_PYTORCH, LD_LIBRARY_PATH, and
+# PYO3_PYTHON the same way CI does.
 
 # Build the centralized training server used by the root Dockerfile.
 build-server:
-    cargo build --release -p aether-centralized-server
+    bash scripts/with-libtorch-env.sh cargo build --release -p aether-centralized-server
 
 # Run the centralized control dashboard from the root Dockerfile locally.
 dashboard:
@@ -15,14 +16,14 @@ dashboard:
 
 # Spin up a local centralized testnet.
 local-testnet *args='':
-    cargo run -p aether-centralized-local-testnet -- start --events-dir ./events/local-testnet {{ args }}
+    bash scripts/with-libtorch-env.sh cargo run -p aether-centralized-local-testnet -- start --events-dir ./events/local-testnet {{ args }}
 
 # Run centralized integration tests.
 integration-test test_name="":
     if [ "{{ test_name }}" = "" ]; then \
-        cargo test --release -p aether-centralized-testing --test integration_tests; \
+        bash scripts/with-libtorch-env.sh cargo test --release -p aether-centralized-testing --test integration_tests; \
     else \
-        cargo test --release -p aether-centralized-testing --test integration_tests -- --nocapture "{{ test_name }}"; \
+        bash scripts/with-libtorch-env.sh cargo test --release -p aether-centralized-testing --test integration_tests -- --nocapture "{{ test_name }}"; \
     fi
 
 # ── formatting ───────────────────────────────────────────────────────────────
@@ -36,7 +37,7 @@ fmt-check:
 # Member crates inherit `warnings = deny` from [workspace.lints], so this fails
 # on any warning in our own code.
 clippy:
-    cargo clippy --workspace --all-targets
+    bash scripts/with-libtorch-env.sh cargo clippy --workspace --all-targets -- -D warnings
 
 # Compatibility alias; all linting is now workspace-wide.
 clippy-torch: clippy
@@ -44,7 +45,7 @@ clippy-torch: clippy
 # ── tests ────────────────────────────────────────────────────────────────────
 # Run the full test suite.
 test:
-    cargo test --workspace
+    bash scripts/with-libtorch-env.sh cargo test --workspace
     cd python && uv run --frozen --extra tests pytest
 
 # Compatibility aliases; all tests are now one suite.
