@@ -42,6 +42,7 @@ slurm*
 node_modules/
 bindings
 .pre-commit-config.yaml
+PLAN.md
 
 ### Volunteer launcher sandbox ###
 .aethercompute/
