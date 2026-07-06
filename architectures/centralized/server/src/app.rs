@@ -19,7 +19,7 @@ use aether_tui::{
 use aether_watcher::{CoordinatorTui, OpportunisticData};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::hash::{DefaultHasher, Hasher};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::ops::ControlFlow;
@@ -112,7 +112,7 @@ pub struct App {
     coordinator: Coordinator,
     backend: Backend,
     training_data_server: Option<(Sender<Coordinator>, DataServer)>,
-    experiment_queue: Vec<Coordinator>,
+    experiment_queue: VecDeque<Coordinator>,
     save_state_dir: Option<PathBuf>,
     coordinator_writer: Option<UnboundedSender<Coordinator>>,
     last_coordinator_hash: u64,
@@ -364,7 +364,7 @@ impl App {
             Ok(Self {
                 cancel,
                 training_data_server,
-                experiment_queue,
+                experiment_queue: experiment_queue.into(),
                 tx_tui_state,
                 tick_interval,
                 update_tui_interval,
@@ -523,14 +523,7 @@ impl App {
         }
 
         if self.withdraw_on_disconnect {
-            let position = self
-                .coordinator
-                .epoch_state
-                .clients
-                .iter()
-                .position(|x| x.id == from_identity);
-
-            if let Some(index) = position {
+            if let Some(index) = self.find_client_index(&from_identity) {
                 match self.coordinator.withdraw(index as u64) {
                     Ok(_) => info!("Withdrew {from}"),
                     Err(err) => warn!("Coordinator withdraw error: {err}"),
@@ -623,13 +616,7 @@ impl App {
                 }
             }
             ClientToServerMessage::Checkpoint(checkpoint) => {
-                let position = self
-                    .coordinator
-                    .epoch_state
-                    .clients
-                    .iter()
-                    .position(|x| x.id == from_identity);
-                match position {
+                match self.find_client_index(&from_identity) {
                     Some(index) => {
                         if let Err(error) =
                             self.coordinator
@@ -725,11 +712,19 @@ impl App {
         self.post_state_change(true).await;
     }
 
+    fn find_client_index(&self, identity: &NodeIdentity) -> Option<usize> {
+        self.coordinator
+            .epoch_state
+            .clients
+            .iter()
+            .position(|x| &x.id == identity)
+    }
+
     fn get_timestamp() -> u64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
     }
 
     async fn post_state_change(&mut self, broadcast: bool) {
@@ -808,7 +803,10 @@ impl App {
             return Ok(());
         }
 
-        let mut next = self.experiment_queue.remove(0);
+        let mut next = self
+            .experiment_queue
+            .pop_front()
+            .expect("checked non-empty above");
         Self::reset_ephemeral(&mut next);
         Self::prepare_model_checkpoint(&next).await?;
 

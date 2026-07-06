@@ -300,10 +300,7 @@ async fn main() -> Result<()> {
             }
             logger.shutdown()?;
         }
-        Commands::PrintAllHelp { markdown } => {
-            // This is a required argument for the time being.
-            assert!(markdown);
-
+        Commands::PrintAllHelp { markdown: _ } => {
             let () = clap_markdown::print_help_markdown::<Args>();
 
             return Ok(());

@@ -264,11 +264,16 @@ fn main() -> Result<()> {
             )?;
 
             println!("Waiting for server startup...");
+            let deadline = Instant::now() + Duration::from_secs(60);
             loop {
                 if TcpStream::connect(format!("127.0.0.1:{}", start_args.server_port)).is_ok() {
                     println!("Server started!");
                     break;
                 }
+                if Instant::now() >= deadline {
+                    bail!("Server failed to start within 60 seconds");
+                }
+                std::thread::sleep(Duration::from_millis(100));
             }
 
             // Start nvtop
@@ -353,10 +358,7 @@ fn main() -> Result<()> {
 
             Ok(())
         }
-        Commands::PrintAllHelp { markdown } => {
-            // This is a required argument for the time being.
-            assert!(markdown);
-
+        Commands::PrintAllHelp { markdown: _ } => {
             let () = clap_markdown::print_help_markdown::<Args>();
 
             Ok(())
