@@ -603,8 +603,13 @@ impl Coordinator {
                 return Err(CoordinatorError::InvalidCommitteeProof);
             }
             match proof.committee {
-                Committee::TieBreaker => todo!(),
-                Committee::Verifier => todo!(),
+                // Non-trainer committees (tie-breakers, verifiers) do not
+                // participate in training, so their participation is not
+                // recorded in the witnesses' `participant_bloom` filters.
+                // Training-based health checking therefore cannot determine
+                // their health; treat them as healthy rather than risk
+                // dropping every non-trainer each round.
+                Committee::TieBreaker | Committee::Verifier => Ok(true),
                 Committee::Trainer => self.trainer_healthy(&client.id),
             }
         } else {
@@ -1426,6 +1431,59 @@ mod tests {
             Coordinator::trainer_healthy_score_by_witnesses(&identity(8), &witnesses),
             0
         );
+    }
+
+    // ── healthy() for non-trainer committees ───────────────────────────────────
+    // Tie-breaker and verifier nodes do not train, so the witness
+    // participant_bloom filters carry no evidence about them. They must be
+    // reported as healthy (not droppable) rather than panicking.
+    #[test]
+    fn healthy_non_trainer_committees_are_healthy() {
+        let mut coordinator = Coordinator::zeroed();
+        let clients: Vec<_> = (0..20u8).map(|i| Client::new(identity(i))).collect();
+        coordinator.epoch_state.clients = FixedVec::from_iter(clients);
+        coordinator.config.verification_percent = 50;
+
+        // two rounds so previous_round() is valid; previous round drives the
+        // committee selection used by healthy().
+        coordinator.epoch_state.rounds_head = 1;
+        let prev = &mut coordinator.epoch_state.rounds[0];
+        prev.height = 5;
+        prev.clients_len = 20;
+        prev.tie_breaker_tasks = 2;
+        prev.random_seed = 42;
+        coordinator.epoch_state.rounds[1].height = 6;
+
+        let selection = CommitteeSelection::from_coordinator(&coordinator, -1).unwrap();
+
+        let mut saw_tie_breaker = false;
+        let mut saw_verifier = false;
+        for (index, client) in coordinator.epoch_state.clients.iter().enumerate() {
+            let proof = selection.get_committee(index as u64);
+            match proof.committee {
+                Committee::TieBreaker => {
+                    saw_tie_breaker = true;
+                    assert!(
+                        coordinator
+                            .healthy(&client.id, &proof)
+                            .expect("tie-breaker health check should not error"),
+                        "tie-breaker node should be healthy"
+                    );
+                }
+                Committee::Verifier => {
+                    saw_verifier = true;
+                    assert!(
+                        coordinator
+                            .healthy(&client.id, &proof)
+                            .expect("verifier health check should not error"),
+                        "verifier node should be healthy"
+                    );
+                }
+                Committee::Trainer => {}
+            }
+        }
+        assert!(saw_tie_breaker, "test must exercise a TieBreaker node");
+        assert!(saw_verifier, "test must exercise a Verifier node");
     }
 
     // ── select_consensus_commitment_by_witnesses ───────────────────────────────
