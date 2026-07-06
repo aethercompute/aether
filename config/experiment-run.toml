@@ -1,8 +1,2 @@
 [[runs]]
-state = "aether0-500m/state_muon_bf16_topk6_lr008.toml"
-
-[[runs]]
-state = "aether0-500m/state_muon_bf16_topk6_warmup16.toml"
-
-[[runs]]
 state = "aether0-500m/state_muon_bf16_topk8_lr003.toml"
