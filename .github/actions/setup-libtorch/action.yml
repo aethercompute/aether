@@ -29,14 +29,18 @@ runs:
         TORCH_VERSION: ${{ inputs.torch-version }}
         TORCH_INDEX_URL: ${{ inputs.torch-index-url }}
       run: |
-        # pip's OpenSSL-based TLS stack cannot complete the handshake with
-        # download.pytorch.org's Cloudflare R2 backend
-        # (SSLV3_ALERT_HANDSHAKE_FAILURE). uv uses rustls, a different TLS
-        # implementation that handles R2 correctly. PyPI itself is unaffected,
-        # so `pip install uv` works fine.
+        # The dedicated CPU index (download.pytorch.org → Cloudflare R2) has
+        # been rejecting TLS handshakes from GitHub Actions runners
+        # (SSLV3_ALERT_HANDSHAKE_FAILURE / rustls HandshakeFailure).
+        # Try it first (smaller CPU-only wheel); fall back to the regular
+        # PyPI build (Fastly CDN, unaffected) which includes CUDA libs but
+        # runs fine on CPU-only machines.
         pip install uv
         uv pip install --system torch==${TORCH_VERSION} \
-          --index-url ${TORCH_INDEX_URL}
+          --index-url ${TORCH_INDEX_URL} || {
+          echo "::warning::CPU torch index unreachable, installing default PyPI build (larger)"
+          pip install --no-cache-dir torch==${TORCH_VERSION}
+        }
 
     - name: Configure libtorch env
       shell: bash
