@@ -972,6 +972,15 @@ impl LocalTrainer {
                                             loss = Some(batch_loss);
                                         }
                                     }
+                                } else {
+                                    cancelled = true;
+                                    barrier.cancel();
+                                    warn!(
+                                        step = step,
+                                        loss = batch_loss.double_value(&[]),
+                                        "Aborting training due to non-finite loss"
+                                    );
+                                    break;
                                 }
                             }
                             Ok(None) => {

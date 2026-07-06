@@ -400,7 +400,7 @@ impl TrainingStepMetadata {
                             event!(train::TrainingFinished {
                                 batch_id,
                                 step: step.into(),
-                                loss: Some(loss.into())
+                                loss: (!cancelled && loss.is_finite()).then_some(loss.into())
                             });
 
                             debug!(step=step, loss=loss, batch_id=%batch_id, "Got training output, DisTrO results generated");
@@ -473,7 +473,9 @@ impl TrainingStepMetadata {
                                 }).await.map_err(|_| TrainError::TransmitCrashed)?;
                                 res?;
 
-                                round_losses.push(loss);
+                                if !cancelled && loss.is_finite() {
+                                    round_losses.push(loss);
+                                }
                                 sent_results = true;
                             }
                         }
