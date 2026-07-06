@@ -1,0 +1,54 @@
+name: Setup libtorch
+description: Install CPU PyTorch and configure LIBTORCH env vars for tch-rs.
+
+inputs:
+  torch-version:
+    description: PyTorch wheel version to install.
+    required: true
+  torch-index-url:
+    description: PyTorch wheel index URL.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install build deps
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          clang cmake protobuf-compiler libssl-dev pkg-config
+
+    - name: Install PyTorch (CPU)
+      shell: bash
+      env:
+        TORCH_VERSION: ${{ inputs.torch-version }}
+        TORCH_INDEX_URL: ${{ inputs.torch-index-url }}
+      run: |
+        # Upgrade pip first — the bundled TLS stack in older pip versions
+        # cannot complete the SSL handshake with download.pytorch.org's
+        # Cloudflare R2 backend (SSLV3_ALERT_HANDSHAKE_FAILURE).
+        python -m pip install --upgrade pip setuptools wheel
+        pip install torch==${TORCH_VERSION} \
+          --index-url ${TORCH_INDEX_URL} \
+          --retries 5 \
+          --timeout 120
+
+    - name: Configure libtorch env
+      shell: bash
+      run: |
+        native_libs=$(python - <<'PY'
+        import os
+        import sysconfig
+        import torch
+
+        print(os.path.join(os.path.dirname(torch.__file__), "lib") + ":" + (sysconfig.get_config_var("LIBDIR") or ""))
+        PY
+        )
+        echo "LIBTORCH_USE_PYTORCH=1" >> "$GITHUB_ENV"
+        echo "LD_LIBRARY_PATH=$native_libs" >> "$GITHUB_ENV"
+        echo "PYO3_PYTHON=$(which python)" >> "$GITHUB_ENV"

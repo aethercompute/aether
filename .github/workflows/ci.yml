@@ -41,29 +41,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-libtorch
         with:
-          python-version: "3.12"
-      - name: Install build deps
-        run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            clang cmake protobuf-compiler libssl-dev pkg-config
-      - name: Install PyTorch (CPU)
-        run: pip install torch==${TORCH_VERSION} --index-url ${TORCH_INDEX_URL}
-      - name: Configure libtorch env
-        run: |
-          native_libs=$(python - <<'PY'
-          import os
-          import sysconfig
-          import torch
-
-          print(os.path.join(os.path.dirname(torch.__file__), "lib") + ":" + (sysconfig.get_config_var("LIBDIR") or ""))
-          PY
-          )
-          echo "LIBTORCH_USE_PYTORCH=1" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$native_libs" >> "$GITHUB_ENV"
-          echo "PYO3_PYTHON=$(which python)" >> "$GITHUB_ENV"
+          torch-version: ${{ env.TORCH_VERSION }}
+          torch-index-url: ${{ env.TORCH_INDEX_URL }}
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
@@ -71,31 +52,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-libtorch
         with:
-          python-version: "3.12"
-      - name: Install build deps
-        run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            clang cmake protobuf-compiler libssl-dev pkg-config
-      - name: Install PyTorch (CPU)
-        run: |
-          pip install torch==${TORCH_VERSION} --index-url ${TORCH_INDEX_URL}
-          pip install uv
-      - name: Configure libtorch env
-        run: |
-          native_libs=$(python - <<'PY'
-          import os
-          import sysconfig
-          import torch
-
-          print(os.path.join(os.path.dirname(torch.__file__), "lib") + ":" + (sysconfig.get_config_var("LIBDIR") or ""))
-          PY
-          )
-          echo "LIBTORCH_USE_PYTORCH=1" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$native_libs" >> "$GITHUB_ENV"
-          echo "PYO3_PYTHON=$(which python)" >> "$GITHUB_ENV"
+          torch-version: ${{ env.TORCH_VERSION }}
+          torch-index-url: ${{ env.TORCH_INDEX_URL }}
+      - name: Install uv
+        run: pip install uv
       - uses: Swatinem/rust-cache@v2
       - name: Rust workspace tests
         run: cargo test --workspace
@@ -107,29 +69,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-libtorch
         with:
-          python-version: "3.12"
-      - name: Install build deps
-        run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            clang cmake protobuf-compiler libssl-dev pkg-config
-      - name: Install PyTorch (CPU)
-        run: pip install torch==${TORCH_VERSION} --index-url ${TORCH_INDEX_URL}
-      - name: Configure libtorch env
-        run: |
-          native_libs=$(python - <<'PY'
-          import os
-          import sysconfig
-          import torch
-
-          print(os.path.join(os.path.dirname(torch.__file__), "lib") + ":" + (sysconfig.get_config_var("LIBDIR") or ""))
-          PY
-          )
-          echo "LIBTORCH_USE_PYTORCH=1" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$native_libs" >> "$GITHUB_ENV"
-          echo "PYO3_PYTHON=$(which python)" >> "$GITHUB_ENV"
+          torch-version: ${{ env.TORCH_VERSION }}
+          torch-index-url: ${{ env.TORCH_INDEX_URL }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
