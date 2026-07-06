@@ -124,3 +124,52 @@ impl<A: Allowlist + Send + Sync> EndpointHooks for AllowlistHook<A> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iroh::SecretKey;
+
+    fn endpoint(seed: u8) -> EndpointId {
+        SecretKey::from_bytes(&[seed; 32]).public()
+    }
+
+    #[test]
+    fn dynamic_allowlist_tracks_add_remove_set_and_clear() {
+        let first = endpoint(1);
+        let second = endpoint(2);
+        let third = endpoint(3);
+        let allowlist = AllowDynamic::new();
+
+        assert!(!allowlist.allowed(first));
+
+        allowlist.add(first);
+        assert!(allowlist.allowed(first));
+        assert!(!allowlist.allowed(second));
+
+        allowlist.remove(&first);
+        assert!(!allowlist.allowed(first));
+
+        allowlist.set([second, third]);
+        assert!(!allowlist.allowed(first));
+        assert!(allowlist.allowed(second));
+        assert!(allowlist.allowed(third));
+
+        allowlist.clear();
+        assert!(!allowlist.allowed(second));
+        assert!(!allowlist.allowed(third));
+    }
+
+    #[test]
+    fn force_allowed_nodes_survive_regular_allowlist_clear() {
+        let regular = endpoint(4);
+        let forced = endpoint(5);
+        let allowlist = AllowDynamic::with_nodes([regular]);
+
+        allowlist.force_allow(forced);
+        allowlist.clear();
+
+        assert!(!allowlist.allowed(regular));
+        assert!(allowlist.allowed(forced));
+    }
+}

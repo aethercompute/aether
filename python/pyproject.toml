@@ -18,6 +18,10 @@ torch = { path = "stub/torch" }
 [project.optional-dependencies]
 tests = ["pytest"]
 
+[tool.pytest.ini_options]
+pythonpath = ["python"]
+testpaths = ["tests"]
+
 [build-system]
 requires = ["uv_build<0.9"]
 build-backend = "uv_build"

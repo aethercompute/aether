@@ -18,9 +18,6 @@ env:
   TORCH_INDEX_URL: https://download.pytorch.org/whl/cpu
 
 jobs:
-  # Fast lane: formatting, lint, supply chain, torch-free tests.
-  # These run on every PR and finish quickly. A green fast lane is the primary
-  # merge gate; the torch lane below is the secondary gate for GPU/model code.
   fmt:
     runs-on: ubuntu-latest
     steps:
@@ -46,29 +43,47 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.12"
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            clang cmake protobuf-compiler libssl-dev pkg-config
+      - name: Install PyTorch (CPU)
+        run: pip install torch==${TORCH_VERSION} --index-url ${TORCH_INDEX_URL}
+      - name: Configure libtorch env
+        run: |
+          echo "LIBTORCH_USE_PYTORCH=1" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$(python -c 'import torch, os; print(os.path.join(os.path.dirname(torch.__file__), "lib"))')" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
-      # Member crates inherit `warnings = deny` from [workspace.lints]; vendored
-      # crates do not, so their pre-existing warnings stay non-fatal.
-      - run: >
-          cargo clippy -p aether-core -p aether-coordinator -p aether-event-sourcing
-          -p aether-metrics -p aether-tui -p aether-watcher -p aether-data-provider
-          -p aether-inference -p aether-centralized-shared -p aether-centralized-volunteer
-          -p aether-centralized-local-testnet -p aether-test-support --all-targets -- -D warnings
+      - run: cargo clippy --workspace --all-targets -- -D warnings
 
-  test-fast:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.12"
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            clang cmake protobuf-compiler libssl-dev pkg-config
+      - name: Install PyTorch (CPU)
+        run: |
+          pip install torch==${TORCH_VERSION} --index-url ${TORCH_INDEX_URL}
+          pip install uv
+      - name: Configure libtorch env
+        run: |
+          echo "LIBTORCH_USE_PYTORCH=1" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$(python -c 'import torch, os; print(os.path.join(os.path.dirname(torch.__file__), "lib"))')" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
-      - run: >
-          cargo test -p aether-core -p aether-coordinator -p aether-event-sourcing
-          -p aether-metrics -p aether-tui -p aether-watcher -p aether-data-provider
-          -p aether-inference -p aether-centralized-shared -p aether-centralized-volunteer
-          -p aether-centralized-local-testnet -p aether-test-support
+      - name: Rust workspace tests
+        run: cargo test --workspace
+      - name: Python tests
+        working-directory: python
+        run: uv run --frozen --extra tests pytest
 
   coverage:
     runs-on: ubuntu-latest
@@ -76,7 +91,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.12"
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            clang cmake protobuf-compiler libssl-dev pkg-config
+      - name: Install PyTorch (CPU)
+        run: pip install torch==${TORCH_VERSION} --index-url ${TORCH_INDEX_URL}
+      - name: Configure libtorch env
+        run: |
+          echo "LIBTORCH_USE_PYTORCH=1" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$(python -c 'import torch, os; print(os.path.join(os.path.dirname(torch.__file__), "lib"))')" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
@@ -88,11 +114,7 @@ jobs:
       - name: Generate coverage
         run: |
           mkdir -p ./coverage
-          cargo llvm-cov --no-report \
-            -p aether-core -p aether-coordinator -p aether-event-sourcing \
-            -p aether-metrics -p aether-tui -p aether-watcher -p aether-data-provider \
-            -p aether-inference -p aether-centralized-shared -p aether-centralized-volunteer \
-            -p aether-centralized-local-testnet -p aether-test-support
+          cargo llvm-cov --workspace --no-report
           cargo llvm-cov report --cobertura --output-path ./coverage/cobertura.xml
           cargo llvm-cov report --html --output-dir ./coverage
       - name: Upload coverage report
@@ -100,63 +122,3 @@ jobs:
         with:
           name: coverage-report
           path: ./coverage
-
-  # Torch lane: lint + test the torch-bound crates + integration suite.
-  # Uses PyTorch-as-libtorch (same pattern as the root Dockerfile). Slower.
-  test-torch:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install build deps
-        run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            clang cmake protobuf-compiler libssl-dev pkg-config
-      - name: Install PyTorch (CPU)
-        run: pip install torch==${TORCH_VERSION} --index-url ${TORCH_INDEX_URL}
-      - name: Configure libtorch env
-        run: |
-          echo "LIBTORCH_USE_PYTORCH=1" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$(python -c 'import torch, os; print(os.path.join(os.path.dirname(torch.__file__), "lib"))')" >> "$GITHUB_ENV"
-      - uses: Swatinem/rust-cache@v2
-      - name: clippy (torch-bound crates)
-        run: >
-          cargo clippy --workspace
-          --exclude aether-python-extension
-          --exclude aether-python-extension-impl
-          --exclude aether-inference
-          --all-targets
-      # Inference/vLLM tests need a live vLLM runtime (gated behind the
-      # `vllm-tests` feature); the python cdylib has no unit tests. Everything
-      # else with torch is exercised here.
-      - name: test (torch-bound crates)
-        run: >
-          cargo test --workspace
-          --exclude aether-python-extension
-          --exclude aether-python-extension-impl
-          --exclude aether-inference
-
-  integration:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install build deps
-        run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            clang cmake protobuf-compiler libssl-dev pkg-config
-      - name: Install PyTorch (CPU)
-        run: pip install torch==${TORCH_VERSION} --index-url ${TORCH_INDEX_URL}
-      - name: Configure libtorch env
-        run: |
-          echo "LIBTORCH_USE_PYTORCH=1" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$(python -c 'import torch, os; print(os.path.join(os.path.dirname(torch.__file__), "lib"))')" >> "$GITHUB_ENV"
-      - uses: Swatinem/rust-cache@v2
-      - name: centralized integration tests
-        run: cargo test --release -p aether-centralized-testing --test integration_tests

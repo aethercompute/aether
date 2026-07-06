@@ -47,6 +47,7 @@ def run_inference(
     top_p: float = 1.0,
     max_tokens: int = 100,
 ) -> Dict[str, Any]:
+    request_id = None
     try:
         if engine_id not in _engines:
             error_msg = f"Engine '{engine_id}' not found"

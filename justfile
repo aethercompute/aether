@@ -1,12 +1,9 @@
 default:
     just --list
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Crates that build & test on a CPU-only machine (no libtorch, no CUDA).
-# Everything else (modeling/eval/network/client/centralized-*/python) pulls in
-# `tch` unconditionally and needs the torch toolchain — see the *-torch recipes.
-# ─────────────────────────────────────────────────────────────────────────────
-torch-free-crates := "aether-core aether-coordinator aether-event-sourcing aether-metrics aether-tui aether-watcher aether-data-provider aether-centralized-shared aether-centralized-volunteer aether-centralized-local-testnet aether-test-support"
+# All tests are treated as one suite. The full workspace needs the torch
+# toolchain configured (LIBTORCH_USE_PYTORCH=1 + LD_LIBRARY_PATH pointing at
+# torch's lib dir — see the root Dockerfile for the canonical setup).
 
 # Build the centralized training server used by the root Dockerfile.
 build-server:
@@ -36,28 +33,24 @@ fmt-check:
     cargo fmt --all --check
 
 # ── lint ─────────────────────────────────────────────────────────────────────
-# Lint the crates that don't need torch. Member crates inherit `warnings = deny`
-# from [workspace.lints], so this fails on any warning in our own code.
+# Member crates inherit `warnings = deny` from [workspace.lints], so this fails
+# on any warning in our own code.
 clippy:
-    cargo clippy {{ torch-free-crates }} --all-targets
-
-# Lint the whole workspace. Requires the torch toolchain
-# (LIBTORCH_USE_PYTORCH=1 + LD_LIBRARY_PATH pointing at torch's lib dir — see
-# the root Dockerfile for the canonical setup).
-clippy-torch:
     cargo clippy --workspace --all-targets
 
+# Compatibility alias; all linting is now workspace-wide.
+clippy-torch: clippy
+
 # ── tests ────────────────────────────────────────────────────────────────────
-# Fast lane: torch-free crates. Runs in seconds and is the primary PR gate.
-test-fast:
-    cargo test {{ torch-free-crates }}
-
-# Alias for test-fast.
-test: test-fast
-
-# Full lane: the whole workspace. Requires the torch toolchain (see clippy-torch).
-test-torch:
+# Run the full test suite.
+test:
     cargo test --workspace
+    cd python && uv run --frozen --extra tests pytest
+
+# Compatibility aliases; all tests are now one suite.
+test-fast: test
+
+test-torch: test
 
 # ── supply chain ─────────────────────────────────────────────────────────────
 # Full gate: advisories + bans + licenses + sources. (cargo-deny: `cargo binstall -y cargo-deny`)
@@ -66,6 +59,6 @@ deny:
     cargo deny --workspace check
 
 # ── meta ─────────────────────────────────────────────────────────────────────
-# Everything the fast CI lane runs, in one command.
-ci-local: fmt-check clippy test-fast deny
-    @echo "fast lane green"
+# Everything CI runs locally, in one command.
+ci-local: fmt-check clippy test deny
+    @echo "ci suite green"
