@@ -41,8 +41,9 @@ const FALLBACK_SCALE: f64 = 0.05;
 struct MuonState {
     /// Dense momentum EMA. This is optimizer state, not directly transmitted.
     momentum: Box<dyn Variable>,
-    /// Error-feedback residual for the compressed transport. Each round adds the
-    /// current momentum/Nesterov signal and subtracts the part already sent.
+    /// Error-feedback residual for the compressed transport. Each round subtracts
+    /// the part already sent, optionally decays stale leftovers, then adds the
+    /// current momentum/Nesterov signal.
     residual: Box<dyn Variable>,
 }
 
@@ -52,6 +53,7 @@ pub struct MuonOptimizer {
     weight_decay: f64,
     ns_steps: i64,
     lookahead: bool,
+    compression_decay: f64,
     compression_topk: i64,
     state: Vec<MuonState>,
     /// Per-parameter Muon scale (`max(1, out/in)^0.5`); meaningful only for
@@ -104,6 +106,12 @@ fn momentum_signal(grad: &Tensor, momentum: &Tensor, beta: f64, nesterov: bool) 
     }
 }
 
+fn decay_residual(residual: &mut Tensor, compression_decay: f64) {
+    if compression_decay != 1.0 {
+        let _ = residual.g_mul_scalar_(compression_decay);
+    }
+}
+
 impl MuonOptimizer {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -113,7 +121,7 @@ impl MuonOptimizer {
         nesterov: bool,
         ns_steps: i64,
         lookahead: bool,
-        _compression_decay: f64,
+        compression_decay: f64,
         compression_chunk: i64,
         compression_topk: i64,
     ) -> Self {
@@ -143,6 +151,7 @@ impl MuonOptimizer {
             weight_decay,
             ns_steps,
             lookahead,
+            compression_decay,
             compression_topk,
             state,
             scales,
@@ -280,12 +289,19 @@ impl MuonOptimizer {
                 let _t = residual.g_sub_(&var.shard_other_tensor_like_me(transmit_grad));
             }
 
-            // 3. Decoupled weight decay.
+            // 3. Decay stale error-feedback residual if configured. This is off
+            //    by default, but useful when old top-k leftovers become noisy.
+            {
+                let mut residual = self.state[index].residual.logical_tensor();
+                decay_residual(&mut residual, self.compression_decay);
+            }
+
+            // 4. Decoupled weight decay.
             if self.weight_decay != 0.0 {
                 let _t = variable.g_mul_scalar_(1.0 - lr * self.weight_decay);
             }
 
-            // 4. Momentum EMA, then add the chosen signal to the transport residual.
+            // 5. Momentum EMA, then add the chosen signal to the transport residual.
             let grad = variable.grad();
             {
                 let mut momentum = self.state[index].momentum.logical_tensor();
@@ -297,7 +313,7 @@ impl MuonOptimizer {
                 let _t = residual.g_add_(&signal);
             }
 
-            // 5. Compress & transmit the error-feedback residual.
+            // 6. Compress & transmit the error-feedback residual.
             let full_residual = self.state[index].residual.gather_full_tensor();
             let transport_energy: Option<f64> = match stats {
                 true => Some(
@@ -479,6 +495,16 @@ mod tests {
         let nesterov = momentum_signal(&grad, &momentum, 0.9, true);
         let expected = Tensor::from_slice(&[4.6_f32, 2.5, -2.4]);
         assert!(nesterov.allclose(&expected, 1e-6, 1e-6, false));
+    }
+
+    #[test]
+    fn test_decay_residual_is_optional() {
+        let mut residual = Tensor::from_slice(&[2.0_f32, -4.0]);
+        decay_residual(&mut residual, 1.0);
+        assert!(residual.equal(&Tensor::from_slice(&[2.0_f32, -4.0])));
+
+        decay_residual(&mut residual, 0.5);
+        assert!(residual.equal(&Tensor::from_slice(&[1.0_f32, -2.0])));
     }
 
     #[test]
