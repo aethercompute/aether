@@ -260,7 +260,7 @@ impl MuonOptimizer {
             // 2. Error feedback: remove the component already transmitted.
             if !prev_self_results.is_empty() {
                 let device = variable.device();
-                let indicies = prev_self_results
+                let indices = prev_self_results
                     .iter()
                     .map(|x| x[index].sparse_idx.to_device(device))
                     .collect::<Vec<_>>();
@@ -277,7 +277,7 @@ impl MuonOptimizer {
                     })
                     .collect::<Vec<_>>();
                 let decompressed = CompressDCT::batch_decompress(
-                    &indicies,
+                    &indices,
                     &values,
                     &prev_self_results[0][index].xshape,
                     prev_self_results[0][index].totalk,
@@ -363,7 +363,7 @@ impl MuonOptimizer {
             let elig = self.eligible[index];
             let mut variable = var.logical_tensor();
             let device = variable.device();
-            let indicies = results
+            let indices = results
                 .iter()
                 .map(|x| x[index].sparse_idx.to_device(device))
                 .collect::<Vec<_>>();
@@ -381,7 +381,7 @@ impl MuonOptimizer {
                 .collect::<Vec<_>>();
 
             let decompressed = CompressDCT::batch_decompress(
-                &indicies,
+                &indices,
                 &values,
                 &results[0][index].xshape,
                 results[0][index].totalk,
