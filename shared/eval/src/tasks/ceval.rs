@@ -1,6 +1,9 @@
-// TODO: The evaluations differ from those in lm_evals when using Deepseek-like models
-// We believe this to be because of a mismatch in which tokenizer we use, we should investigate this further.
-// Evals should be very close or the same as those in lm_evals with Llama-like models.
+// NOTE: LogLikelihood scoring previously hardcoded token id 1 as the BOS token
+// for every tokenizer. DeepSeek-style tokenizers have no `<s>` token, so this
+// silently inserted a *content* token and corrupted evaluation scores. The BOS
+// token is now resolved per-tokenizer in harness.rs::bos_token_id; evaluations
+// should now match lm-evaluation-harness for both Llama- and DeepSeek-style
+// models.
 
 use crate::{
     load_dataset,

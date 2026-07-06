@@ -47,6 +47,26 @@ pub enum TaskType {
     GenerateUntil(Box<dyn GenerateUntilTask>),
 }
 
+/// BOS token strings used by the model families we support.
+///
+/// Lookup is done by string rather than hardcoding a token id (e.g. `1`),
+/// because different model families assign different ids — and for tokenizers
+/// that lack `<s>` entirely (DeepSeek, Llama 3, Qwen, …) a hardcoded id would
+/// insert a *content* token, silently corrupting every evaluation.
+const BOS_TOKEN_CANDIDATES: &[&str] = &[
+    "<s>",                      // Llama / Llama 2 / Mistral
+    "<|begin_of_text|>",        // Llama 3
+    "<｜begin▁of▁sentence｜>",  // DeepSeek
+    "<|im_start|>",             // Qwen
+];
+
+/// Returns the BOS token id for the given tokenizer, if it defines one.
+fn bos_token_id(tokenizer: &Tokenizer) -> Option<u32> {
+    BOS_TOKEN_CANDIDATES
+        .iter()
+        .find_map(|t| tokenizer.token_to_id(t))
+}
+
 pub struct Task {
     task_type: TaskType,
     pub num_fewshot: usize,
@@ -147,7 +167,7 @@ impl TokenizedLLHDocument {
             .map(|x| *x as i64)
             .collect();
 
-        let bos_token_id = tokenizer.token_to_id("<s>").unwrap_or(1);
+        let bos_token_id = bos_token_id(tokenizer);
 
         for choice in doc.choices.iter() {
             choices_str.push(choice.clone());
@@ -166,8 +186,11 @@ impl TokenizedLLHDocument {
             // We do this to avoid an extra space that was appearing otherwise
             let choice_tokens = full_tokens[context_tokens.len()..].to_vec();
 
-            // BOS + context + choice
-            let mut full_request = vec![bos_token_id as i64];
+            // BOS + context + choice (BOS only if the tokenizer defines one)
+            let mut full_request = Vec::with_capacity(context_tokens.len() + choice_tokens.len() + 1);
+            if let Some(bos) = bos_token_id {
+                full_request.push(bos as i64);
+            }
             full_request.extend_from_slice(&context_tokens);
             full_request.extend_from_slice(&choice_tokens);
             requests.push(full_request.clone());
@@ -883,5 +906,73 @@ fn min_reporting_ratio(eval_name: &String) -> Option<f32> {
     } else {
         tracing::warn!("eval name min_reporting_ratio not defined");
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bos_token_id;
+    use std::str::FromStr;
+    use tokenizers::Tokenizer;
+
+    /// Builds a minimal WordLevel tokenizer whose vocab contains the given
+    /// (token, id) pairs. `token_to_id` then resolves any of those tokens.
+    fn tokenizer_with_vocab(vocab: &[(&str, u32)]) -> Tokenizer {
+        let entries: Vec<String> = vocab
+            .iter()
+            .map(|(tok, id)| format!("\"{tok}\": {id}"))
+            .collect();
+        let json = format!(
+            r#"{{"version":"1.0","model":{{"type":"WordLevel","vocab":{{{}}},"unk_token":"<unk>"}}}}"#,
+            entries.join(","),
+        );
+        Tokenizer::from_str(&json).expect("valid tokenizer json")
+    }
+
+    #[test]
+    fn bos_resolves_llama_style_token() {
+        let tok = tokenizer_with_vocab(&[("<s>", 1), ("hello", 2), ("<unk>", 3)]);
+        assert_eq!(bos_token_id(&tok), Some(1));
+    }
+
+    #[test]
+    fn bos_resolves_deepseek_token() {
+        let tok =
+            tokenizer_with_vocab(&[("<｜begin▁of▁sentence｜>", 0), ("hello", 1), ("<unk>", 2)]);
+        assert_eq!(bos_token_id(&tok), Some(0));
+    }
+
+    #[test]
+    fn bos_resolves_llama3_token() {
+        let tok = tokenizer_with_vocab(&[
+            ("<|begin_of_text|>", 128000),
+            ("hello", 1),
+            ("<unk>", 2),
+        ]);
+        assert_eq!(bos_token_id(&tok), Some(128000));
+    }
+
+    #[test]
+    fn bos_resolves_qwen_token() {
+        let tok = tokenizer_with_vocab(&[("<|im_start|>", 151644), ("hello", 1), ("<unk>", 0)]);
+        assert_eq!(bos_token_id(&tok), Some(151644));
+    }
+
+    #[test]
+    fn bos_returns_none_when_unknown() {
+        let tok = tokenizer_with_vocab(&[("hello", 1), ("world", 2), ("<unk>", 3)]);
+        assert_eq!(bos_token_id(&tok), None);
+    }
+
+    #[test]
+    fn bos_prefers_first_candidate() {
+        // If a tokenizer has both <s> and <|begin_of_text|>, the first entry
+        // in BOS_TOKEN_CANDIDATES (<s>) wins.
+        let tok = tokenizer_with_vocab(&[
+            ("<s>", 5),
+            ("<|begin_of_text|>", 128000),
+            ("<unk>", 0),
+        ]);
+        assert_eq!(bos_token_id(&tok), Some(5));
     }
 }
