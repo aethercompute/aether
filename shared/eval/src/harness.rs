@@ -54,10 +54,10 @@ pub enum TaskType {
 /// that lack `<s>` entirely (DeepSeek, Llama 3, Qwen, …) a hardcoded id would
 /// insert a *content* token, silently corrupting every evaluation.
 const BOS_TOKEN_CANDIDATES: &[&str] = &[
-    "<s>",                      // Llama / Llama 2 / Mistral
-    "<|begin_of_text|>",        // Llama 3
-    "<｜begin▁of▁sentence｜>",  // DeepSeek
-    "<|im_start|>",             // Qwen
+    "<s>",                     // Llama / Llama 2 / Mistral
+    "<|begin_of_text|>",       // Llama 3
+    "<｜begin▁of▁sentence｜>", // DeepSeek
+    "<|im_start|>",            // Qwen
 ];
 
 /// Returns the BOS token id for the given tokenizer, if it defines one.
@@ -187,7 +187,8 @@ impl TokenizedLLHDocument {
             let choice_tokens = full_tokens[context_tokens.len()..].to_vec();
 
             // BOS + context + choice (BOS only if the tokenizer defines one)
-            let mut full_request = Vec::with_capacity(context_tokens.len() + choice_tokens.len() + 1);
+            let mut full_request =
+                Vec::with_capacity(context_tokens.len() + choice_tokens.len() + 1);
             if let Some(bos) = bos_token_id {
                 full_request.push(bos as i64);
             }
@@ -944,11 +945,8 @@ mod tests {
 
     #[test]
     fn bos_resolves_llama3_token() {
-        let tok = tokenizer_with_vocab(&[
-            ("<|begin_of_text|>", 128000),
-            ("hello", 1),
-            ("<unk>", 2),
-        ]);
+        let tok =
+            tokenizer_with_vocab(&[("<|begin_of_text|>", 128000), ("hello", 1), ("<unk>", 2)]);
         assert_eq!(bos_token_id(&tok), Some(128000));
     }
 
@@ -968,11 +966,7 @@ mod tests {
     fn bos_prefers_first_candidate() {
         // If a tokenizer has both <s> and <|begin_of_text|>, the first entry
         // in BOS_TOKEN_CANDIDATES (<s>) wins.
-        let tok = tokenizer_with_vocab(&[
-            ("<s>", 5),
-            ("<|begin_of_text|>", 128000),
-            ("<unk>", 0),
-        ]);
+        let tok = tokenizer_with_vocab(&[("<s>", 5), ("<|begin_of_text|>", 128000), ("<unk>", 0)]);
         assert_eq!(bos_token_id(&tok), Some(5));
     }
 }

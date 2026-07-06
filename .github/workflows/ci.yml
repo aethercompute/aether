@@ -56,8 +56,6 @@ jobs:
         with:
           torch-version: ${{ env.TORCH_VERSION }}
           torch-index-url: ${{ env.TORCH_INDEX_URL }}
-      - name: Install uv
-        run: pip install uv
       - uses: Swatinem/rust-cache@v2
       - name: Rust workspace tests
         run: cargo test --workspace

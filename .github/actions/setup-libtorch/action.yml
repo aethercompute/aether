@@ -29,14 +29,14 @@ runs:
         TORCH_VERSION: ${{ inputs.torch-version }}
         TORCH_INDEX_URL: ${{ inputs.torch-index-url }}
       run: |
-        # Upgrade pip first — the bundled TLS stack in older pip versions
-        # cannot complete the SSL handshake with download.pytorch.org's
-        # Cloudflare R2 backend (SSLV3_ALERT_HANDSHAKE_FAILURE).
-        python -m pip install --upgrade pip setuptools wheel
-        pip install torch==${TORCH_VERSION} \
-          --index-url ${TORCH_INDEX_URL} \
-          --retries 5 \
-          --timeout 120
+        # pip's OpenSSL-based TLS stack cannot complete the handshake with
+        # download.pytorch.org's Cloudflare R2 backend
+        # (SSLV3_ALERT_HANDSHAKE_FAILURE). uv uses rustls, a different TLS
+        # implementation that handles R2 correctly. PyPI itself is unaffected,
+        # so `pip install uv` works fine.
+        pip install uv
+        uv pip install --system torch==${TORCH_VERSION} \
+          --index-url ${TORCH_INDEX_URL}
 
     - name: Configure libtorch env
       shell: bash
