@@ -697,7 +697,6 @@ impl App {
                 if result {
                     if let Some(save_state_dir) = &self.save_state_dir {
                         let mut state = self.coordinator;
-                        print!("{state:?}");
                         Self::reset_ephemeral(&mut state);
                         match toml::to_string_pretty(&state) {
                             Ok(toml) => {
@@ -750,7 +749,9 @@ impl App {
                 warn!("Error in on_tick: {err}");
             }
             if let Some((ref sender, _)) = &self.training_data_server {
-                sender.send(self.coordinator).await.unwrap();
+                if let Err(err) = sender.send(self.coordinator).await {
+                    warn!("Error sending coordinator state to training data server: {err}");
+                }
             }
         }
         if let Some(ref writer) = self.coordinator_writer {
