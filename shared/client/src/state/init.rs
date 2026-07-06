@@ -375,6 +375,7 @@ impl RunInitConfigAndIO {
                     };
                     // SAFETY: Tensor is !Sync but this Arc is consumed during
                     // model loading in a sequential context.
+                    #[allow(clippy::arc_with_non_send_sync)]
                     let config = &PretrainedSource::ConfigAndTensors(
                         AutoConfig::Llama(LlamaConfig::dummy()),
                         Arc::new(aether_modeling::get_dummy_parameters()),
@@ -509,6 +510,7 @@ impl RunInitConfigAndIO {
                                     .unwrap();
                                 // SAFETY: Tensor is !Sync but these parameters
                                 // are loaded sequentially before model init.
+                                #[allow(clippy::arc_with_non_send_sync)]
                                 let parameters = Arc::new(
                                     rx_params_response
                                         .await
