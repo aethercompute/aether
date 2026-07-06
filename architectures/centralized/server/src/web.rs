@@ -132,7 +132,7 @@ async fn overview_partial(State(state): State<SharedState>) -> Html<String> {
 </table>"#,
                 run_state = run_state,
                 pending = pending,
-                run_id = coord.run_id,
+                run_id = escape_html(&coord.run_id.to_string()),
                 epoch = epoch,
                 step = step,
                 total_steps = total_steps,
@@ -143,7 +143,7 @@ async fn overview_partial(State(state): State<SharedState>) -> Html<String> {
                 exited = exited,
                 ready = ready,
                 syncing = syncing,
-                server_addr = s.server_addr,
+                server_addr = escape_html(&s.server_addr),
                 state_duration_str = format_duration(state_duration),
                 epoch_duration = epoch_duration,
                 data_index = coord.progress.epoch_start_data_index,
@@ -176,7 +176,7 @@ async fn clients_partial(State(state): State<SharedState>) -> Html<String> {
             let mut rows = String::new();
             for i in 0..coord.epoch_state.clients.len() {
                 let client = &coord.epoch_state.clients[i];
-                let id = client.id.to_string();
+                let id = escape_html(&client.id.to_string());
                 let state_str = format!("{}", client.state);
                 let exited = client.exited_height;
                 let state_class = match client.state {
@@ -194,7 +194,7 @@ async fn clients_partial(State(state): State<SharedState>) -> Html<String> {
             let mut exited_rows = String::new();
             for i in 0..coord.epoch_state.exited_clients.len() {
                 let client = &coord.epoch_state.exited_clients[i];
-                let id = client.id.to_string();
+                let id = escape_html(&client.id.to_string());
                 let state_str = format!("{}", client.state);
                 let exited = client.exited_height;
                 exited_rows.push_str(&format!(
@@ -225,13 +225,13 @@ async fn clients_partial(State(state): State<SharedState>) -> Html<String> {
                 .map(|c| {
                     format!(
                         r#"<tr><td>{}</td><td style="color:#e28844"><b>Syncing</b></td></tr>"#,
-                        c
+                        escape_html(c)
                     )
                 })
                 .chain(s.ready_clients.iter().map(|c| {
                     format!(
                         r#"<tr><td>{}</td><td style="color:#e2ccb8"><b>Ready (waiting for next epoch)</b></td></tr>"#,
-                        c
+                        escape_html(c)
                     )
                 }))
                 .collect();
@@ -877,6 +877,24 @@ fn format_duration(secs: u64) -> String {
     }
 }
 
+/// Escapes a string so it is safe to interpolate into HTML text content or
+/// attribute values. Prevents XSS from user-controlled values such as
+/// `run_id` or client identifiers.
+fn escape_html(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#x27;"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 fn format_run_state(state: RunState) -> &'static str {
     match state {
         RunState::Uninitialized => "Uninitialized",
@@ -977,3 +995,42 @@ svg { display: block; width: 100%; height: auto; }
 </div>
 </body>
 </html>"##;
+
+#[cfg(test)]
+mod tests {
+    use super::escape_html;
+
+    #[test]
+    fn escape_html_passes_through_plain_text() {
+        assert_eq!(escape_html("hello world"), "hello world");
+        assert_eq!(escape_html("run_42"), "run_42");
+    }
+
+    #[test]
+    fn escape_html_neutralizes_script_injection() {
+        assert_eq!(
+            escape_html("<script>alert('xss')</script>"),
+            "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;"
+        );
+    }
+
+    #[test]
+    fn escape_html_escapes_all_five_dangerous_chars() {
+        assert_eq!(escape_html("&"), "&amp;");
+        assert_eq!(escape_html("<"), "&lt;");
+        assert_eq!(escape_html(">"), "&gt;");
+        assert_eq!(escape_html("\""), "&quot;");
+        assert_eq!(escape_html("'"), "&#x27;");
+    }
+
+    #[test]
+    fn escape_html_handles_ampersand_first_to_avoid_double_escape() {
+        // "&amp;" must not become "&amp;lt;" — ampersand is escaped first.
+        assert_eq!(escape_html("<&>"), "&lt;&amp;&gt;");
+    }
+
+    #[test]
+    fn escape_html_preserves_unicode() {
+        assert_eq!(escape_html("café ☕"), "café ☕");
+    }
+}
