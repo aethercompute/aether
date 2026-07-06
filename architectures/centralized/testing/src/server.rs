@@ -219,7 +219,7 @@ impl CoordinatorServerHandle {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_time()
             .enable_io()
-            .thread_stack_size(10 * 1024 * 1024)
+            .thread_stack_size(64 * 1024 * 1024)
             .max_blocking_threads(8192)
             .build()
             .unwrap();
@@ -237,11 +237,18 @@ impl CoordinatorServerHandle {
         let server_port = server.port;
         let run_id = server.run_id.clone();
 
-        // the above line will stack overflow, for reasons best left to contemplative reflection.
-        // as a substitute to madness, we suggest the reader trust us on this point.
-        std::thread::spawn(move || {
-            rt.block_on(server.run());
-        });
+        // server.run() drives poll_next(), whose nested tokio::select! state
+        // machines (each holding copies of the ~76 KB Coordinator struct) are
+        // very large in debug builds. Rust's default thread stack (2 MB) is
+        // insufficient and overflows, so we run on a thread with an explicit
+        // large stack. This replaces the previous "trust us" workaround which
+        // used the default stack size and still overflowed in CI.
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(move || {
+                rt.block_on(server.run());
+            })
+            .expect("failed to spawn coordinator server thread");
         debug!("coordinator server created on port {server_port}");
 
         Self {
