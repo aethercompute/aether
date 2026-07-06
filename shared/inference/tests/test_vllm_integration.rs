@@ -3,6 +3,8 @@
 #[cfg(feature = "vllm-tests")]
 use aether_inference::vllm;
 #[cfg(feature = "vllm-tests")]
+use aether_inference::ChatMessage;
+#[cfg(feature = "vllm-tests")]
 use pyo3::Python;
 #[cfg(feature = "vllm-tests")]
 use serial_test::serial;
@@ -105,7 +107,10 @@ fn test_run_inference() {
         let result = vllm::run_inference(
             py,
             "inference_test",
-            "Once upon a time",
+            vec![ChatMessage {
+                role: "user".to_string(),
+                content: "Once upon a time".to_string(),
+            }],
             Some(0.7), // temperature
             Some(0.9), // top_p
             Some(20),  // max_tokens

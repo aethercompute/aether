@@ -5,10 +5,12 @@ license.workspace = true
 edition = "2021"
 
 [features]
-vllm-tests = []
+default = []
+vllm = ["dep:pyo3", "pyo3/auto-initialize"]
+vllm-tests = ["vllm"]
 
 [dependencies]
-pyo3 = { workspace = true, features = ["auto-initialize"] }
+pyo3 = { workspace = true, optional = true }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
