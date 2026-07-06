@@ -216,6 +216,25 @@ def experiment_model_repos(config: dict) -> list[str]:
     return repos
 
 
+def experiment_model_configs(config: dict) -> list[str]:
+    configs: list[dict] = []
+    
+    for state_path in experiment_state_paths(config):
+        # NOTE: assumes state.toml and model-config.json are in same dir 
+        model_config_path = state_path.with_name("model-config.json")
+        repo = state_checkpoint_repo(state_path)
+    
+        model = dict(config["model"])
+        model["repo"] = repo
+        model["config"] = str(model_config_path)
+
+        next_config = dict(config)
+        next_config["model"] = model
+        configs.append(next_config)
+
+    return configs
+
+
 def experiment_model_status(config: dict) -> tuple[bool, str]:
     if not config.get("model", {}).get("enabled", True):
         return True, "disabled"
@@ -366,14 +385,6 @@ def push_model_command(config: dict) -> list[str]:
     if dtype and dtype != "bfloat16":
         command.extend(["--dtype", dtype])
     return command
-
-
-def push_model_command_for_repo(config: dict, repo: str) -> list[str]:
-    model = dict(config["model"])
-    model["repo"] = repo
-    next_config = dict(config)
-    next_config["model"] = model
-    return push_model_command(next_config)
 
 
 def run_background_sequence(name: str, commands: list[list[str]], on_success=None) -> Job:
@@ -711,9 +722,10 @@ class Handler(BaseHTTPRequestHandler):
                 run_background("push init model", command, on_success=mark_model)
                 message = "Init model push started."
             elif path == "/push-experiment-models":
-                repos = experiment_model_repos(config)
-                commands = [push_model_command_for_repo(config, repo) for repo in repos]
+                configs = experiment_model_configs(config)
+                commands = [push_model_command(exp_config) for exp_config in configs]
 
+                repos = [exp_config["model"]["repo"] for exp_config in configs]
                 def mark_experiment_models() -> None:
                     mark_model_repos(repos)
 
