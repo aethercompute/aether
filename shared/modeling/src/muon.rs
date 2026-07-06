@@ -1,13 +1,14 @@
 //! Muon optimizer — MomentUm Orthogonalized by Newton-Schulz.
 //!
 //! Rides the *exact same* compressed-distributed transport as `Distro` (DCT +
-//! top-k + error feedback): the transport buffer carries the gradient **momentum**
-//! — a compressible signal, since gradients are smooth/low-rank and the DCT
-//! concentrates their energy. The Muon difference is entirely at `apply`:
+//! top-k + error feedback): the transport carries a residual of the gradient
+//! **momentum** (or Nesterov momentum), a compressible signal since gradients are
+//! smooth/low-rank and the DCT concentrates their energy. The Muon difference is
+//! entirely at `apply`:
 //!
 //!   Distro:        `w -= lr · sign(mean(delta))`            (SignSGD)
 //!   Muon (2D):     `w -= lr · scale · NewtonSchulz(mean(e))` (orthogonalized momentum)
-//!   Muon (1D/wide): `w -= lr · FALLBACK_SCALE · sign(mean(e))` (sign fallback)
+//!   fallback:      `w -= lr · FALLBACK_SCALE · sign(mean(e))` (embed/head/1D)
 //!
 //! Why orthogonalization happens at `apply`, not in `generate`: Newton-Schulz
 //! produces a *whitened* update whose energy is spread uniformly (singular values
@@ -28,33 +29,35 @@ use crate::{CausalLM, CompressDCT, Distro, DistroResult, TransformDCT, Variable}
 use std::collections::HashMap;
 use tch::{Kind, Tensor};
 
-/// 2D matrices more elongated than this (e.g. embeddings / lm_head, which are
-/// vocab×hidden) are routed to the sign fallback: their Muon `scale` would be
-/// huge and canonical practice excludes them anyway.
-const ASPECT_THRESHOLD: f64 = 8.0;
+/// Keep normal transformer projections (including wide MLP up/gate/down matrices)
+/// on Muon, but route vocabulary-shaped tensors to the sign fallback even if their
+/// name is unfamiliar.
+const MAX_MUON_ASPECT: f64 = 32.0;
 /// The sign-fallback effective LR is `lr · FALLBACK_SCALE`, keeping embedding /
 /// head / 1D steps on the SignSGD LR scale (~1e-3 at the default Muon lr=0.02)
 /// instead of the full orthogonalized-step LR.
 const FALLBACK_SCALE: f64 = 0.05;
 
 struct MuonState {
-    /// Momentum + error-feedback transport residual (plays Distro's `delta` role).
-    /// Carries the (compressible) gradient momentum; orthogonalization happens at
-    /// `apply`, not here.
-    transport: Box<dyn Variable>,
+    /// Dense momentum EMA. This is optimizer state, not directly transmitted.
+    momentum: Box<dyn Variable>,
+    /// Error-feedback residual for the compressed transport. Each round adds the
+    /// current momentum/Nesterov signal and subtracts the part already sent.
+    residual: Box<dyn Variable>,
 }
 
 pub struct MuonOptimizer {
     momentum: f64,
+    nesterov: bool,
     weight_decay: f64,
     ns_steps: i64,
     lookahead: bool,
     compression_topk: i64,
     state: Vec<MuonState>,
     /// Per-parameter Muon scale (`max(1, out/in)^0.5`); meaningful only for
-    /// Muon-eligible (2D, non-wide) params.
+    /// Muon-eligible dense matrix params.
     scales: Vec<f64>,
-    /// Per-parameter routing: true → Newton-Schulz at apply; false → sign fallback.
+    /// Per-parameter routing: true -> Newton-Schulz at apply; false -> sign fallback.
     eligible: Vec<bool>,
     transform: TransformDCT,
 }
@@ -71,10 +74,17 @@ fn muon_scale(shape: &[i64]) -> f64 {
     (1.0_f64).max(d0 / rest).sqrt()
 }
 
-/// True for square-ish 2D weight matrices (attention/MLP projections). False for
-/// 1D params and very-wide 2D matrices (embeddings, lm_head).
-fn is_muon_eligible(shape: &[i64]) -> bool {
+fn is_named_embedding_or_head(name: &str) -> bool {
+    name.contains("embed") || name.contains("lm_head")
+}
+
+/// True for dense 2D transformer weights (attention and MLP projections). False
+/// for 1D params, embeddings/lm_head, and extreme vocab-shaped matrices.
+fn is_muon_eligible(name: &str, shape: &[i64]) -> bool {
     if shape.len() < 2 {
+        return false;
+    }
+    if is_named_embedding_or_head(name) {
         return false;
     }
     let d0 = shape[0] as f64;
@@ -83,7 +93,15 @@ fn is_muon_eligible(shape: &[i64]) -> bool {
         return false;
     }
     let aspect = (d0 / rest).max(rest / d0);
-    aspect <= ASPECT_THRESHOLD
+    aspect <= MAX_MUON_ASPECT
+}
+
+fn momentum_signal(grad: &Tensor, momentum: &Tensor, beta: f64, nesterov: bool) -> Tensor {
+    if nesterov {
+        grad + &momentum.multiply_scalar(beta)
+    } else {
+        momentum.shallow_clone()
+    }
 }
 
 impl MuonOptimizer {
@@ -92,7 +110,7 @@ impl MuonOptimizer {
         vs: &dyn CausalLM,
         momentum: f64,
         weight_decay: f64,
-        _nesterov: bool,
+        nesterov: bool,
         ns_steps: i64,
         lookahead: bool,
         _compression_decay: f64,
@@ -107,9 +125,10 @@ impl MuonOptimizer {
         for variable in vs.variables() {
             let name = variable.name().to_string();
             let shape = variable.full_tensor_shape();
-            let elig = is_muon_eligible(&shape);
+            let elig = is_muon_eligible(&name, &shape);
             state.push(MuonState {
-                transport: variable.zeros_like(format!("{name}.transport")),
+                momentum: variable.zeros_like(format!("{name}.muon_momentum")),
+                residual: variable.zeros_like(format!("{name}.muon_residual")),
             });
             scales.push(if elig { muon_scale(&shape) } else { 1.0 });
             eligible.push(elig);
@@ -120,6 +139,7 @@ impl MuonOptimizer {
 
         Self {
             momentum,
+            nesterov,
             weight_decay,
             ns_steps,
             lookahead,
@@ -173,8 +193,8 @@ impl MuonOptimizer {
     /// aggregated transport buffer `ē`. Extracted so the apply math is testable
     /// without a full `CausalLM`.
     ///
-    ///   eligible 2D → `NewtonSchulz(ē) · scale`  (orthogonalized momentum)
-    ///   else        → `sign(ē) · FALLBACK_SCALE` (SignSGD-style fallback)
+    ///   eligible matrix -> `NewtonSchulz(ē) · scale`  (orthogonalized momentum)
+    ///   fallback        -> `sign(ē) · FALLBACK_SCALE` (SignSGD-style fallback)
     ///
     /// The result is always a descent direction: `<ē, U>_F > 0`.
     fn param_update(
@@ -220,12 +240,12 @@ impl MuonOptimizer {
                 _ => None,
             };
 
-            // 1. Lookahead (flag-gated, off by default): anticipate own last
-            //    contribution. Rough — the true applied step is NS-based.
+            // 1. Lookahead (flag-gated, off by default): anticipate own residual
+            //    direction. Rough — the true applied step is NS-based.
             if self.lookahead {
-                let transport = self.state[index].transport.logical_tensor();
+                let residual = self.state[index].residual.logical_tensor();
                 let s = if elig { scale } else { FALLBACK_SCALE };
-                let _t = variable.g_add_(&transport.sign().multiply_scalar(prev_lr * s));
+                let _t = variable.g_add_(&residual.sign().multiply_scalar(prev_lr * s));
             }
 
             // 2. Error feedback: remove the component already transmitted.
@@ -256,8 +276,8 @@ impl MuonOptimizer {
                     device,
                 );
                 let transmit_grad = self.transform.decode(&decompressed);
-                let mut transport = self.state[index].transport.logical_tensor();
-                let _t = transport.g_sub_(&var.shard_other_tensor_like_me(transmit_grad));
+                let mut residual = self.state[index].residual.logical_tensor();
+                let _t = residual.g_sub_(&var.shard_other_tensor_like_me(transmit_grad));
             }
 
             // 3. Decoupled weight decay.
@@ -265,19 +285,23 @@ impl MuonOptimizer {
                 let _t = variable.g_mul_scalar_(1.0 - lr * self.weight_decay);
             }
 
-            // 4. Momentum EMA on the transport buffer (compressible signal).
+            // 4. Momentum EMA, then add the chosen signal to the transport residual.
             let grad = variable.grad();
             {
-                let mut transport = self.state[index].transport.logical_tensor();
-                let _t = transport.g_mul_scalar_(self.momentum);
-                let _t = transport.g_add_(&grad);
+                let mut momentum = self.state[index].momentum.logical_tensor();
+                let _t = momentum.g_mul_scalar_(self.momentum);
+                let _t = momentum.g_add_(&grad);
+
+                let signal = momentum_signal(&grad, &momentum, self.momentum, self.nesterov);
+                let mut residual = self.state[index].residual.logical_tensor();
+                let _t = residual.g_add_(&signal);
             }
 
-            // 5. Compress & transmit (identical channel to Distro).
-            let full_transport = self.state[index].transport.gather_full_tensor();
+            // 5. Compress & transmit the error-feedback residual.
+            let full_residual = self.state[index].residual.gather_full_tensor();
             let transport_energy: Option<f64> = match stats {
                 true => Some(
-                    full_transport
+                    full_residual
                         .norm_scalaropt_dtype(1, Kind::Float)
                         .try_into()
                         .unwrap(),
@@ -285,7 +309,7 @@ impl MuonOptimizer {
                 _ => None,
             };
             let (sparse_idx, sparse_val, xshape, totalk) = CompressDCT::compress(
-                &self.transform.encode(&full_transport),
+                &self.transform.encode(&full_residual),
                 self.compression_topk,
             );
 
@@ -371,15 +395,16 @@ impl MuonOptimizer {
             let scale = self.scales[index];
             let elig = self.eligible[index];
             let mut variable = var.logical_tensor();
-            let transport = self.state[index].transport.logical_tensor();
+            let residual = self.state[index].residual.logical_tensor();
             let s = if elig { scale } else { FALLBACK_SCALE };
-            let _t = variable.g_sub_(&transport.sign().multiply_scalar(prev_lr * s));
+            let _t = variable.g_sub_(&residual.sign().multiply_scalar(prev_lr * s));
         }
     }
 
     pub fn zero_optim(&mut self) {
         for state in &mut self.state {
-            let _ = state.transport.logical_tensor().zero_();
+            let _ = state.momentum.logical_tensor().zero_();
+            let _ = state.residual.logical_tensor().zero_();
         }
     }
 }
@@ -402,16 +427,58 @@ mod tests {
 
     #[test]
     fn test_eligibility_routing() {
-        // hidden projections → Muon
-        assert!(is_muon_eligible(&[384, 768]));
-        assert!(is_muon_eligible(&[384, 1024]));
-        assert!(is_muon_eligible(&[1024, 384]));
-        assert!(is_muon_eligible(&[64, 64]));
-        // 1D → fallback
-        assert!(!is_muon_eligible(&[384]));
-        // embeddings / lm_head (vocab×hidden) → fallback
-        assert!(!is_muon_eligible(&[129280, 384]));
-        assert!(!is_muon_eligible(&[384, 129280]));
+        // Attention projections -> Muon.
+        assert!(is_muon_eligible(
+            "model.layers.0.self_attn.q_proj.weight",
+            &[768, 768]
+        ));
+        assert!(is_muon_eligible(
+            "model.layers.0.self_attn.o_proj.weight",
+            &[768, 768]
+        ));
+
+        // MLP projections are intentionally Muon-eligible even when wider than 8:1.
+        assert!(is_muon_eligible(
+            "model.layers.0.mlp.gate_proj.weight",
+            &[8192, 768]
+        ));
+        assert!(is_muon_eligible(
+            "model.layers.0.mlp.up_proj.weight",
+            &[8192, 768]
+        ));
+        assert!(is_muon_eligible(
+            "model.layers.0.mlp.down_proj.weight",
+            &[768, 8192]
+        ));
+
+        // 1D/norm params -> fallback.
+        assert!(!is_muon_eligible(
+            "model.layers.0.input_layernorm.weight",
+            &[768]
+        ));
+
+        // Embeddings/lm_head -> fallback by name.
+        assert!(!is_muon_eligible(
+            "model.embed_tokens.weight",
+            &[129280, 768]
+        ));
+        assert!(!is_muon_eligible("lm_head.weight", &[129280, 768]));
+
+        // Unknown extreme vocab-shaped matrices are also protected.
+        assert!(!is_muon_eligible("unknown.weight", &[129280, 768]));
+    }
+
+    #[test]
+    fn test_momentum_signal_respects_nesterov_flag() {
+        let grad = Tensor::from_slice(&[1.0_f32, -2.0, 3.0]);
+        let momentum = Tensor::from_slice(&[4.0_f32, 5.0, -6.0]);
+
+        let plain = momentum_signal(&grad, &momentum, 0.9, false);
+        assert!(plain.equal(&momentum));
+
+        let nesterov = momentum_signal(&grad, &momentum, 0.9, true);
+        let expected = Tensor::from_slice(&[4.6_f32, 2.5, -2.4]);
+        assert!(nesterov.allclose(&expected, 1e-6, 1e-6, false));
     }
 
     #[test]
