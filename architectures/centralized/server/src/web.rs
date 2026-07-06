@@ -846,7 +846,7 @@ async fn api_state(State(state): State<SharedState>) -> impl axum::response::Int
     let (coordinator, loss_history, syncing_clients, ready_clients, server_addr, wandb) = {
         let s = state.lock().unwrap();
         (
-            s.coordinator.clone(),
+            s.coordinator,
             s.loss_history.clone(),
             s.syncing_clients.clone(),
             s.ready_clients.clone(),
