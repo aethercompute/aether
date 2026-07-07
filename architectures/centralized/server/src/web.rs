@@ -5,7 +5,7 @@ use aether_coordinator::{
 use aether_core::{LearningRateSchedule, OptimizerDefinition};
 use axum::{extract::State, response::Html, routing::get, Router};
 use serde::Serialize;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::warn;
 
@@ -40,6 +40,20 @@ pub struct WandbInfo {
 }
 
 pub(crate) type SharedState = Arc<Mutex<WebState>>;
+
+fn lock_state(state: &SharedState) -> Option<MutexGuard<'_, WebState>> {
+    match state.lock() {
+        Ok(state) => Some(state),
+        Err(err) => {
+            warn!("web state lock poisoned: {err}");
+            None
+        }
+    }
+}
+
+fn poisoned_state_html() -> Html<String> {
+    Html(r#"<i>State unavailable: web state lock poisoned</i>"#.into())
+}
 
 pub fn start(
     state: WebState,
@@ -87,7 +101,9 @@ async fn index() -> Html<&'static str> {
 }
 
 async fn overview_partial(State(state): State<SharedState>) -> Html<String> {
-    let s = state.lock().unwrap();
+    let Some(s) = lock_state(&state) else {
+        return poisoned_state_html();
+    };
     match &s.coordinator {
         Some(coord) => {
             let run_state = format_run_state(coord.run_state);
@@ -164,7 +180,9 @@ async fn overview_partial(State(state): State<SharedState>) -> Html<String> {
 }
 
 async fn clients_partial(State(state): State<SharedState>) -> Html<String> {
-    let s = state.lock().unwrap();
+    let Some(s) = lock_state(&state) else {
+        return poisoned_state_html();
+    };
     match &s.coordinator {
         Some(coord) => {
             let mut healthy = 0u32;
@@ -282,7 +300,9 @@ async fn clients_partial(State(state): State<SharedState>) -> Html<String> {
 }
 
 async fn rounds_partial(State(state): State<SharedState>) -> Html<String> {
-    let s = state.lock().unwrap();
+    let Some(s) = lock_state(&state) else {
+        return poisoned_state_html();
+    };
     match &s.coordinator {
         Some(coord) => {
             let head = coord.epoch_state.rounds_head as usize;
@@ -329,7 +349,9 @@ async fn rounds_partial(State(state): State<SharedState>) -> Html<String> {
 }
 
 async fn config_partial(State(state): State<SharedState>) -> Html<String> {
-    let s = state.lock().unwrap();
+    let Some(s) = lock_state(&state) else {
+        return poisoned_state_html();
+    };
     match &s.coordinator {
         Some(coord) => {
             let cfg = &coord.config;
@@ -466,7 +488,9 @@ fn format_checkpoint_label(cp: &Checkpoint) -> &'static str {
 }
 
 async fn model_partial(State(state): State<SharedState>) -> Html<String> {
-    let s = state.lock().unwrap();
+    let Some(s) = lock_state(&state) else {
+        return poisoned_state_html();
+    };
     match &s.coordinator {
         Some(coord) => match &coord.model {
             Model::LLM(llm) => {
@@ -553,7 +577,9 @@ fn weighted_tokens_per_sec(points: &[&LossPoint]) -> Option<f64> {
 }
 
 async fn timing_partial(State(state): State<SharedState>) -> Html<String> {
-    let s = state.lock().unwrap();
+    let Some(s) = lock_state(&state) else {
+        return poisoned_state_html();
+    };
     match &s.coordinator {
         Some(coord) => {
             let now = current_unix_timestamp();
@@ -841,18 +867,28 @@ fn render_throughput_svg(losses: &[LossPoint]) -> String {
 }
 
 async fn loss_partial(State(state): State<SharedState>) -> Html<String> {
-    let history = state.lock().unwrap().loss_history.clone();
+    let Some(s) = lock_state(&state) else {
+        return poisoned_state_html();
+    };
+    let history = s.loss_history.clone();
     Html(render_loss_svg(&history))
 }
 
 async fn throughput_partial(State(state): State<SharedState>) -> Html<String> {
-    let history = state.lock().unwrap().loss_history.clone();
+    let Some(s) = lock_state(&state) else {
+        return poisoned_state_html();
+    };
+    let history = s.loss_history.clone();
     Html(render_throughput_svg(&history))
 }
 
 async fn api_state(State(state): State<SharedState>) -> impl axum::response::IntoResponse {
     let (coordinator, loss_history, syncing_clients, ready_clients, server_addr, wandb) = {
-        let s = state.lock().unwrap();
+        let Some(s) = lock_state(&state) else {
+            return axum::Json(serde_json::json!({
+                "error": "web state lock poisoned"
+            }));
+        };
         (
             s.coordinator,
             s.loss_history.clone(),
@@ -1006,7 +1042,8 @@ svg { display: block; width: 100%; height: auto; }
 
 #[cfg(test)]
 mod tests {
-    use super::escape_html;
+    use super::{escape_html, lock_state, WebState};
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn escape_html_passes_through_plain_text() {
@@ -1040,5 +1077,26 @@ mod tests {
     #[test]
     fn escape_html_preserves_unicode() {
         assert_eq!(escape_html("café ☕"), "café ☕");
+    }
+
+    #[test]
+    fn lock_state_returns_none_when_poisoned() {
+        let state = Arc::new(Mutex::new(WebState {
+            coordinator: None,
+            loss_history: Vec::new(),
+            syncing_clients: Vec::new(),
+            ready_clients: Vec::new(),
+            server_addr: String::new(),
+            wandb: None,
+        }));
+        let state_clone = state.clone();
+
+        let _ = std::thread::spawn(move || {
+            let _guard = state_clone.lock().unwrap();
+            panic!("poison web state lock");
+        })
+        .join();
+
+        assert!(lock_state(&state).is_none());
     }
 }
