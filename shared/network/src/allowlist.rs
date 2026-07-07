@@ -1,8 +1,9 @@
 use std::collections::HashSet;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use iroh::endpoint::{AfterHandshakeOutcome, ConnectionInfo, EndpointHooks};
 use iroh::EndpointId;
+use tracing::warn;
 
 use crate::p2p_model_sharing;
 
@@ -45,45 +46,43 @@ impl AllowDynamic {
     }
 
     pub fn add(&self, addr: EndpointId) {
-        self.allowed_nodes
-            .write()
-            .expect("RwLock poisoned")
-            .insert(addr);
+        Self::write_lock(&self.allowed_nodes).insert(addr);
     }
 
     pub fn remove(&self, addr: &EndpointId) {
-        self.allowed_nodes
-            .write()
-            .expect("RwLock poisoned")
-            .remove(addr);
+        Self::write_lock(&self.allowed_nodes).remove(addr);
     }
 
     pub fn set(&self, nodes: impl IntoIterator<Item = EndpointId>) {
-        *self.allowed_nodes.write().expect("RwLock poisoned") = nodes.into_iter().collect();
+        *Self::write_lock(&self.allowed_nodes) = nodes.into_iter().collect();
     }
 
     pub fn clear(&self) {
-        self.allowed_nodes.write().expect("RwLock poisoned").clear();
+        Self::write_lock(&self.allowed_nodes).clear();
+    }
+
+    fn read_lock(lock: &RwLock<HashSet<EndpointId>>) -> RwLockReadGuard<'_, HashSet<EndpointId>> {
+        lock.read().unwrap_or_else(|err| {
+            warn!("allowlist RwLock poisoned; recovering read access");
+            err.into_inner()
+        })
+    }
+
+    fn write_lock(lock: &RwLock<HashSet<EndpointId>>) -> RwLockWriteGuard<'_, HashSet<EndpointId>> {
+        lock.write().unwrap_or_else(|err| {
+            warn!("allowlist RwLock poisoned; recovering write access");
+            err.into_inner()
+        })
     }
 }
 
 impl Allowlist for AllowDynamic {
     fn allowed(&self, addr: EndpointId) -> bool {
-        self.allowed_nodes
-            .read()
-            .expect("RwLock poisoned")
-            .contains(&addr)
-            || self
-                .force_allowed_nodes
-                .read()
-                .expect("RwLock poisoned")
-                .contains(&addr)
+        Self::read_lock(&self.allowed_nodes).contains(&addr)
+            || Self::read_lock(&self.force_allowed_nodes).contains(&addr)
     }
     fn force_allow(&self, addr: EndpointId) {
-        self.force_allowed_nodes
-            .write()
-            .expect("RwLock poisoned")
-            .insert(addr);
+        Self::write_lock(&self.force_allowed_nodes).insert(addr);
     }
 }
 

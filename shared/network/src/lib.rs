@@ -1,7 +1,7 @@
 use aether_event_sourcing::event;
 use aether_metrics::{ClientMetrics, PeerConnection};
 use allowlist::Allowlist;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use bytes::Bytes;
 use download::{DownloadManager, DownloadManagerEvent, DownloadUpdate};
 use futures_util::{StreamExt, TryFutureExt};
@@ -314,7 +314,7 @@ where
                 (false, if_name)
             };
             let iface_ip = get_if_addrs::get_if_addrs()
-                .unwrap()
+                .context("failed to enumerate network interfaces")?
                 .iter()
                 .find_map(|interface| {
                     (if wildcard {
@@ -324,10 +324,10 @@ where
                     } && interface.ip().is_ipv4())
                     .then_some(interface.ip())
                 });
-            let IpAddr::V4(v4) =
-                iface_ip.ok_or(anyhow!("no interface with name \"{if_name}\" found."))?
-            else {
-                unreachable!("checked in earlier if. should not be possible.")
+            let iface_ip =
+                iface_ip.ok_or(anyhow!("no interface with name \"{if_name}\" found."))?;
+            let IpAddr::V4(v4) = iface_ip else {
+                bail!("interface \"{if_name}\" resolved to non-IPv4 address {iface_ip}");
             };
             v4
         } else {
@@ -350,7 +350,7 @@ where
             let relay_mode = match relay_kind {
                 RelayKind::Disabled => RelayMode::Disabled,
                 RelayKind::N0 => RelayMode::Default,
-                RelayKind::Aether => RelayMode::Custom(aether_relay_map()),
+                RelayKind::Aether => RelayMode::Custom(aether_relay_map()?),
             };
             debug!("Using relay servers: {}", fmt_relay_mode(&relay_mode));
 
@@ -605,7 +605,12 @@ where
         let download = self.downloader.download(ticket_hash, latency_sorted);
         let blob_store_clone = self.blobs_store.clone();
         tokio::spawn(async move {
-            let _ = blob_store_clone.tags().set(tag, ticket_hash).await;
+            if let Err(err) = blob_store_clone.tags().set(tag, ticket_hash).await {
+                warn!(
+                    "failed to tag downloaded blob {}: {err}",
+                    ticket_hash.fmt_short()
+                );
+            }
             let progress = download.stream().await;
 
             match progress {
@@ -613,7 +618,8 @@ where
                     let result = tokio::time::timeout(Duration::from_secs(600), async {
                         while let Some(val) = progress.next().await {
                             if let Err(err) = tx.send(Ok(val)) {
-                                panic!("Failed to send download progress: {err:?} {:?}", err.0);
+                                debug!("download progress receiver dropped: {:?}", err.0);
+                                break;
                             }
                         }
                     })
@@ -627,7 +633,9 @@ where
                         let _ = tx.send(Err(anyhow!("Download timed out after 5 minutes")));
                     }
                 }
-                Err(e) => panic!("Failed to start download: {e}"),
+                Err(e) => {
+                    let _ = tx.send(Err(anyhow!("Failed to start download: {e}")));
+                }
             }
         });
     }
@@ -981,30 +989,33 @@ async fn on_update_stats(
 }
 
 /// Get the Aether [`RelayMap`].
-pub fn aether_relay_map() -> RelayMap {
-    RelayMap::from_iter([aether_use_relay_node(), aether_usw_relay_node()])
+pub fn aether_relay_map() -> Result<RelayMap> {
+    Ok(RelayMap::from_iter([
+        aether_use_relay_node()?,
+        aether_usw_relay_node()?,
+    ]))
 }
 
 /// Get the Aether [`RelayConfig`] for US East.
-pub fn aether_use_relay_node() -> RelayConfig {
+pub fn aether_use_relay_node() -> Result<RelayConfig> {
     let url: Url = format!("https://{USE_RELAY_HOSTNAME}")
         .parse()
-        .expect("default url");
-    RelayConfig {
+        .context("invalid US East relay URL")?;
+    Ok(RelayConfig {
         url: url.into(),
         quic: Some(RelayQuicConfig::default()),
-    }
+    })
 }
 
 /// Get the Aether [`RelayConfig`] for US West.
-pub fn aether_usw_relay_node() -> RelayConfig {
+pub fn aether_usw_relay_node() -> Result<RelayConfig> {
     let url: Url = format!("https://{USW_RELAY_HOSTNAME}")
         .parse()
-        .expect("default_url");
-    RelayConfig {
+        .context("invalid US West relay URL")?;
+    Ok(RelayConfig {
         url: url.into(),
         quic: Some(RelayQuicConfig::default()),
-    }
+    })
 }
 
 fn hash_bytes(bytes: &Bytes) -> u64 {
