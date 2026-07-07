@@ -4,7 +4,7 @@ use rand::seq::SliceRandom;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use std::fs;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     file_extensions::DATA_FILE_EXTENSIONS,
@@ -89,7 +89,13 @@ impl LocalDataProvider {
             bin_files.len(),
             bin_files
                 .iter()
-                .map(|f| fs::metadata(f).unwrap().len())
+                .map(|f| match fs::metadata(f) {
+                    Ok(metadata) => metadata.len(),
+                    Err(err) => {
+                        warn!(path = %f.display(), "failed to read training data metadata: {err}");
+                        0
+                    }
+                })
                 .sum::<u64>(),
             dir.display()
         );

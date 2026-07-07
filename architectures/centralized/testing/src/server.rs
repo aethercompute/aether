@@ -69,6 +69,12 @@ struct CoordinatorServer {
 }
 
 impl CoordinatorServer {
+    fn send_response<T>(respond_to: oneshot::Sender<T>, response: T) {
+        if respond_to.send(response).is_err() {
+            debug!("testing query response receiver dropped");
+        }
+    }
+
     pub async fn new(
         query_chan_receiver: Receiver<TestingQueryMsg>,
         min_clients: u16,
@@ -138,55 +144,55 @@ impl CoordinatorServer {
         match msg {
             TestingQueryMsg::Clients { respond_to } => {
                 let clients = self.inner.get_clients();
-                respond_to.send(clients).unwrap();
+                Self::send_response(respond_to, clients);
             }
             TestingQueryMsg::ClientsLen { respond_to } => {
                 let clients = self.inner.get_clients();
-                respond_to.send(clients.len()).unwrap();
+                Self::send_response(respond_to, clients.len());
             }
             TestingQueryMsg::PendingClients { respond_to } => {
                 let clients = self.inner.get_pending_clients();
-                respond_to.send(clients).unwrap();
+                Self::send_response(respond_to, clients);
             }
             TestingQueryMsg::PendingClientsLen { respond_to } => {
                 let clients = self.inner.get_pending_clients();
-                respond_to.send(clients.len()).unwrap();
+                Self::send_response(respond_to, clients.len());
             }
             TestingQueryMsg::ReadyClients { respond_to } => {
                 let clients = self.inner.get_ready_clients();
-                respond_to.send(clients).unwrap();
+                Self::send_response(respond_to, clients);
             }
             TestingQueryMsg::ReadyClientsLen { respond_to } => {
                 let clients = self.inner.get_ready_clients();
-                respond_to.send(clients.len()).unwrap();
+                Self::send_response(respond_to, clients.len());
             }
             TestingQueryMsg::ConnectedClientsLen { respond_to } => {
                 let clients = self.inner.get_all_connected_clients();
-                respond_to.send(clients.len()).unwrap();
+                Self::send_response(respond_to, clients.len());
             }
             TestingQueryMsg::RunState { respond_to } => {
                 let run_state = self.inner.get_run_state();
-                respond_to.send(run_state).unwrap();
+                Self::send_response(respond_to, run_state);
             }
             TestingQueryMsg::Rounds { respond_to } => {
                 let rounds = self.inner.get_rounds();
-                respond_to.send(rounds).unwrap();
+                Self::send_response(respond_to, rounds);
             }
             TestingQueryMsg::RoundsHead { respond_to } => {
                 let rounds = self.inner.get_rounds_head();
-                respond_to.send(rounds).unwrap();
+                Self::send_response(respond_to, rounds);
             }
             TestingQueryMsg::Epoch { respond_to } => {
                 let current_epoch = self.inner.get_current_epoch();
-                respond_to.send(current_epoch).unwrap();
+                Self::send_response(respond_to, current_epoch);
             }
             TestingQueryMsg::Checkpoint { respond_to } => {
                 let checkpoint = self.inner.get_checkpoint();
-                respond_to.send(checkpoint).unwrap();
+                Self::send_response(respond_to, checkpoint);
             }
             TestingQueryMsg::Coordinator { respond_to } => {
                 let coordinator = self.inner.get_coordinator();
-                respond_to.send(coordinator).unwrap();
+                Self::send_response(respond_to, coordinator);
             }
         }
     }
