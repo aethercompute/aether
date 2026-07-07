@@ -7,6 +7,7 @@ use axum::{extract::State, response::Html, routing::get, Router};
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::warn;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct LossPoint {
@@ -60,15 +61,22 @@ pub fn start(
         .with_state(shared.clone());
 
     tokio::spawn(async move {
-        let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
-            .await
-            .expect("Failed to bind web server");
-        axum::serve(listener, app)
+        let bind_addr = format!("0.0.0.0:{port}");
+        let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
+            Ok(listener) => listener,
+            Err(err) => {
+                warn!("failed to bind web server on {bind_addr}: {err}");
+                return;
+            }
+        };
+        if let Err(err) = axum::serve(listener, app)
             .with_graceful_shutdown(async move {
                 cancel.cancelled().await;
             })
             .await
-            .ok();
+        {
+            warn!("web server exited with error: {err}");
+        }
     });
 
     shared

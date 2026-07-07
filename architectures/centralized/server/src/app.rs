@@ -317,28 +317,54 @@ impl App {
                 let record_size = std::mem::size_of::<i64>() + std::mem::size_of::<Coordinator>();
                 tokio::spawn(async move {
                     use tokio::io::{AsyncSeekExt, AsyncWriteExt};
-                    let mut file = tokio::fs::OpenOptions::new()
+                    let mut file = match tokio::fs::OpenOptions::new()
                         .create(true)
                         .truncate(false)
                         .write(true)
                         .open(&file_path)
                         .await
-                        .expect("failed to open coordinator state file");
+                    {
+                        Ok(file) => file,
+                        Err(err) => {
+                            warn!(
+                                path = %file_path.display(),
+                                "failed to open coordinator state file: {err}"
+                            );
+                            return;
+                        }
+                    };
                     // Truncate any partial record left by a previous crash so
                     // subsequent appends stay aligned to record boundaries.
-                    let len = file
-                        .metadata()
-                        .await
-                        .map(|m| m.len())
-                        .unwrap_or(0);
+                    let len = match file.metadata().await {
+                        Ok(metadata) => metadata.len(),
+                        Err(err) => {
+                            warn!(
+                                path = %file_path.display(),
+                                "failed to read coordinator state file metadata: {err}"
+                            );
+                            0
+                        }
+                    };
                     let aligned = len - (len % record_size as u64);
                     if aligned != len {
                         tracing::warn!(
                             "coordinator state.bin has {len} bytes, truncating to {aligned} to discard partial record"
                         );
-                        file.set_len(aligned).await.ok();
+                        if let Err(err) = file.set_len(aligned).await {
+                            warn!(
+                                path = %file_path.display(),
+                                "failed to truncate coordinator state file: {err}"
+                            );
+                            return;
+                        }
                     }
-                    file.seek(std::io::SeekFrom::End(0)).await.ok();
+                    if let Err(err) = file.seek(std::io::SeekFrom::End(0)).await {
+                        warn!(
+                            path = %file_path.display(),
+                            "failed to seek coordinator state file: {err}"
+                        );
+                        return;
+                    }
                     while let Some(coord) = rx.recv().await {
                         let timestamp = chrono::Utc::now().timestamp_millis();
                         let mut buf = Vec::with_capacity(
@@ -349,8 +375,11 @@ impl App {
                         buf.extend_from_slice(bytemuck::bytes_of(&coord));
                         if let Err(e) = file.write_all(&buf).await {
                             tracing::warn!("Failed to write coordinator record: {e}");
+                            continue;
                         }
-                        let _ = file.flush().await;
+                        if let Err(e) = file.flush().await {
+                            tracing::warn!("Failed to flush coordinator record: {e}");
+                        }
                     }
                 });
                 Some(tx)
