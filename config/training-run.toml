@@ -1,5 +1,5 @@
 [server]
-state_path = "config/aether0-500m/state.toml"
+state_path = "config/aether0-500m/state_distro.toml"
 experiment_path = "config/experiment-run.toml"
 server_port = 39405
 live_web_port = 8081
@@ -25,7 +25,7 @@ trust_remote_code = false
 enabled = true
 script = "scripts/push-new-model-hf.py"
 config = "config/aether0-500m/model-config.json"
-repo = "aethercompute/aether0-500m"
+repo = "aethercompute/aether0-500m-distro-150m-tokens"
 tokenizer = "deepseek-ai/DeepSeek-V3"
 private = false
 dtype = "bfloat16"

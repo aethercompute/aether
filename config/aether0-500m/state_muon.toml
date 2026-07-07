@@ -1,4 +1,4 @@
-run_id = "aether0-500m-muon"
+run_id = "aether0-500m-muon-150m-tokens"
 run_state = "WaitingForMembers"
 
 [config]
@@ -10,15 +10,15 @@ round_witness_time = 14
 min_clients = 1
 init_min_clients = 1
 
-# Fixed global batch size: 768 sequences * 512 tokens = 393,216 tokens/step.
-# 64 steps consume 49,152 sequences = ~25M tokens.
+# Muon v2 LR probe: same as the current best lr010-nonest run, but hotter.
+# This tests whether BF16 top-k=6 no-Nesterov Muon is still under-stepping.
 global_batch_size_start = 768
 global_batch_size_end = 768
 global_batch_size_warmup_tokens = 0
 
 verification_percent = 0
 witness_nodes = 1
-total_steps = 64
+total_steps = 384
 waiting_for_members_extra_time = 120
 
 [model.LLM]
@@ -31,23 +31,23 @@ cold_start_warmup_steps = 0
 Server = "167.233.75.197:39406"
 
 [model.LLM.checkpoint.Hub]
-repo_id = "aethercompute/aether0-500m-muon"
+repo_id = "aethercompute/aether0-500m-muon-v2-bf16-topk6-lr015-nonest"
 
 [model.LLM.lr_schedule.Cosine]
-base_lr = 6.0e-3
-warmup_steps = 8
+base_lr = 1.5e-2
+warmup_steps = 24
 warmup_init_lr = 0.0
-total_steps = 64
-final_lr = 6.0e-4
+total_steps = 384
+final_lr = 1.5e-3
 
 [model.LLM.optimizer.Muon]
 momentum = 0.95
 weight_decay = 0.1
 clip_grad_norm = 1.0
-nesterov = true
+nesterov = false
 ns_steps = 5
 lookahead = false
 compression_decay = 1.0
-compression_topk = 8
+compression_topk = 6
 compression_chunk = 64
-quantize_1bit = true
+quantize_1bit = false
