@@ -86,7 +86,7 @@ mod tests {
     use tempfile::TempDir;
     use test_log::test;
     use tokio::time::timeout;
-    use tracing::{debug, info};
+    use tracing::{debug, info, warn};
 
     use crate::{http::HttpDataProvider, TokenizedDataProvider, WeightedDataProvider};
 
@@ -101,7 +101,9 @@ mod tests {
 
     impl Drop for TestServer {
         fn drop(&mut self) {
-            self.cancel.send(()).unwrap();
+            if self.cancel.send(()).is_err() {
+                debug!("test server shutdown receiver already dropped");
+            }
         }
     }
 
@@ -128,10 +130,16 @@ mod tests {
 
             let (tx_port, rx_port) = tokio::sync::oneshot::channel();
             std::thread::spawn(move || {
-                static_web_server::Server::new(settings)
-                    .unwrap()
-                    .run_standalone(Some(rx_cancel), tx_port)
-                    .unwrap();
+                let server = match static_web_server::Server::new(settings) {
+                    Ok(server) => server,
+                    Err(err) => {
+                        warn!("failed to start static test web server: {err}");
+                        return;
+                    }
+                };
+                if let Err(err) = server.run_standalone(Some(rx_cancel), tx_port) {
+                    warn!("static test web server exited with error: {err}");
+                }
             });
             let port = rx_port.await?;
             let addr = SocketAddr::new("127.0.0.1".parse()?, port);

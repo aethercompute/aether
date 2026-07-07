@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use parquet::{
     errors::ParquetError,
     file::reader::{FileReader, SerializedFileReader},
@@ -10,6 +10,7 @@ use std::{
     fs::File,
     path::{Path, PathBuf},
 };
+use tracing::warn;
 
 pub type Row = parquet::record::Row;
 pub type Field = parquet::record::Field;
@@ -143,9 +144,8 @@ impl Dataset {
                         Some(split) => {
                             if file
                                 .file_name()
-                                .unwrap()
-                                .to_string_lossy()
-                                .starts_with(&split.to_string())
+                                .map(|name| name.to_string_lossy().starts_with(&split.to_string()))
+                                .unwrap_or(false)
                             {
                                 to_load.push(file.clone());
                             }
@@ -164,22 +164,20 @@ impl Dataset {
                 bail!("Could not determine split");
             }
         };
-        to_load.sort_by(|a, b| a.file_stem().unwrap().cmp(b.file_stem().unwrap()));
+        to_load.sort_by(|a, b| a.file_stem().cmp(&b.file_stem()));
         let files: std::io::Result<Vec<File>> = to_load.into_iter().map(File::open).collect();
         let files: Result<Vec<SerializedFileReader<File>>, ParquetError> =
             files?.into_iter().map(SerializedFileReader::new).collect();
         let files = files?;
-        if files[0].metadata().file_metadata().num_rows() == 0 {
+        let first_file = files.first().context("No files in dataset")?;
+        if first_file.metadata().file_metadata().num_rows() == 0 {
             bail!("Empty dataset");
         }
-        let first_row = files[0]
-            .get_row_group(0)
-            .unwrap()
-            .get_row_iter(None)
-            .unwrap()
+        let first_row = first_file
+            .get_row_group(0)?
+            .get_row_iter(None)?
             .next()
-            .unwrap()
-            .unwrap();
+            .context("Empty dataset")??;
         let columns = first_row.get_column_iter().collect::<Vec<_>>();
         let column_ids = HashMap::from_iter(
             columns
@@ -213,7 +211,15 @@ impl Dataset {
 
     pub fn iter(&self) -> DatasetIter<'_> {
         let mut files_iter = self.files.iter();
-        let row_iter = files_iter.next().unwrap().get_row_iter(None).unwrap();
+        let row_iter = files_iter
+            .next()
+            .and_then(|file| match file.get_row_iter(None) {
+                Ok(iter) => Some(iter),
+                Err(err) => {
+                    warn!("failed to read parquet rows: {err}");
+                    None
+                }
+            });
         DatasetIter {
             files_iter,
             row_iter,
@@ -231,23 +237,33 @@ impl Dataset {
 
 pub struct DatasetIter<'a> {
     files_iter: std::slice::Iter<'a, SerializedFileReader<File>>,
-    row_iter: RowIter<'a>,
+    row_iter: Option<RowIter<'a>>,
 }
 
 impl Iterator for DatasetIter<'_> {
     type Item = Row;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.row_iter.next() {
-            Some(Ok(item)) => Some(item),
-            Some(Err(_)) => None,
-            None => match self.files_iter.next() {
-                Some(file) => {
-                    self.row_iter = file.get_row_iter(None).unwrap();
-                    self.next()
+        loop {
+            if let Some(row_iter) = &mut self.row_iter {
+                match row_iter.next() {
+                    Some(Ok(item)) => return Some(item),
+                    Some(Err(err)) => {
+                        warn!("failed to read parquet row: {err}");
+                        continue;
+                    }
+                    None => {}
                 }
-                None => None,
-            },
+            }
+
+            let file = self.files_iter.next()?;
+            self.row_iter = match file.get_row_iter(None) {
+                Ok(iter) => Some(iter),
+                Err(err) => {
+                    warn!("failed to read parquet rows: {err}");
+                    None
+                }
+            };
         }
     }
 }

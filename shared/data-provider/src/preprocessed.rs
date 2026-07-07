@@ -13,21 +13,21 @@ use rand::seq::SliceRandom;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
-fn field_to_int(field: &Field) -> i32 {
+fn field_to_int(field: &Field) -> Result<i32> {
     match field {
         Field::Bool(x) => match x {
-            true => 1,
-            false => 0,
+            true => Ok(1),
+            false => Ok(0),
         },
-        Field::Byte(x) => *x as i32,
-        Field::Short(x) => *x as i32,
-        Field::Int(x) => *x,
-        Field::Long(x) => *x as i32,
-        Field::UByte(x) => *x as i32,
-        Field::UShort(x) => *x as i32,
-        Field::UInt(x) => *x as i32,
-        Field::ULong(x) => *x as i32,
-        _ => panic!("Non-integer data type"),
+        Field::Byte(x) => Ok(*x as i32),
+        Field::Short(x) => Ok(*x as i32),
+        Field::Int(x) => Ok(*x),
+        Field::Long(x) => Ok(*x as i32),
+        Field::UByte(x) => Ok(*x as i32),
+        Field::UShort(x) => Ok(*x as i32),
+        Field::UInt(x) => Ok(*x as i32),
+        Field::ULong(x) => Ok(*x as i32),
+        _ => bail!("Non-integer data type: {field:?}"),
     }
 }
 
@@ -37,11 +37,15 @@ fn list_to_vec(row: &Row, column: usize, required_len: Option<usize>) -> Result<
         .elements()
         .iter()
         .map(field_to_int)
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
     if let Some(required_len) = required_len {
         let len = ret.len();
         if len != required_len {
-            let column_name = row.get_column_iter().nth(column).unwrap().0;
+            let column_name = row
+                .get_column_iter()
+                .nth(column)
+                .map(|(name, _)| name.as_str())
+                .unwrap_or("<unknown>");
             bail!("`{column_name}` has length {len} instead of {required_len}");
         }
     }
