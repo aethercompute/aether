@@ -61,5 +61,9 @@ deny:
 
 # ── meta ─────────────────────────────────────────────────────────────────────
 # Everything CI runs locally, in one command.
-ci-local: fmt-check clippy test deny
+ci-local:
+    bash scripts/ci-local.sh
+
+# Same checks as ci-local, but run sequentially for easier debugging.
+ci-local-sequential: fmt-check clippy test deny
     @echo "ci suite green"
