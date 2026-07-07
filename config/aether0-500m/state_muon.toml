@@ -10,8 +10,8 @@ round_witness_time = 14
 min_clients = 1
 init_min_clients = 1
 
-# Muon v2 LR probe: same as the current best lr010-nonest run, but hotter.
-# This tests whether BF16 top-k=6 no-Nesterov Muon is still under-stepping.
+# Fixed global batch size: 768 sequences * 512 tokens = 393,216 tokens/step.
+# 384 steps consume 294,912 sequences = ~151M tokens.
 global_batch_size_start = 768
 global_batch_size_end = 768
 global_batch_size_warmup_tokens = 0
