@@ -7,7 +7,7 @@ use aether_tui::{
     logging::{MetricsDestination, OpenTelemetry, RemoteLogsDestination, TraceDestination},
     maybe_start_render_loop, LogOutput, ServiceInfo,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::{path::PathBuf, time::Duration};
 use time::OffsetDateTime;
@@ -127,7 +127,7 @@ async fn async_main() -> Result<()> {
             let (mut app, allowlist, p2p, state_options) =
                 build_app(cancel, server_addr, tx_tui_state, args)
                     .await
-                    .unwrap();
+                    .context("failed to build centralized client app")?;
 
             app.run(allowlist, p2p, state_options).await?;
             logger.shutdown()?;
@@ -153,7 +153,7 @@ fn main() -> Result<()> {
         .max_blocking_threads(8192)
         .thread_stack_size(256 * 1024 * 1024)
         .build()
-        .unwrap();
+        .context("failed to build tokio runtime")?;
     runtime.block_on(async_main())?;
     // shutdown_handler.shutdown()?;
     Ok(())

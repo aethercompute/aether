@@ -19,7 +19,7 @@ use tokio::sync::mpsc::Sender;
 use tokio::time::interval;
 use tokio::{select, sync::mpsc, time::Interval};
 use tokio_util::sync::CancellationToken;
-use tracing::debug;
+use tracing::{debug, warn};
 
 pub(super) type Tabs = TabbedWidget<(ClientTUI, CoordinatorTui, NetworkTui, LoggerWidget)>;
 pub const TAB_NAMES: [&str; 4] = ["Client", "Coordinator", "Network", "Logger"];
@@ -46,13 +46,11 @@ impl WatcherBackend for Backend {
             .recv()
             .await
             .ok_or(Error::msg("watcher backend rx channel closed"))?;
-        self.allowlist.set(
-            new_state
-                .epoch_state
-                .clients
-                .iter()
-                .map(|c| EndpointId::from_bytes(c.id.p2p_identity()).unwrap()),
-        );
+        self.allowlist.set(new_state.epoch_state.clients.iter().filter_map(|c| {
+            EndpointId::from_bytes(c.id.p2p_identity())
+                .map_err(|err| warn!(client_id = %c.id, "invalid p2p identity in coordinator state: {err}"))
+                .ok()
+        }));
         Ok(new_state)
     }
 
@@ -226,12 +224,12 @@ impl App {
                 }
                 Some(to_send) = rx_to_server_message.recv() => {
                     let (msg, call_type) = match to_send {
-                        ToSend::Witness(ref w) => {
-                            let ct = match **w {
+                        ToSend::Witness(w) => {
+                            let call_type = match *w {
                                 OpportunisticData::WitnessStep(..) => RpcCallType::Witness,
                                 OpportunisticData::WarmupStep(..) => RpcCallType::WarmupWitness,
                             };
-                            (ClientToServerMessage::Witness(match to_send { ToSend::Witness(w) => w, _ => unreachable!() }), ct)
+                            (ClientToServerMessage::Witness(w), call_type)
                         }
                         ToSend::HealthCheck(hc) => (ClientToServerMessage::HealthCheck(hc), RpcCallType::HealthCheck),
                         ToSend::Checkpoint(cp) => (ClientToServerMessage::Checkpoint(cp), RpcCallType::Checkpoint),
