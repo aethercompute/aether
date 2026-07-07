@@ -28,6 +28,8 @@ pub enum Communicator {
     NCCL(CNCCL),
 }
 
+// SAFETY: communicators are shared by `Arc` and collective operations are
+// sequenced by the trainer/barrier logic; this only permits moving handles.
 unsafe impl Send for Communicator {}
 
 #[cfg(feature = "parallelism")]
@@ -424,6 +426,8 @@ impl Module for ColumnParallelLinear {
     }
 }
 
+// SAFETY: layer modules own tch handles and are moved to a single model worker;
+// forward calls are externally sequenced by the trainer.
 unsafe impl Send for ColumnParallelLinear {}
 
 impl RowParallelLinear {
@@ -484,6 +488,8 @@ impl Module for RowParallelLinear {
     }
 }
 
+// SAFETY: layer modules own tch handles and are moved to a single model worker;
+// forward calls are externally sequenced by the trainer.
 unsafe impl Send for RowParallelLinear {}
 
 #[allow(unused)]

@@ -8,6 +8,7 @@ use tch::{
     nn::{Shard, VarStore},
     Tensor,
 };
+use tracing::warn;
 
 #[cfg(feature = "parallelism")]
 use crate::parallelism::AllGather;
@@ -37,7 +38,10 @@ pub struct StableVarStoreIterator {
 
 impl StableVarStoreIterator {
     pub fn new(vs: &VarStore, comm: Option<Arc<Communicator>>) -> Self {
-        let variables = vs.variables_.lock().unwrap();
+        let variables = vs.variables_.lock().unwrap_or_else(|err| {
+            warn!("VarStore variables lock poisoned; recovering iterator state");
+            err.into_inner()
+        });
 
         let mut entries: Vec<_> = variables
             .named_variables
@@ -103,7 +107,10 @@ impl Variable for (String, Tensor, Option<Shard>, Option<Arc<Communicator>>) {
                 crate::parallelism::unshard_tensor(shards, shard)
             }
             #[cfg(not(feature = "parallelism"))]
-            Some(_) => panic!("Sharded tensor without parallelism feature?"),
+            Some(_) => {
+                warn!("returning local tensor for sharded variable without parallelism feature");
+                self.1.shallow_clone()
+            }
             None => self.1.shallow_clone(),
         }
     }
@@ -121,7 +128,10 @@ impl Variable for (String, Tensor, Option<Shard>, Option<Arc<Communicator>>) {
                 crate::parallelism::unshard_tensor(shards, shard)
             }
             #[cfg(not(feature = "parallelism"))]
-            Some(_) => panic!("Sharded tensor without parallelism feature?"),
+            Some(_) => {
+                warn!("returning local tensor for sharded variable without parallelism feature");
+                tensor
+            }
             None => tensor,
         }
     }

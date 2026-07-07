@@ -4,11 +4,11 @@ use iroh::endpoint::{AfterHandshakeOutcome, ConnectionInfo, EndpointHooks};
 use iroh::{EndpointId, Watcher};
 use n0_future::task::AbortOnDropHandle;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinSet;
-use tracing::{debug, info, Instrument};
+use tracing::{debug, info, warn, Instrument};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PeerBandwidth {
@@ -67,6 +67,24 @@ impl Default for ConnectionMonitor {
 }
 
 impl ConnectionMonitor {
+    fn read_connections(
+        connections: &RwLock<HashMap<EndpointId, ConnectionData>>,
+    ) -> RwLockReadGuard<'_, HashMap<EndpointId, ConnectionData>> {
+        connections.read().unwrap_or_else(|err| {
+            warn!("connection monitor RwLock poisoned; recovering read access");
+            err.into_inner()
+        })
+    }
+
+    fn write_connections(
+        connections: &RwLock<HashMap<EndpointId, ConnectionData>>,
+    ) -> RwLockWriteGuard<'_, HashMap<EndpointId, ConnectionData>> {
+        connections.write().unwrap_or_else(|err| {
+            warn!("connection monitor RwLock poisoned; recovering write access");
+            err.into_inner()
+        })
+    }
+
     async fn run(
         mut rx: UnboundedReceiver<ConnectionInfo>,
         connections: Arc<RwLock<HashMap<EndpointId, ConnectionData>>>,
@@ -97,7 +115,7 @@ impl ConnectionMonitor {
                     }
 
                     {
-                        let mut conns = connections.write().unwrap();
+                        let mut conns = Self::write_connections(&connections);
                         let prev_bandwidth = conns
                             .get(&remote_id)
                             .map(|d| d.bandwidth)
@@ -123,7 +141,7 @@ impl ConnectionMonitor {
                                 _ = update_interval.tick() => {
                                     let selected_path = Self::extract_selected_path(&paths_watcher);
 
-                                    let mut conns = connections_clone.write().unwrap();
+                                    let mut conns = Self::write_connections(&connections_clone);
                                     if let Some(data) = conns.get_mut(&remote_id) {
                                         let path_changed = data.selected_path != selected_path;
 
@@ -186,7 +204,7 @@ impl ConnectionMonitor {
                                         }
                                     }
                                     // Keep the entry (preserving bandwidth) but clear path info
-                                    if let Some(data) = connections_clone.write().unwrap().get_mut(&remote_id) {
+                                    if let Some(data) = Self::write_connections(&connections_clone).get_mut(&remote_id) {
                                         data.selected_path = None;
                                     }
                                     break;
@@ -196,14 +214,18 @@ impl ConnectionMonitor {
                     }.instrument(tracing::Span::current()));
                 }
                 Some(res) = tasks.join_next(), if !tasks.is_empty() => {
-                    res.expect("connection close task panicked");
+                    if let Err(err) = res {
+                        warn!("connection monitor task failed: {err}");
+                    }
                 }
                 else => break,
             }
         }
 
         while let Some(res) = tasks.join_next().await {
-            res.expect("connection close task panicked");
+            if let Err(err) = res {
+                warn!("connection monitor task failed: {err}");
+            }
         }
     }
 
@@ -223,7 +245,7 @@ impl ConnectionMonitor {
 
     /// update bandwidth for a specific peer from application-level download data
     pub fn update_peer_bandwidth(&self, endpoint_id: &EndpointId, bandwidth: PeerBandwidth) {
-        let mut conns = self.connections.write().unwrap();
+        let mut conns = Self::write_connections(&self.connections);
         if let Some(data) = conns.get_mut(endpoint_id) {
             data.bandwidth = bandwidth;
         }
@@ -231,31 +253,31 @@ impl ConnectionMonitor {
 
     /// get connection data for a specific endpoint
     pub fn get_connection(&self, endpoint_id: &EndpointId) -> Option<ConnectionData> {
-        let conns = self.connections.read().unwrap();
+        let conns = Self::read_connections(&self.connections);
         conns.get(endpoint_id).cloned()
     }
 
     /// get all active connections
     pub fn get_all_connections(&self) -> Vec<ConnectionData> {
-        let conns = self.connections.read().unwrap();
+        let conns = Self::read_connections(&self.connections);
         conns.values().cloned().collect()
     }
 
     /// get latency for a specific endpoint
     pub fn get_latency(&self, endpoint_id: &EndpointId) -> Option<Duration> {
-        let conns = self.connections.read().unwrap();
+        let conns = Self::read_connections(&self.connections);
         conns.get(endpoint_id).and_then(|data| data.latency())
     }
 
     /// get measured throughput for a specific endpoint
     pub fn get_bandwidth(&self, endpoint_id: &EndpointId) -> Option<PeerBandwidth> {
-        let conns = self.connections.read().unwrap();
+        let conns = Self::read_connections(&self.connections);
         conns.get(endpoint_id).map(|data| data.bandwidth)
     }
 
     /// reset all bandwidth measurements to NotMeasured
     pub fn clear_all_bandwidth(&self) {
-        let mut conns = self.connections.write().unwrap();
+        let mut conns = Self::write_connections(&self.connections);
         for data in conns.values_mut() {
             data.bandwidth = PeerBandwidth::NotMeasured;
         }

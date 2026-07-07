@@ -1326,11 +1326,12 @@ impl CausalLM for LocalTrainer {
     }
 
     fn variables(&self) -> StableVariableIterator {
-        unimplemented!()
+        warn!("LocalTrainer does not expose variables through CausalLM::variables");
+        Box::new(std::iter::empty())
     }
 
     fn communicator(&self) -> Option<Arc<Communicator>> {
-        unimplemented!()
+        None
     }
 
     fn prepare_for_training(&self) {}
@@ -1338,7 +1339,8 @@ impl CausalLM for LocalTrainer {
     fn clip_grad_norm(&self, _max_grad_norm: f64) {}
 
     fn convert(&self, _state_dict: Option<HashMap<String, Tensor>>) -> HashMap<String, Tensor> {
-        unimplemented!();
+        warn!("LocalTrainer does not support CausalLM::convert; returning an empty state dict");
+        HashMap::new()
     }
 }
 

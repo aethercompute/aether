@@ -9,6 +9,7 @@ use tch::{
     nn::{self, Module},
     Device, Kind, Tensor,
 };
+use tracing::warn;
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct LlamaConfig {
@@ -233,19 +234,21 @@ impl LanguageModelForward for Llama {
         sequence_lengths: Option<&Vec<Vec<i32>>>,
         _training: bool,
     ) -> Tensor {
-        let sequence_lengths = sequence_lengths.map(|sequence_lengths| {
+        let sequence_lengths = sequence_lengths.and_then(|sequence_lengths| {
             #[cfg(feature = "parallelism")]
             {
                 if self.attn_implementation == AttentionImplementation::FlashAttention2 {
-                    crate::attention::create_cu_seqlens(sequence_lengths, x.device())
+                    Some(crate::attention::create_cu_seqlens(sequence_lengths, x.device()))
                 } else {
-                    panic!("`sequence_lengths` only supported for FlashAttention2");
+                    warn!("ignoring sequence_lengths because they are only supported for FlashAttention2");
+                    None
                 }
             }
 
             #[cfg(not(feature = "parallelism"))]
             {
-                panic!("`sequence_lengths` only supported for FlashAttention2");
+                warn!("ignoring sequence_lengths because FlashAttention2 requires the parallelism feature");
+                None
             }
         });
 

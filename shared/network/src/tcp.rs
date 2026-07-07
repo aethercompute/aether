@@ -313,7 +313,7 @@ where
     pub async fn receive(&mut self) -> anyhow::Result<ToClient> {
         match Self::receive_message(&mut self.framed).await? {
             ServerToClientMessage::Else(message) => Ok(message),
-            // TODO errors here
+            // Challenge messages are only valid during the handshake.
             ServerToClientMessage::Challenge(_) => Err(anyhow!("Unexpected challenge message")),
         }
     }

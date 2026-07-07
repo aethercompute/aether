@@ -17,6 +17,7 @@ use tch::{
     Device, Kind, Tensor,
 };
 use torch_sys::IntList;
+use tracing::warn;
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub enum ScoringFunc {
@@ -171,6 +172,8 @@ struct MLAAttention {
     comm: Option<Arc<Communicator>>,
 }
 
+// SAFETY: `MLAAttention` owns tch module handles and is moved with its model;
+// forward calls are externally sequenced by the trainer.
 unsafe impl Send for MLAAttention {}
 
 impl MLAAttention {
@@ -332,7 +335,17 @@ impl MLAAttention {
                 q_b_proj.forward(&q_compressed)
             }
             (None, None, None, Some(q_proj)) => q_proj.forward(x),
-            _ => panic!("Unexpected MLA proj combination"),
+            _ => {
+                warn!("unexpected MLA projection combination; using zero query projection");
+                Tensor::zeros(
+                    [
+                        b,
+                        t,
+                        self.num_local_heads * (self.qk_nope_head_dim + self.qk_rope_head_dim),
+                    ],
+                    (kind, x.device()),
+                )
+            }
         };
 
         let q = q.view([b, t, self.num_local_heads, -1]).transpose(1, 2);
@@ -967,19 +980,21 @@ impl LanguageModelForward for Deepseek {
             assert!(!training, "DeepseekMoE training not yet supported");
         }
 
-        let sequence_lengths = sequence_lengths.map(|sequence_lengths| {
+        let sequence_lengths = sequence_lengths.and_then(|sequence_lengths| {
             #[cfg(feature = "parallelism")]
             {
                 if self.attn_implementation == AttentionImplementation::FlashAttention2 {
-                    crate::attention::create_cu_seqlens(sequence_lengths, x.device())
+                    Some(crate::attention::create_cu_seqlens(sequence_lengths, x.device()))
                 } else {
-                    panic!("`sequence_lengths` only supported for FlashAttention2");
+                    warn!("ignoring sequence_lengths because they are only supported for FlashAttention2");
+                    None
                 }
             }
 
             #[cfg(not(feature = "parallelism"))]
             {
-                panic!("`sequence_lengths` only supported for FlashAttention2");
+                warn!("ignoring sequence_lengths because FlashAttention2 requires the parallelism feature");
+                None
             }
         });
 

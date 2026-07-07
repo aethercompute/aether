@@ -8,7 +8,7 @@ use std::fs;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
-use tracing::error;
+use tracing::{error, warn};
 
 pub type BoxStream<T> = Pin<Box<dyn Stream<Item = T> + Send + 'static>>;
 
@@ -38,7 +38,13 @@ impl iroh::address_lookup::AddressLookup for LocalTestDiscovery {
     fn publish(&self, data: &EndpointData) {
         // Create discovery directory if it doesn't exist
         let discovery_dir = Self::get_discovery_dir();
-        fs::create_dir_all(&discovery_dir).expect("Failed to create discovery directory");
+        if let Err(err) = fs::create_dir_all(&discovery_dir) {
+            warn!(
+                path = %discovery_dir.display(),
+                "failed to create local discovery directory: {err}"
+            );
+            return;
+        }
 
         // Prepare endpoint info for storage
         let endpoint_info = StoredNodeInfo {
@@ -55,9 +61,19 @@ impl iroh::address_lookup::AddressLookup for LocalTestDiscovery {
 
         // Serialize and write to file
         let file_path = Self::get_endpoint_file_path(&self.0);
-        let content =
-            serde_json::to_string(&endpoint_info).expect("Failed to serialize endpoint info");
-        fs::write(file_path, content).expect("Failed to write endpoint info to file");
+        let content = match serde_json::to_string(&endpoint_info) {
+            Ok(content) => content,
+            Err(err) => {
+                warn!("failed to serialize local endpoint info: {err}");
+                return;
+            }
+        };
+        if let Err(err) = fs::write(&file_path, content) {
+            warn!(
+                path = %file_path.display(),
+                "failed to write local endpoint info: {err}"
+            );
+        }
     }
 
     fn resolve(
@@ -107,7 +123,7 @@ impl iroh::address_lookup::AddressLookup for LocalTestDiscovery {
             Some(
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_micros() as u64,
             ),
         );

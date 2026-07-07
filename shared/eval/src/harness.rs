@@ -14,7 +14,7 @@ use std::{collections::HashMap, fmt::Display, sync::Arc};
 use tch::{Kind, Tensor};
 use tokenizers::Tokenizer;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{info, warn};
 const GENERATE_UNTIL_MAX_TOKENS: usize = 1024;
 
 pub const PROGRESS_BAR_TEMPLATE: &str =
@@ -106,7 +106,7 @@ enum PreparedTaskType {
         // in case the task gets interrupted, so next time we can resume from where we left off.
         cache: Arc<RwLock<HashMap<usize, Vec<u32>>>>,
         stop_tokens: Vec<String>,
-        answer_extraction_regex: Regex,
+        answer_extraction_regex: Option<Regex>,
     },
 }
 
@@ -159,13 +159,13 @@ impl TokenizedLLHDocument {
         };
 
         // Tokenize context once (full fewshots + question up to "Answer:")
-        let context_tokens: Vec<i64> = tokenizer
-            .encode(context_string.as_str(), false)
-            .unwrap()
-            .get_ids()
-            .iter()
-            .map(|x| *x as i64)
-            .collect();
+        let context_tokens: Vec<i64> = match tokenizer.encode(context_string.as_str(), false) {
+            Ok(tokens) => tokens.get_ids().iter().map(|x| *x as i64).collect(),
+            Err(err) => {
+                warn!("failed to tokenize evaluation context: {err}");
+                Vec::new()
+            }
+        };
 
         let bos_token_id = bos_token_id(tokenizer);
 
@@ -174,17 +174,20 @@ impl TokenizedLLHDocument {
 
             // Tokenize the full context+choice string
             let full_string = format!("{} {}", context_string, choice);
-            let full_tokens: Vec<i64> = tokenizer
-                .encode(full_string.as_str(), false)
-                .unwrap()
-                .get_ids()
-                .iter()
-                .map(|x| *x as i64)
-                .collect();
+            let full_tokens: Vec<i64> = match tokenizer.encode(full_string.as_str(), false) {
+                Ok(tokens) => tokens.get_ids().iter().map(|x| *x as i64).collect(),
+                Err(err) => {
+                    warn!("failed to tokenize evaluation choice: {err}");
+                    Vec::new()
+                }
+            };
 
             // Extract only the choice tokens (the new tokens beyond context_tokens)
             // We do this to avoid an extra space that was appearing otherwise
-            let choice_tokens = full_tokens[context_tokens.len()..].to_vec();
+            let choice_tokens = full_tokens
+                .get(context_tokens.len()..)
+                .unwrap_or_default()
+                .to_vec();
 
             // BOS + context + choice (BOS only if the tokenizer defines one)
             let mut full_request =
@@ -200,12 +203,14 @@ impl TokenizedLLHDocument {
 
             if TASKS_WITH_ACC_UNCOND.contains(&doc.eval_name.as_str()) {
                 let acc_uncond_fmt = format!("Answer: {choice}");
-                for idx in *choices_token_len.last().unwrap()..full_tokens.len() {
+                for idx in choice_tokens.len()..full_tokens.len() {
                     let acc_uncond_tokens = &full_tokens[full_tokens.len() - idx..]
                         .iter()
                         .map(|x| *x as u32)
                         .collect::<Vec<_>>();
-                    let acc_uncond_str = tokenizer.decode(acc_uncond_tokens, false).unwrap();
+                    let Ok(acc_uncond_str) = tokenizer.decode(acc_uncond_tokens, false) else {
+                        continue;
+                    };
                     if acc_uncond_str.contains(&acc_uncond_fmt) {
                         let acc_uncond_tokens = acc_uncond_tokens
                             .iter()
@@ -312,10 +317,11 @@ impl Task {
                 // Prepare prompts for each document
                 for doc in &docs {
                     // Get the category for this document
-                    let category = doc.category.as_deref().unwrap();
+                    let category = doc.category.as_deref().unwrap_or("general");
 
                     // Get fewshot examples for this category
-                    let fewshot_examples = fewshot.get(category).map(|v| v.as_slice()).unwrap();
+                    let fewshot_examples =
+                        fewshot.get(category).map(|v| v.as_slice()).unwrap_or(&[]);
 
                     // Build the prompt string
 
@@ -337,7 +343,7 @@ impl Task {
                         }
 
                         // Replace "A:" with "Answer:" in cot_content
-                        let mut cot_content = example.cot_content.as_ref().unwrap().clone();
+                        let mut cot_content = example.cot_content.clone().unwrap_or_default();
                         if cot_content.starts_with("A:") {
                             cot_content = format!("Answer:{}", &cot_content[2..]);
                         }
@@ -359,13 +365,17 @@ impl Task {
                     request_str.push_str("Answer: Let's think step by step.");
 
                     // Tokenize the request
-                    let request = tokenizer
-                        .encode(request_str.clone(), false)
-                        .unwrap()
-                        .get_ids()
-                        .iter()
-                        .map(|x| *x as i64)
-                        .collect::<Vec<_>>();
+                    let request = match tokenizer.encode(request_str.clone(), false) {
+                        Ok(tokens) => tokens
+                            .get_ids()
+                            .iter()
+                            .map(|x| *x as i64)
+                            .collect::<Vec<_>>(),
+                        Err(err) => {
+                            warn!("failed to tokenize generate-until request: {err}");
+                            continue;
+                        }
+                    };
 
                     // Create the tokenized document
                     let tokenized_doc = TokenizedGenerateUntilDocument {
@@ -378,8 +388,15 @@ impl Task {
                 }
 
                 let stop_tokens = gu_docs.get_stop_string();
-                let answer_extraction_regex =
-                    Regex::new(&gu_docs.get_answer_extraction_regex()).unwrap();
+                let answer_extraction_regex = match Regex::new(
+                    &gu_docs.get_answer_extraction_regex(),
+                ) {
+                    Ok(regex) => Some(regex),
+                    Err(err) => {
+                        warn!("invalid answer extraction regex; generated answers will score as incorrect: {err}");
+                        None
+                    }
+                };
 
                 PreparedTask {
                     name,
@@ -418,12 +435,14 @@ impl PreparedTask {
                 // No progress bar created already so create a new one
                 info!("Running {}", self.name);
                 let pbar = ProgressBar::new(self.num as u64);
-                pbar.set_style(
-                    ProgressStyle::default_bar()
-                        .template(PROGRESS_BAR_TEMPLATE)
-                        .unwrap()
-                        .progress_chars("#>-"),
-                );
+                let style = ProgressStyle::default_bar()
+                    .template(PROGRESS_BAR_TEMPLATE)
+                    .unwrap_or_else(|err| {
+                        warn!("invalid progress bar template, using default style: {err}");
+                        ProgressStyle::default_bar()
+                    })
+                    .progress_chars("#>-");
+                pbar.set_style(style);
                 Some(Arc::new(pbar))
             }
         };
@@ -534,9 +553,19 @@ impl PreparedTask {
                 };
 
                 // Shape: [choice.len(), vocab_size]
-                let logits = logits.unwrap().squeeze_dim(0);
+                let Some(logits) = logits else {
+                    warn!("model returned no logits for log-likelihood evaluation request");
+                    continue;
+                };
+                let logits = logits.squeeze_dim(0);
 
-                let greedy_tokens: Vec<i64> = logits.argmax(-1, false).try_into().unwrap();
+                let greedy_tokens: Vec<i64> = match logits.argmax(-1, false).try_into() {
+                    Ok(tokens) => tokens,
+                    Err(err) => {
+                        warn!("failed to convert greedy tokens: {err}");
+                        continue;
+                    }
+                };
                 let exact_match = greedy_tokens.eq(&choice);
 
                 let choice_log_prob = logits.log_softmax(-1, None).gather(
@@ -545,36 +574,47 @@ impl PreparedTask {
                     false,
                 );
 
-                let loglikelihood: f32 = choice_log_prob.sum(Kind::Float).try_into().unwrap();
+                let loglikelihood: f32 = match choice_log_prob.sum(Kind::Float).try_into() {
+                    Ok(loglikelihood) => loglikelihood,
+                    Err(err) => {
+                        warn!("failed to convert log-likelihood score: {err}");
+                        continue;
+                    }
+                };
                 scores.push((loglikelihood, exact_match));
+            }
+
+            if scores.is_empty() {
+                warn!("skipping evaluation document because no choice scores were produced");
+                continue;
             }
 
             if TASKS_WITH_ACC_UNCOND.contains(&eval_name.as_str()) {
                 for idx in 0..doc.requests.len() {
-                    let loglikelihood_uncond =
-                        calculate_unconditional_loglikelihood(doc, idx, options.model);
-                    scores_uncond.push(loglikelihood_uncond);
+                    if let Some(loglikelihood_uncond) =
+                        calculate_unconditional_loglikelihood(doc, idx, options.model)
+                    {
+                        scores_uncond.push(loglikelihood_uncond);
+                    } else {
+                        scores_uncond.push(0.0);
+                    }
                 }
             }
 
-            let selected: i64 = Tensor::from_slice(&scores.iter().map(|x| x.0).collect::<Vec<_>>())
-                .argmax(-1, false)
-                .try_into()
-                .unwrap();
-            let selected_norm: i64 = Tensor::from_slice(
+            let selected =
+                argmax_f32(&scores.iter().map(|x| x.0).collect::<Vec<_>>()).unwrap_or_default();
+            let selected_norm = argmax_f32(
                 &scores
                     .iter()
                     .enumerate()
                     .map(|(idx, score)| score.0 / (doc.choices_str[idx].len() as f32))
                     .collect::<Vec<_>>(),
             )
-            .argmax(-1, false)
-            .try_into()
-            .unwrap();
+            .unwrap_or_default();
 
             results.push(
                 "acc",
-                match selected as usize == doc.answer {
+                match selected == doc.answer {
                     true => 1.,
                     false => 0.,
                 },
@@ -583,7 +623,7 @@ impl PreparedTask {
             if TASKS_WITH_ACC_NORM.contains(&eval_name.as_str()) {
                 results.push(
                     "acc_norm",
-                    match selected_norm as usize == doc.answer {
+                    match selected_norm == doc.answer {
                         true => 1.,
                         false => 0.,
                     },
@@ -591,20 +631,18 @@ impl PreparedTask {
             }
 
             if TASKS_WITH_ACC_UNCOND.contains(&eval_name.as_str()) {
-                let selected_uncond: i64 = Tensor::from_slice(
+                let selected_uncond = argmax_f32(
                     &scores
                         .iter()
                         .enumerate()
                         .map(|(idx, score)| score.0 - scores_uncond[idx])
                         .collect::<Vec<_>>(),
                 )
-                .argmax(-1, false)
-                .try_into()
-                .unwrap();
+                .unwrap_or_default();
 
                 results.push(
                     "acc_uncond",
-                    match selected_uncond as usize == doc.answer {
+                    match selected_uncond == doc.answer {
                         true => 1.,
                         false => 0.,
                     },
@@ -612,7 +650,10 @@ impl PreparedTask {
             }
 
             if let Some(pbar) = &pbar {
-                pbar.set_message(format!("acc: {:.3}", results.sample("acc").unwrap()));
+                pbar.set_message(format!(
+                    "acc: {:.3}",
+                    results.sample("acc").unwrap_or_default()
+                ));
                 pbar.inc(1);
             };
         }
@@ -636,7 +677,7 @@ impl PreparedTask {
         requests: &[TokenizedGenerateUntilDocument],
         tokenizer: &Tokenizer,
         stop_tokens: &[String],
-        answer_extraction_regex: &Regex,
+        answer_extraction_regex: &Option<Regex>,
         pbar: Option<Arc<ProgressBar>>,
     ) -> PreparedTaskResult {
         let results = options.live_results.unwrap_or_default();
@@ -703,14 +744,7 @@ impl PreparedTask {
             let mut full_sequence = request.clone();
 
             // Check if we have cached generated tokens for this document
-            let mut generated_tokens = {
-                cache
-                    .read()
-                    .unwrap()
-                    .get(&doc_index)
-                    .cloned()
-                    .unwrap_or_else(Vec::new)
-            };
+            let mut generated_tokens = cached_generated_tokens(cache.as_ref(), doc_index);
 
             if !generated_tokens.is_empty() {
                 tracing::trace!(
@@ -731,10 +765,7 @@ impl PreparedTask {
                 if let Some(cancel) = options.cancel.as_ref() {
                     if cancel.is_cancelled() {
                         // Save progress before cancelling
-                        cache
-                            .write()
-                            .unwrap()
-                            .insert(doc_index, generated_tokens.clone());
+                        cache_generated_tokens(cache.as_ref(), doc_index, generated_tokens.clone());
                         tracing::trace!(
                             "Cancellation requested: saving {} tokens for document {}",
                             generated_tokens.len(),
@@ -756,9 +787,19 @@ impl PreparedTask {
                     options
                         .model
                         .forward(&model_input, None, None, None, Some(1), None);
-                let logits = logits.unwrap().squeeze();
+                let Some(logits) = logits else {
+                    warn!("model returned no logits for generate-until evaluation request");
+                    break;
+                };
+                let logits = logits.squeeze();
 
-                let next_token = logits_processor.sample(&logits).unwrap();
+                let next_token = match logits_processor.sample(&logits) {
+                    Ok(token) => token,
+                    Err(err) => {
+                        warn!("failed to sample next token: {err}");
+                        break;
+                    }
+                };
                 full_sequence.push(next_token as i64);
                 generated_tokens.push(next_token);
                 tokens_generated_count += 1;
@@ -793,14 +834,14 @@ impl PreparedTask {
 
             // Clear the cache for this document after successful completion
             if generation_complete {
-                cache.write().unwrap().remove(&doc_index);
+                clear_generated_tokens(cache.as_ref(), doc_index);
 
                 // Extract answer from the complete generated text using regex
                 // Use captures_iter to find all matches and take the last one (final answer)
                 if let Ok(generated_text) = tokenizer.decode(&generated_tokens, false) {
                     if let Some(last_capture) = answer_extraction_regex
-                        .captures_iter(&generated_text)
-                        .last()
+                        .as_ref()
+                        .and_then(|regex| regex.captures_iter(&generated_text).last())
                     {
                         // last_capture.get(1) returns just the letter (A, B, C, ...)
                         if let Some(answer_char) = last_capture.get(1) {
@@ -824,7 +865,10 @@ impl PreparedTask {
                 documents_processed += 1;
 
                 if let Some(pbar) = &pbar {
-                    pbar.set_message(format!("acc: {:.3}", results.sample("acc").unwrap()));
+                    pbar.set_message(format!(
+                        "acc: {:.3}",
+                        results.sample("acc").unwrap_or_default()
+                    ));
                     pbar.inc(1);
                 };
             }
@@ -858,9 +902,13 @@ fn calculate_unconditional_loglikelihood(
     doc: &TokenizedLLHDocument,
     idx: usize,
     model: &mut dyn CausalLM,
-) -> f32 {
+) -> Option<f32> {
     // Extract the unconditional part: "Answer: {choice}" from the end of the request
-    let uncond_len = doc.acc_uncond_tokens_len[idx];
+    let uncond_len = *doc.acc_uncond_tokens_len.get(idx)?;
+    if uncond_len < 2 || uncond_len > doc.requests[idx].len() {
+        warn!("invalid unconditional token length for evaluation document");
+        return None;
+    }
     let uncond_request_full = &doc.requests[idx][doc.requests[idx].len() - uncond_len..];
 
     // Remove the last token since we dont want to pass it to the model
@@ -876,7 +924,13 @@ fn calculate_unconditional_loglikelihood(
         model.forward(&uncond_tensor, None, None, None, None, None)
     };
 
-    let logits_uncond = logits_uncond.unwrap().squeeze_dim(0);
+    let logits_uncond = match logits_uncond {
+        Some(logits) => logits.squeeze_dim(0),
+        None => {
+            warn!("model returned no logits for unconditional log-likelihood");
+            return None;
+        }
+    };
 
     let uncond_tokens_to_predict = &uncond_request_full[1..];
     let choice_log_prob_uncond = logits_uncond.log_softmax(-1, None).gather(
@@ -887,8 +941,62 @@ fn calculate_unconditional_loglikelihood(
         false,
     );
 
-    let loglikelihood_uncond: f32 = choice_log_prob_uncond.sum(Kind::Float).try_into().unwrap();
-    loglikelihood_uncond
+    match choice_log_prob_uncond.sum(Kind::Float).try_into() {
+        Ok(loglikelihood_uncond) => Some(loglikelihood_uncond),
+        Err(err) => {
+            warn!("failed to convert unconditional log-likelihood score: {err}");
+            None
+        }
+    }
+}
+
+fn argmax_f32(values: &[f32]) -> Option<usize> {
+    values
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(idx, _)| idx)
+}
+
+fn cached_generated_tokens(cache: &RwLock<HashMap<usize, Vec<u32>>>, doc_index: usize) -> Vec<u32> {
+    match cache.read() {
+        Ok(cache) => cache.get(&doc_index).cloned().unwrap_or_default(),
+        Err(err) => {
+            warn!("generate-until cache lock poisoned; recovering read access");
+            err.into_inner()
+                .get(&doc_index)
+                .cloned()
+                .unwrap_or_default()
+        }
+    }
+}
+
+fn cache_generated_tokens(
+    cache: &RwLock<HashMap<usize, Vec<u32>>>,
+    doc_index: usize,
+    generated_tokens: Vec<u32>,
+) {
+    match cache.write() {
+        Ok(mut cache) => {
+            cache.insert(doc_index, generated_tokens);
+        }
+        Err(err) => {
+            warn!("generate-until cache lock poisoned; recovering write access");
+            err.into_inner().insert(doc_index, generated_tokens);
+        }
+    }
+}
+
+fn clear_generated_tokens(cache: &RwLock<HashMap<usize, Vec<u32>>>, doc_index: usize) {
+    match cache.write() {
+        Ok(mut cache) => {
+            cache.remove(&doc_index);
+        }
+        Err(err) => {
+            warn!("generate-until cache lock poisoned; recovering write access");
+            err.into_inner().remove(&doc_index);
+        }
+    }
 }
 
 fn min_reporting_ratio(eval_name: &String) -> Option<f32> {

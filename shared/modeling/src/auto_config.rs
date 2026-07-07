@@ -72,7 +72,10 @@ pub enum PretrainedSource<T: serde::Serialize + Clone> {
     ConfigAndTensors(T, Arc<HashMap<String, Tensor>>),
 }
 
+// SAFETY: pretrained sources are immutable after construction; tensor maps are
+// shared by `Arc` and consumers clone tensor handles before model loading.
 unsafe impl<T: serde::Serialize + Clone> Send for PretrainedSource<T> {}
+// SAFETY: see the `Send` impl above; shared access does not mutate the source.
 unsafe impl<T: serde::Serialize + Clone> Sync for PretrainedSource<T> {}
 
 impl<T: serde::Serialize + Clone + serde::de::DeserializeOwned> PretrainedSource<T> {

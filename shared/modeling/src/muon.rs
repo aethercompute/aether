@@ -425,6 +425,8 @@ impl MuonOptimizer {
     }
 }
 
+// SAFETY: `MuonOptimizer` is only used behind trainer-owned mutable access; the
+// impl permits moving tch tensor handles to that worker thread, not concurrent use.
 unsafe impl Send for MuonOptimizer {}
 
 #[cfg(test)]

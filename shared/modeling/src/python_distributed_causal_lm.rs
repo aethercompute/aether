@@ -52,6 +52,8 @@ pub struct TorchDistributedCommunicator {
     world_size: Option<usize>,
 }
 
+// SAFETY: the Python store is accessed through PyO3 under the GIL; distributed
+// collectives are sequenced by the trainer and communicator rank ownership.
 unsafe impl Send for TorchDistributedCommunicator {}
 
 impl TorchDistributedCommunicator {
@@ -215,6 +217,8 @@ pub struct PythonDistributedCausalLM {
     shutting_down: Arc<AtomicBool>,
 }
 
+// SAFETY: distributed Python model calls are routed through worker/trainer
+// sequencing and Python access remains GIL-bound.
 unsafe impl Send for PythonDistributedCausalLM {}
 
 impl PythonDistributedCausalLM {

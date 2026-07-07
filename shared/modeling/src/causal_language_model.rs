@@ -85,7 +85,9 @@ pub struct CausalLanguageModel<M: LanguageModelForward, C: LanguageModelConfig> 
     pub training: AtomicBool,
 }
 
-// this is absolutely unsafe, if you use it across threads with NCCL you will have a bad day
+// SAFETY: model instances are assigned to trainer workers and all mutable tch
+// operations are sequenced through trainer barriers; NCCL callers must not issue
+// concurrent forwards/backwards on the same model.
 unsafe impl<M: LanguageModelForward, C: LanguageModelConfig> Send for CausalLanguageModel<M, C> {}
 
 pub type LanguageModelBuilder<M, C> = fn(

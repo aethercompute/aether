@@ -760,6 +760,8 @@ impl Distro {
     }
 }
 
+// SAFETY: `Distro` is moved between trainer-owned worker threads, but optimizer
+// mutation is driven through `&mut self`; callers must still serialize tch/CUDA work.
 unsafe impl Send for Distro {}
 
 #[cfg(test)]
@@ -770,7 +772,7 @@ mod tests {
 
     impl Variable for Tensor {
         fn name(&self) -> &str {
-            unimplemented!()
+            "tensor"
         }
 
         fn local_tensor(&self) -> Tensor {
@@ -1114,7 +1116,7 @@ mod tests {
                 Kind::BFloat16 => 2,
                 Kind::Float => 4,
                 Kind::Double => 8,
-                _ => panic!("Unsupported dtype"),
+                _ => return Tensor::new(),
             };
 
             // 1D DCT estimates

@@ -121,7 +121,10 @@ pub struct PythonCausalLM {
     pure_fsdp: Option<bool>,
 }
 
+// SAFETY: Python calls are made under the GIL and model execution is externally
+// sequenced by trainer workers; this permits sharing the wrapper handle.
 unsafe impl Send for PythonCausalLM {}
+// SAFETY: see the `Send` impl above; interior Python access still requires GIL.
 unsafe impl Sync for PythonCausalLM {}
 
 impl PythonCausalLM {
