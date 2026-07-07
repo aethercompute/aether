@@ -1538,3 +1538,209 @@ impl CausalLM for Trainer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aether_core::{ClosedInterval, ConstantLR, LearningRateSchedule};
+
+    fn batch_id() -> BatchId {
+        BatchId(ClosedInterval { start: 0, end: 0 })
+    }
+
+    fn schedule() -> LearningRateSchedule {
+        // base_lr = 1.0, no warmup: get_lr(step) is constant at 1.0.
+        LearningRateSchedule::Constant(ConstantLR::new(1.0, 0, 0.0))
+    }
+
+    #[test]
+    fn get_lr_without_warmup_window_is_unchanged() {
+        let lr = Trainer::get_lr(&schedule(), 5, None);
+        assert!((lr - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn get_lr_warmup_window_ramps_linearly() {
+        // Inside [start, end] the factor is (step - start) / (end - start).
+        let mid = Trainer::get_lr(&schedule(), 5, Some((0, 10)));
+        assert!((mid - 0.5).abs() < 1e-9);
+        let start = Trainer::get_lr(&schedule(), 0, Some((0, 10)));
+        assert!(start.abs() < 1e-9);
+        let end = Trainer::get_lr(&schedule(), 10, Some((0, 10)));
+        assert!((end - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn get_lr_warmup_window_outside_is_full_lr() {
+        // Before the window and after it the factor is 1.0.
+        let before = Trainer::get_lr(&schedule(), 4, Some((5, 10)));
+        assert!((before - 1.0).abs() < 1e-9);
+        let after = Trainer::get_lr(&schedule(), 11, Some((5, 10)));
+        assert!((after - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn batch_data_cpu_size_counts_samples() {
+        let cpu = BatchDataCPU {
+            input_ids: vec![1, 2, 3],
+            labels: None,
+            position_ids: None,
+            sequence_lengths: None,
+        };
+        let data = BatchData::CPU(vec![cpu]);
+        assert_eq!(data.size(), 1);
+        let data = BatchData::CPU(vec![
+            BatchDataCPU {
+                input_ids: vec![1],
+                labels: None,
+                position_ids: None,
+                sequence_lengths: None,
+            },
+            BatchDataCPU {
+                input_ids: vec![2],
+                labels: None,
+                position_ids: None,
+                sequence_lengths: None,
+            },
+        ]);
+        assert_eq!(data.size(), 2);
+    }
+
+    fn sample_batch(sequence_length: usize) -> Batch {
+        Batch {
+            id: batch_id(),
+            data: BatchData::CPU(vec![BatchDataCPU {
+                input_ids: vec![0; sequence_length],
+                labels: Some(vec![0; sequence_length]),
+                position_ids: Some((0..sequence_length as i32).collect()),
+                sequence_lengths: Some(vec![sequence_length as i32]),
+            }]),
+        }
+    }
+
+    #[test]
+    fn batch_pad_cpu_is_noop_when_already_divisible() {
+        // Two samples, world_size 2 -> 2 % 2 == 0, no padding added.
+        let mut batch = Batch {
+            id: batch_id(),
+            data: BatchData::CPU(vec![
+                BatchDataCPU {
+                    input_ids: vec![0; 4],
+                    labels: Some(vec![0; 4]),
+                    position_ids: None,
+                    sequence_lengths: None,
+                },
+                BatchDataCPU {
+                    input_ids: vec![1; 4],
+                    labels: Some(vec![1; 4]),
+                    position_ids: None,
+                    sequence_lengths: None,
+                },
+            ]),
+        };
+        batch.pad(2);
+        if let BatchData::CPU(cpu) = &batch.data {
+            assert_eq!(cpu.len(), 2, "no padding should be added");
+        } else {
+            panic!("expected CPU batch");
+        }
+    }
+
+    #[test]
+    fn batch_pad_cpu_is_noop_for_world_size_one() {
+        // world_size 1 divides any count, so nothing is ever padded.
+        let mut batch = sample_batch(4);
+        batch.pad(1);
+        if let BatchData::CPU(cpu) = &batch.data {
+            assert_eq!(cpu.len(), 1);
+        }
+    }
+
+    #[test]
+    fn batch_pad_cpu_adds_padding_samples() {
+        let mut batch = sample_batch(4);
+        batch.pad(3);
+        if let BatchData::CPU(cpu) = &batch.data {
+            // 1 sample, world_size 3 -> pad to 3.
+            assert_eq!(cpu.len(), 3);
+            // Padding samples use label -100 so they're ignored in loss.
+            assert_eq!(cpu[0].labels.as_ref().unwrap(), &vec![0; 4]);
+            assert_eq!(cpu[1].labels.as_ref().unwrap(), &vec![-100; 4]);
+            assert_eq!(cpu[2].labels.as_ref().unwrap(), &vec![-100; 4]);
+        } else {
+            panic!("expected CPU batch");
+        }
+    }
+
+    #[test]
+    fn batch_pad_cpu_with_exact_multiple_unchanged() {
+        // 4 samples, world_size 2 -> already divisible, no padding.
+        let mut batch = Batch {
+            id: batch_id(),
+            data: BatchData::CPU(vec![
+                BatchDataCPU {
+                    input_ids: vec![0; 2],
+                    labels: None,
+                    position_ids: None,
+                    sequence_lengths: None,
+                },
+                BatchDataCPU {
+                    input_ids: vec![0; 2],
+                    labels: None,
+                    position_ids: None,
+                    sequence_lengths: None,
+                },
+                BatchDataCPU {
+                    input_ids: vec![0; 2],
+                    labels: None,
+                    position_ids: None,
+                    sequence_lengths: None,
+                },
+                BatchDataCPU {
+                    input_ids: vec![0; 2],
+                    labels: None,
+                    position_ids: None,
+                    sequence_lengths: None,
+                },
+            ]),
+        };
+        batch.pad(2);
+        if let BatchData::CPU(cpu) = &batch.data {
+            assert_eq!(cpu.len(), 4);
+        }
+    }
+
+    #[test]
+    fn batch_pad_cpu_without_labels_omits_padding_labels() {
+        // If the source samples have no labels, padding samples must also
+        // have None labels (the `.map(|_| ...)` short-circuits).
+        let mut batch = Batch {
+            id: batch_id(),
+            data: BatchData::CPU(vec![BatchDataCPU {
+                input_ids: vec![0; 4],
+                labels: None,
+                position_ids: None,
+                sequence_lengths: None,
+            }]),
+        };
+        batch.pad(3);
+        if let BatchData::CPU(cpu) = &batch.data {
+            assert_eq!(cpu.len(), 3);
+            for sample in cpu {
+                assert!(sample.labels.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn batch_clone_preserves_cpu_data() {
+        let batch = sample_batch(3);
+        let cloned = batch.clone();
+        if let (BatchData::CPU(a), BatchData::CPU(b)) = (&batch.data, &cloned.data) {
+            assert_eq!(a.len(), b.len());
+            assert_eq!(a[0].input_ids, b[0].input_ids);
+        } else {
+            panic!("expected CPU batches");
+        }
+    }
+}

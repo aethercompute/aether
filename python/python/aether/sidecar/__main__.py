@@ -223,7 +223,7 @@ def main():
     while True:
         try:
             operation = store.get(str(iteration))
-        except:
+        except Exception:
             return
         operation = json.loads(operation.decode())
 
@@ -351,4 +351,5 @@ def main():
         iteration += 1
 
 
-main()
+if __name__ == "__main__":
+    main()

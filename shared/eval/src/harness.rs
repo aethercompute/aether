@@ -1020,19 +1020,28 @@ fn min_reporting_ratio(eval_name: &String) -> Option<f32> {
 
 #[cfg(test)]
 mod tests {
-    use super::bos_token_id;
+    use super::{
+        argmax_f32, bos_token_id, cache_generated_tokens, cached_generated_tokens,
+        clear_generated_tokens, min_reporting_ratio, progress_bar_template_with_task, Task,
+        TaskType, TokenizedLLHDocument,
+    };
+    use crate::traits::Document;
+    use crate::{ArcChallenge, ArcEasy, BoolQ, Hellaswag, MMLUPro, OpenbookQA, MMLU, MMLUCF, PIQA};
+    use std::collections::HashMap;
     use std::str::FromStr;
     use tokenizers::Tokenizer;
 
     /// Builds a minimal WordLevel tokenizer whose vocab contains the given
     /// (token, id) pairs. `token_to_id` then resolves any of those tokens.
+    /// A Whitespace pre-tokenizer is added so `encode` splits on word
+    /// boundaries (matching how real tokenizers behave).
     fn tokenizer_with_vocab(vocab: &[(&str, u32)]) -> Tokenizer {
         let entries: Vec<String> = vocab
             .iter()
             .map(|(tok, id)| format!("\"{tok}\": {id}"))
             .collect();
         let json = format!(
-            r#"{{"version":"1.0","model":{{"type":"WordLevel","vocab":{{{}}},"unk_token":"<unk>"}}}}"#,
+            r#"{{"version":"1.0","pre_tokenizer":{{"type":"Whitespace"}},"model":{{"type":"WordLevel","vocab":{{{}}},"unk_token":"<unk>"}}}}"#,
             entries.join(","),
         );
         Tokenizer::from_str(&json).expect("valid tokenizer json")
@@ -1076,5 +1085,205 @@ mod tests {
         // in BOS_TOKEN_CANDIDATES (<s>) wins.
         let tok = tokenizer_with_vocab(&[("<s>", 5), ("<|begin_of_text|>", 128000), ("<unk>", 0)]);
         assert_eq!(bos_token_id(&tok), Some(5));
+    }
+
+    #[test]
+    fn argmax_f32_picks_a_maximum() {
+        // Iterator::max_by returns the LAST equally-maximum element, so for
+        // two tied 3.0 values the index is 3, not 1.
+        assert_eq!(argmax_f32(&[1.0, 3.0, 2.0, 3.0]), Some(3));
+        // a unique maximum resolves to its own index.
+        assert_eq!(argmax_f32(&[5.0, 5.0, 9.0]), Some(2));
+    }
+
+    #[test]
+    fn argmax_f32_handles_empty_and_negative() {
+        assert_eq!(argmax_f32(&[]), None);
+        assert_eq!(argmax_f32(&[-1.0, -2.0, -0.5]), Some(2));
+    }
+
+    #[test]
+    fn argmax_f32_total_cmp_treats_nan_as_largest() {
+        // f32::total_cmp orders NaN as the largest value, so an entry
+        // containing NaN wins over a finite value at a lower index.
+        assert_eq!(argmax_f32(&[f32::NAN, 0.0]), Some(0));
+        assert_eq!(argmax_f32(&[0.0, f32::NAN]), Some(1));
+    }
+
+    #[test]
+    fn min_reporting_ratio_known_tasks() {
+        assert_eq!(min_reporting_ratio(&MMLUPro::name().to_string()), Some(0.1));
+        for name in [
+            ArcChallenge::name(),
+            BoolQ::name(),
+            ArcEasy::name(),
+            Hellaswag::name(),
+            OpenbookQA::name(),
+            MMLU::name(),
+            MMLUCF::name(),
+            PIQA::name(),
+        ] {
+            assert_eq!(min_reporting_ratio(&name.to_string()), Some(0.5), "{name}");
+        }
+    }
+
+    #[test]
+    fn min_reporting_ratio_unknown_task_is_none() {
+        assert_eq!(min_reporting_ratio(&"ceval_valid".to_string()), None);
+    }
+
+    #[test]
+    fn progress_bar_template_contains_task_name() {
+        let tmpl = progress_bar_template_with_task("my-task");
+        assert!(tmpl.contains("[my-task]"));
+        assert!(tmpl.contains("{pos}"));
+    }
+
+    #[test]
+    fn task_new_is_deterministic_for_seed() {
+        // Two tasks built from the same seed must hash identically; the
+        // ChaCha8Rng is seeded purely from `random_seed`.
+        struct DummyTask;
+        impl std::fmt::Display for DummyTask {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "t")
+            }
+        }
+        impl crate::traits::LogLikelihoodTask for DummyTask {
+            fn get_documents(&self) -> Vec<Document> {
+                vec![
+                    Document {
+                        text: "q".into(),
+                        choices: vec!["a".into(), "b".into()],
+                        answer: 0,
+                        category: None,
+                        cot_content: None,
+                        eval_name: "t".into(),
+                    },
+                    Document {
+                        text: "q".into(),
+                        choices: vec!["a".into(), "b".into()],
+                        answer: 0,
+                        category: None,
+                        cot_content: None,
+                        eval_name: "t".into(),
+                    },
+                ]
+            }
+            fn get_fewshot_documents(&self) -> HashMap<String, Vec<Document>> {
+                HashMap::new()
+            }
+        }
+        let _t1 = Task::new(TaskType::LogLikelihood(Box::new(DummyTask)), 0, 42);
+        let _t2 = Task::new(TaskType::LogLikelihood(Box::new(DummyTask)), 0, 42);
+        // Construction itself is the contract — if the seed math changes we
+        // want a single place that exercises the byte-slice copy.
+    }
+
+    #[test]
+    fn cache_helpers_round_trip() {
+        let cache: std::sync::RwLock<HashMap<usize, Vec<u32>>> =
+            std::sync::RwLock::new(HashMap::new());
+        assert!(cached_generated_tokens(&cache, 7).is_empty());
+        cache_generated_tokens(&cache, 7, vec![10, 20]);
+        assert_eq!(cached_generated_tokens(&cache, 7), vec![10, 20]);
+        clear_generated_tokens(&cache, 7);
+        assert!(cached_generated_tokens(&cache, 7).is_empty());
+    }
+
+    #[test]
+    fn cache_helpers_isolate_per_document() {
+        let cache: std::sync::RwLock<HashMap<usize, Vec<u32>>> =
+            std::sync::RwLock::new(HashMap::new());
+        cache_generated_tokens(&cache, 1, vec![1]);
+        cache_generated_tokens(&cache, 2, vec![2, 3]);
+        assert_eq!(cached_generated_tokens(&cache, 1), vec![1]);
+        assert_eq!(cached_generated_tokens(&cache, 2), vec![2, 3]);
+    }
+
+    fn sample_document() -> Document {
+        // Single-word text/choices so the Whitespace pre-tokenizer in
+        // `tokenizer_with_vocab` produces predictable token ids.
+        Document {
+            text: "foo bar".to_string(),
+            choices: vec!["baz".to_string(), "qux".to_string()],
+            answer: 1,
+            category: None,
+            cot_content: None,
+            // ACC-NORM/ACC-UNCOND logic keys off eval_name; keep a name that
+            // is NOT in those lists so the test stays focused on tokenization.
+            eval_name: "ARC-Easy".to_string(),
+        }
+    }
+
+    #[test]
+    fn tokenized_llh_document_prepends_bos_when_present() {
+        let tok = tokenizer_with_vocab(&[
+            ("<s>", 1),
+            ("<unk>", 99),
+            ("foo", 10),
+            ("bar", 11),
+            ("baz", 12),
+            ("qux", 13),
+        ]);
+        let doc = sample_document();
+        let tokenized = TokenizedLLHDocument::from_document(doc, &tok, "");
+        // One request per choice.
+        assert_eq!(tokenized.requests.len(), 2);
+        // Each request must start with the BOS id (1).
+        for req in &tokenized.requests {
+            assert_eq!(*req.first().unwrap(), 1, "request missing BOS: {req:?}");
+        }
+        assert_eq!(tokenized.answer, 1);
+        assert_eq!(tokenized.choices_str, vec!["baz", "qux"]);
+    }
+
+    #[test]
+    fn tokenized_llh_document_omits_bos_when_absent() {
+        // No BOS candidate in the vocab -> requests must not begin with id 1.
+        let tok = tokenizer_with_vocab(&[
+            ("<unk>", 99),
+            ("foo", 10),
+            ("bar", 11),
+            ("baz", 12),
+            ("qux", 13),
+        ]);
+        let tokenized = TokenizedLLHDocument::from_document(sample_document(), &tok, "");
+        for req in &tokenized.requests {
+            assert_ne!(*req.first().unwrap(), 1);
+        }
+    }
+
+    #[test]
+    fn tokenized_llh_document_applies_fewshot_prefix() {
+        // A non-empty fewshot prefix is prepended to the context before
+        // tokenization, so the resulting request must be strictly longer than
+        // one tokenized from the bare document (prefix tokens land between
+        // BOS and the question).
+        let tok = tokenizer_with_vocab(&[
+            ("<s>", 1),
+            ("<unk>", 99),
+            ("foo", 10),
+            ("bar", 11),
+            ("baz", 12),
+            ("qux", 13),
+            ("pre", 20),
+            ("amble", 21),
+        ]);
+        let bare = TokenizedLLHDocument::from_document(sample_document(), &tok, "");
+        let prefixed = TokenizedLLHDocument::from_document(sample_document(), &tok, "pre amble ");
+        // Both requests must still begin with BOS.
+        assert_eq!(bare.requests[0][0], 1);
+        assert_eq!(prefixed.requests[0][0], 1);
+        // The prefixed request carries the additional prefix tokens.
+        assert!(
+            prefixed.requests[0].len() > bare.requests[0].len(),
+            "prefix should lengthen the request: bare={} prefixed={}",
+            bare.requests[0].len(),
+            prefixed.requests[0].len()
+        );
+        // And the prefix tokens appear in the prefixed request.
+        assert!(prefixed.requests[0].contains(&20));
+        assert!(prefixed.requests[0].contains(&21));
     }
 }

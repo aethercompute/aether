@@ -697,3 +697,191 @@ impl CustomWidget for LoggerWidget {
         widget.render(area, buf);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use opentelemetry::Value;
+
+    #[test]
+    fn log_output_value_enum_has_five_variants() {
+        // init_logging_core branches on these exact variants; the full set
+        // must remain present and exhaustive.
+        assert_eq!(LogOutput::value_variants().len(), 5);
+    }
+
+    #[test]
+    fn log_output_value_enum_parses_lowercase_names() {
+        // The ValueEnum derive exposes variants by lowercased names.
+        // Verify the unambiguous ones parse case-insensitively.
+        for (name, expected) in [
+            ("tui", LogOutput::TUI),
+            ("console", LogOutput::Console),
+            ("json", LogOutput::Json),
+            ("none", LogOutput::None),
+        ] {
+            let parsed = LogOutput::from_str(name, true)
+                .unwrap_or_else(|e| panic!("failed to parse {name:?}: {e}"));
+            assert_eq!(parsed, expected);
+        }
+        // Case-insensitivity: uppercase input must also parse.
+        assert_eq!(
+            LogOutput::from_str("CONSOLE", true).unwrap(),
+            LogOutput::Console
+        );
+    }
+
+    #[test]
+    fn logging_builder_defaults_to_console_info() {
+        let b = LoggingBuilder::new();
+        assert_eq!(b.output, LogOutput::Console);
+        assert_eq!(b.level, Level::INFO);
+        assert!(b.write_logs_file.is_none());
+        assert!(b.remote_logs_destination.is_none());
+        assert!(b.trace_destination.is_none());
+        assert!(b.metrics_destination.is_none());
+        assert!(b.service_info.is_none());
+    }
+
+    #[test]
+    fn logging_builder_chains_setters() {
+        let b = LoggingBuilder::new()
+            .with_output(LogOutput::Json)
+            .with_level(Level::DEBUG)
+            .with_log_file(Some(PathBuf::from("/tmp/x.log")))
+            .with_service_info(ServiceInfo {
+                name: "n".into(),
+                instance_id: "i".into(),
+                namespace: "ns".into(),
+                deployment_environment: "dev".into(),
+                run_id: Some("r".into()),
+            });
+        assert_eq!(b.output, LogOutput::Json);
+        assert_eq!(b.level, Level::DEBUG);
+        assert_eq!(
+            b.write_logs_file.as_deref(),
+            Some(std::path::Path::new("/tmp/x.log"))
+        );
+        assert!(b.service_info.is_some());
+    }
+
+    #[test]
+    fn logging_builder_with_log_file_none_clears() {
+        // The setter accepts Option<PathBuf>; passing None should clear.
+        let b = LoggingBuilder::new()
+            .with_log_file(Some(PathBuf::from("/tmp/y.log")))
+            .with_log_file(None);
+        assert!(b.write_logs_file.is_none());
+    }
+
+    #[test]
+    fn service_info_into_attributes_emits_all_keys() {
+        let info = ServiceInfo {
+            name: "svc".into(),
+            instance_id: "inst-1".into(),
+            namespace: "ns".into(),
+            deployment_environment: "prod".into(),
+            run_id: Some("run-9".into()),
+        };
+        let attrs = info.into_attributes();
+        let as_map: std::collections::HashMap<&str, String> = attrs
+            .iter()
+            .map(|kv| {
+                let key = kv.key.as_str();
+                let val = match &kv.value {
+                    Value::String(s) => s.as_str().to_string(),
+                    other => other.to_string(),
+                };
+                (key, val)
+            })
+            .collect();
+        assert_eq!(as_map.get("service.name").map(String::as_str), Some("svc"));
+        assert_eq!(
+            as_map.get("service.instance.id").map(String::as_str),
+            Some("inst-1")
+        );
+        assert_eq!(
+            as_map.get("service.namespace").map(String::as_str),
+            Some("ns")
+        );
+        assert_eq!(
+            as_map
+                .get("deployment.environment.name")
+                .map(String::as_str),
+            Some("prod")
+        );
+        assert_eq!(as_map.get("run.id").map(String::as_str), Some("run-9"));
+    }
+
+    #[test]
+    fn service_info_into_attributes_defaults_run_id() {
+        // Missing run_id must serialize as an empty string, not panic.
+        let info = ServiceInfo {
+            name: "n".into(),
+            instance_id: "i".into(),
+            namespace: "ns".into(),
+            deployment_environment: "env".into(),
+            run_id: None,
+        };
+        let attrs = info.into_attributes();
+        let run_id = attrs
+            .iter()
+            .find(|kv| kv.key.as_str() == "run.id")
+            .expect("run.id attribute present");
+        match &run_id.value {
+            Value::String(s) => assert!(s.as_str().is_empty()),
+            other => panic!("expected empty string for run.id, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn authorization_headers_none_when_absent() {
+        let config = OpenTelemetry {
+            endpoint: "http://x".into(),
+            authorization_header: None,
+            report_interval: Duration::from_secs(1),
+        };
+        assert!(authorization_headers(&config).is_none());
+    }
+
+    #[test]
+    fn authorization_headers_present_when_set() {
+        let config = OpenTelemetry {
+            endpoint: "http://x".into(),
+            authorization_header: Some("Bearer token".into()),
+            report_interval: Duration::from_secs(1),
+        };
+        let headers = authorization_headers(&config).expect("headers present");
+        assert_eq!(
+            headers.get("authorization").map(String::as_str),
+            Some("Bearer token")
+        );
+        assert_eq!(headers.len(), 1);
+    }
+
+    #[test]
+    fn logger_widget_builder_records_overrides() {
+        let w = LoggerWidget::new()
+            .with_separator('|')
+            .with_timestamp_format("%H:%M:%S".into())
+            .with_show_target_field(true);
+        assert_eq!(w.separator, Some('|'));
+        assert_eq!(w.timestamp_format.as_deref(), Some("%H:%M:%S"));
+        assert_eq!(w.show_target, Some(true));
+    }
+
+    #[test]
+    fn logger_widget_default_has_no_overrides() {
+        let w = LoggerWidget::new();
+        assert!(w.separator.is_none());
+        assert!(w.timestamp_format.is_none());
+        assert!(w.show_target.is_none());
+    }
+
+    #[test]
+    fn shutdown_handler_runs_empty_list() {
+        // An empty handler list must shutdown cleanly with no handlers.
+        let handler = ShutdownHandler::new(vec![]);
+        assert!(handler.shutdown().is_ok());
+    }
+}

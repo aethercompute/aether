@@ -188,6 +188,7 @@ dependencies = [
  "aether-tui",
  "aether-watcher",
  "anyhow",
+ "bytemuck",
  "chrono",
  "clap",
  "futures",

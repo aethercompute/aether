@@ -128,6 +128,126 @@ impl RunInitConfig {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::UploadInfo;
+    use crate::WandBInfo;
+    use aether_data_provider::HubUploadInfo;
+
+    fn base_config() -> RunInitConfig {
+        RunInitConfig {
+            identity: NodeIdentity::default(),
+            p2p_secret_key: SecretKey::from_bytes(&[0u8; 32]),
+            max_concurrent_parameter_requests: 1,
+            device: Devices::Cpu,
+            hub_read_token: None,
+            hub_max_concurrent_downloads: 1,
+            data_parallelism: 1,
+            tensor_parallelism: 1,
+            micro_batch_size: 1,
+            optim_stats_every_n_steps: None,
+            grad_accum_in_fp32: false,
+            eval_task_max_docs: None,
+            eval_tasks: Vec::new(),
+            prompt_task: false,
+            wandb_info: None,
+            write_gradients_dir: None,
+            checkpoint_config: None,
+            dummy_training_delay_secs: None,
+            sidecar_port: None,
+        }
+    }
+
+    #[test]
+    fn apply_run_templates_is_noop_without_placeholders() {
+        let mut cfg = base_config();
+        cfg.wandb_info = Some(WandBInfo {
+            project: "p".into(),
+            run: "fixed-run".into(),
+            group: Some("fixed-group".into()),
+            entity: None,
+            api_key: "k".into(),
+        });
+        cfg.checkpoint_config = Some(CheckpointConfig {
+            upload_info: Some(UploadInfo::Hub(HubUploadInfo {
+                hub_repo: "fixed-repo".into(),
+                hub_token: "t".into(),
+            })),
+            checkpoint_dir: PathBuf::from("/tmp/fixed"),
+            delete_old_steps: false,
+            keep_steps: 1,
+            epoch_interval: 1,
+        });
+
+        let mut expected = cfg.clone();
+        expected.apply_run_templates("does-not-matter");
+
+        // No `{run_id}` placeholders present -> strings are unchanged.
+        assert_eq!(
+            cfg.wandb_info.as_ref().unwrap().run,
+            expected.wandb_info.as_ref().unwrap().run
+        );
+    }
+
+    #[test]
+    fn apply_run_templates_substitutes_run_id_everywhere() {
+        let mut cfg = base_config();
+        cfg.wandb_info = Some(WandBInfo {
+            project: "p".into(),
+            run: "run-{run_id}".into(),
+            group: Some("grp-{run_id}-x".to_string()),
+            entity: None,
+            api_key: "k".into(),
+        });
+        cfg.checkpoint_config = Some(CheckpointConfig {
+            upload_info: Some(UploadInfo::Hub(HubUploadInfo {
+                hub_repo: "repo-{run_id}".into(),
+                hub_token: "t".into(),
+            })),
+            checkpoint_dir: PathBuf::from("/tmp/ck-{run_id}"),
+            delete_old_steps: false,
+            keep_steps: 1,
+            epoch_interval: 1,
+        });
+
+        cfg.apply_run_templates("abc123");
+
+        let wb = cfg.wandb_info.as_ref().unwrap();
+        assert_eq!(wb.run, "run-abc123");
+        assert_eq!(wb.group.as_deref(), Some("grp-abc123-x"));
+        let cc = cfg.checkpoint_config.as_ref().unwrap();
+        assert_eq!(cc.checkpoint_dir, PathBuf::from("/tmp/ck-abc123"));
+        match &cc.upload_info {
+            Some(UploadInfo::Hub(h)) => assert_eq!(h.hub_repo, "repo-abc123"),
+            other => panic!("expected Hub upload info, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn apply_run_templates_noop_when_no_wandb_or_checkpoint() {
+        let mut cfg = base_config();
+        // Both wandb_info and checkpoint_config are None.
+        cfg.apply_run_templates("anything");
+        assert!(cfg.wandb_info.is_none());
+        assert!(cfg.checkpoint_config.is_none());
+    }
+
+    #[test]
+    fn apply_run_templates_substitutes_multiple_occurrences() {
+        let mut cfg = base_config();
+        cfg.wandb_info = Some(WandBInfo {
+            project: "p".into(),
+            run: "{run_id}-{run_id}".into(),
+            group: None,
+            entity: None,
+            api_key: "k".into(),
+        });
+        cfg.apply_run_templates("z");
+        assert_eq!(cfg.wandb_info.as_ref().unwrap().run, "z-z");
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum InitRunError {
     #[error("No model provided in Coordinator state, nothing to do.")]

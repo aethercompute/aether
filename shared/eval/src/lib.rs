@@ -48,13 +48,7 @@ pub fn load_dataset(
 }
 
 pub fn tasktype_from_name(name: &str) -> Result<TaskType> {
-    match name
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect::<String>()
-        .as_str()
-    {
+    match normalize_task_name(name).as_str() {
         "arc_challenge" => ArcChallenge::load(),
         "arc_easy" => ArcEasy::load(),
         "boolq" => BoolQ::load(),
@@ -66,5 +60,63 @@ pub fn tasktype_from_name(name: &str) -> Result<TaskType> {
         "openbookqa" => OpenbookQA::load(),
         "piqa" => PIQA::load(),
         _ => bail!("Unknown task {name}"),
+    }
+}
+
+/// Lowercases `name` and replaces every non-alphanumeric ASCII character with
+/// `_`, matching the normalization `tasktype_from_name` applies internally.
+fn normalize_task_name(name: &str) -> String {
+    name.to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_replaces_non_alphanumeric_with_underscore() {
+        assert_eq!(normalize_task_name("ARC-Challenge"), "arc_challenge");
+        // Every non-alphanumeric char (including '!') maps to '_'.
+        assert_eq!(normalize_task_name("MMLU Pro!"), "mmlu_pro_");
+        assert_eq!(normalize_task_name("Bool.Q"), "bool_q");
+    }
+
+    #[test]
+    fn normalize_lowercases() {
+        assert_eq!(normalize_task_name("HELLASWAG"), "hellaswag");
+    }
+
+    #[test]
+    fn tasktype_from_name_rejects_unknown() {
+        assert!(tasktype_from_name("not_a_real_task").is_err());
+        // Unknown check uses the original (pre-normalization) name in the msg.
+        let err = match tasktype_from_name("Not A Real Task") {
+            Ok(_) => panic!("expected error for unknown task"),
+            Err(e) => e,
+        };
+        assert!(err.to_string().contains("Not A Real Task"));
+    }
+
+    #[test]
+    fn all_task_names_are_uniquely_normalizable() {
+        // Each public task name must normalize to a distinct string that
+        // tasktype_from_name recognizes (otherwise it would be unreachable).
+        let normalized: Vec<String> = ALL_TASK_NAMES
+            .iter()
+            .map(|n| normalize_task_name(n))
+            .collect();
+        let unique: std::collections::HashSet<&str> =
+            normalized.iter().map(String::as_str).collect();
+        assert_eq!(unique.len(), ALL_TASK_NAMES.len(), "duplicate task names");
+    }
+
+    #[test]
+    fn ascii_uppercase_has_26_entries_in_order() {
+        assert_eq!(ASCII_UPPERCASE.len(), 26);
+        assert_eq!(ASCII_UPPERCASE[0], "A");
+        assert_eq!(ASCII_UPPERCASE[25], "Z");
     }
 }

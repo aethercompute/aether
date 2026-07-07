@@ -380,3 +380,26 @@ fn no_nan(val: f32, replacement: f32) -> f32 {
 fn token_batch_size(state: &Coordinator) -> u32 {
     state.get_target_global_batch_size(state.current_round()) as u32 * state.get_sequence_length()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{no_nan, perplexity};
+
+    #[test]
+    fn perplexity_is_exp_of_loss() {
+        assert!((perplexity(0.0) - 1.0).abs() < 1e-6);
+        assert!((perplexity(1.0) - std::f32::consts::E).abs() < 1e-4);
+        // cross-check against f64 exp to tolerate fp rounding.
+        let loss = 2.3f32;
+        assert!((perplexity(loss) - loss.exp()).abs() < 1e-5);
+    }
+
+    #[test]
+    fn no_nan_replaces_only_nan() {
+        assert!((no_nan(1.5, 0.0) - 1.5).abs() < 1e-6);
+        assert!((no_nan(f32::NAN, 7.0) - 7.0).abs() < 1e-6);
+        // infinity and negative values pass through untouched.
+        assert!(no_nan(f32::INFINITY, 0.0).is_infinite());
+        assert!((no_nan(-3.0, 0.0) - (-3.0)).abs() < 1e-6);
+    }
+}
