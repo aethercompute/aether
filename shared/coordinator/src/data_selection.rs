@@ -15,16 +15,7 @@ pub fn assign_data_for_state(
             let client = &coordinator.epoch_state.clients[i];
             let committee = committee_selection.get_committee(i as u64).committee;
 
-            if matches!(committee, Committee::Trainer) {
-                Some(client)
-            } else {
-                match committee {
-                    Committee::TieBreaker => assert_eq!(round.tie_breaker_tasks, 0), // TODO
-                    Committee::Verifier => assert_eq!(coordinator.config.verification_percent, 0), // TODO
-                    _ => {}
-                }
-                None
-            }
+            matches!(committee, Committee::Trainer).then_some(client)
         })
         .collect();
 
@@ -282,6 +273,36 @@ mod tests {
             assert_eq!(
                 total, batch_size as u64,
                 "total coverage for ({num_nodes}, {batch_size})"
+            );
+        }
+    }
+
+    #[test]
+    fn assign_data_for_state_skips_non_trainer_committees() {
+        let mut coordinator = create_test_coordinator(10, 100, 10);
+        coordinator.current_round_mut().unwrap().tie_breaker_tasks = 2;
+        coordinator.config.verification_percent = 50;
+
+        let selection = CommitteeSelection::from_coordinator(&coordinator, 0).unwrap();
+        let assignments = assign_data_for_state(&coordinator, &selection);
+
+        assert_eq!(selection.get_num_trainer_nodes(), 4);
+        assert_eq!(assignments.len(), 4);
+        assert_is_clean_partition(&assignments);
+
+        let total: u64 = assignments.keys().map(|b| b.0.end - b.0.start + 1).sum();
+        assert_eq!(total, 100);
+
+        for assigned_node in assignments.values() {
+            let index = coordinator
+                .epoch_state
+                .clients
+                .iter()
+                .position(|client| client.id == *assigned_node)
+                .expect("assigned node should exist");
+            assert_eq!(
+                selection.get_committee(index as u64).committee,
+                Committee::Trainer
             );
         }
     }
