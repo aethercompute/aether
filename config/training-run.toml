@@ -8,9 +8,9 @@ tui = false
 [dataset]
 enabled = true
 script = "scripts/prepare-ultra-fineweb-local.py"
-output_dir = "data/ultra-fineweb-deepseek-512-bin"
+output_dir = "data/corpus-512-bin"
 sequence_length = 512
-num_sequences = 2000000
+num_sequences = 400000
 shard_size = 8192
 token_bytes = 4
 dataset = "openbmb/Ultra-FineWeb"
@@ -20,6 +20,31 @@ tokenizer = "deepseek-ai/DeepSeek-V3"
 seed = 1337
 buffer_docs = 0
 trust_remote_code = false
+
+# Multiple dataset mixing. Each `[[dataset.sources]]` entry is an independent
+# HuggingFace load with its own split / subset / text_field / weight, and the
+# prepare script interleaves documents across sources in proportion to `weight`.
+#
+# When `[[dataset.sources]]` is present it takes precedence over the singular
+# `dataset` / `split` / `subset` / `text_field` fields above (which then only
+# serve as a single-source fallback).
+[[dataset.sources]]
+dataset = "openbmb/Ultra-FineWeb"
+split = "en"
+text_field = "content"
+weight = 0.4
+
+[[dataset.sources]]
+dataset = "HuggingFaceFW/finepdfs_edu_50BT-dclm_30BT-fineweb_edu_20BT-shuffled"
+split = "train"
+text_field = "text"
+weight = 0.4
+
+[[dataset.sources]]
+dataset = "aethercompute/stack-edu"
+split = "train"
+text_field = "text"
+weight = 0.2
 
 [model]
 enabled = true

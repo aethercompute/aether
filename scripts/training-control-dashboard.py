@@ -43,20 +43,105 @@ def int_value(value: str) -> int:
     return int(value.strip())
 
 
+def format_sources_text(sources: list) -> str:
+    """Render a list of source dicts as an editable textarea.
+
+    One source per line: ``dataset|split=...|subset=...|text_field=...|weight=...``.
+    Only non-default keys are emitted to keep the textarea compact. Empty for
+    no sources (falls back to singular dataset fields).
+    """
+    lines = []
+    for src in sources or []:
+        if not isinstance(src, dict):
+            continue
+        dataset = src.get("dataset") or src.get("name") or ""
+        parts = [dataset] if dataset else []
+        if src.get("split"):
+            parts.append(f"split={src['split']}")
+        if src.get("subset"):
+            parts.append(f"subset={src['subset']}")
+        tf = src.get("text_field") or src.get("text-field")
+        if tf and tf != "text":
+            parts.append(f"text_field={tf}")
+        w = src.get("weight")
+        if w is not None and float(w) != 1.0:
+            parts.append(f"weight={w}")
+        lines.append("|".join(parts))
+    return "\n".join(lines)
+
+
+def parse_sources_text(text: str) -> list[dict]:
+    """Inverse of `format_sources_text`."""
+    sources = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        bits = [b.strip() for b in line.split("|")]
+        if not bits or not bits[0]:
+            continue
+        src = {"dataset": bits[0]}
+        for bit in bits[1:]:
+            if "=" not in bit:
+                continue
+            key, value = bit.split("=", 1)
+            key = key.strip().lower().replace("-", "_")
+            value = value.strip()
+            if key == "weight":
+                try:
+                    src["weight"] = float(value)
+                except ValueError:
+                    continue
+            elif key in {"split", "subset", "text_field"}:
+                src[key] = value
+        sources.append(src)
+    return sources
+
+
+def _toml_inline_value(value) -> str:
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    escaped = str(value).replace('\\', '\\\\').replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def write_config(config: dict) -> None:
     lines: list[str] = []
     for section in ("server", "dataset", "model"):
         lines.append(f"[{section}]")
-        for key, value in config.get(section, {}).items():
-            if isinstance(value, bool):
-                lines.append(f"{key} = {str(value).lower()}")
-            elif isinstance(value, int):
-                lines.append(f"{key} = {value}")
+        items = list(config.get(section, {}).items())
+        # Emit scalars/arrays FIRST. Arrays-of-tables ([[section.key]]) must
+        # come last within a section, otherwise any bare key=value written
+        # after them is reattached to the last table by TOML's grammar.
+        scalars = []
+        table_arrays = []
+        for key, value in items:
+            if isinstance(value, list) and value and all(isinstance(v, dict) for v in value):
+                table_arrays.append((key, value))
             else:
-                escaped = str(value).replace('\\', '\\\\').replace('"', '\\"')
-                lines.append(f'{key} = "{escaped}"')
+                scalars.append((key, value))
+        for key, value in scalars:
+            if isinstance(value, list):
+                inline = ", ".join(_toml_inline_value(v) for v in value)
+                lines.append(f"{key} = [{inline}]")
+            else:
+                lines.append(f"{key} = {_toml_inline_value(value)}")
+        for key, value in table_arrays:
+            for entry in value:
+                lines.append("")
+                lines.append(f"[[{section}.{key}]]")
+                for sub_k, sub_v in entry.items():
+                    if sub_v is None:
+                        continue
+                    lines.append(f"{sub_k} = {_toml_inline_value(sub_v)}")
         lines.append("")
     (repo_root() / CONFIG_PATH).write_text("\n".join(lines), encoding="utf-8")
+
+
 
 
 def update_config_from_form(form: dict[str, list[str]]) -> None:
@@ -104,6 +189,16 @@ def update_config_from_form(form: dict[str, list[str]]) -> None:
                 config[section][key] = field_name in form
             elif field_name in form:
                 config[section][key] = converter(form[field_name][0])
+
+    # Multi-dataset sources textarea (one source per line, see
+    # `format_sources_text`). Empty textarea clears the sources list so the
+    # singular dataset/split/subset/text_field fields take effect again.
+    sources_text = form.get("dataset.sources", [""])[0] if "dataset.sources" in form else ""
+    if sources_text.strip():
+        config["dataset"]["sources"] = parse_sources_text(sources_text)
+    elif "sources" in config.get("dataset", {}):
+        del config["dataset"]["sources"]
+
     write_config(config)
 
 
@@ -169,7 +264,11 @@ def dataset_status(config: dict) -> tuple[bool, str]:
     shard_count = len(list(output_dir.glob("*.bin")))
     if shard_count == 0:
         return False, "metadata exists but no .bin shards were found"
-    return True, f"ready: {actual_sequences:,} sequences across {shard_count:,} shards"
+    sources = metadata.get("sources") or []
+    mix_note = ""
+    if isinstance(sources, list) and len(sources) > 1:
+        mix_note = f" (mix of {len(sources)} datasets)"
+    return True, f"ready: {actual_sequences:,} sequences across {shard_count:,} shards{mix_note}"
 
 
 def model_status(config: dict) -> tuple[bool, str]:
@@ -330,39 +429,74 @@ def run_background(name: str, command: list[str], on_success=None, long_running:
     return job
 
 
+def _format_source_arg(src: dict) -> str:
+    """Render a source dict as a single `--source` argument value."""
+    parts = [f"dataset={src['dataset']}"]
+    if src.get("split"):
+        parts.append(f"split={src['split']}")
+    if src.get("subset"):
+        parts.append(f"subset={src['subset']}")
+    tf = src.get("text_field") or src.get("text-field")
+    if tf:
+        parts.append(f"text_field={tf}")
+    if src.get("weight") is not None:
+        parts.append(f"weight={src['weight']}")
+    return ",".join(parts)
+
+
 def prepare_dataset_command(config: dict) -> list[str]:
     dataset = config["dataset"]
+    sources = [s for s in dataset.get("sources", []) if isinstance(s, dict) and s.get("dataset")]
+
     command = [
         sys.executable,
         dataset.get("script", "scripts/prepare-ultra-fineweb-local.py"),
-        "--dataset",
-        dataset["dataset"],
-        "--split",
-        dataset["split"],
-        "--text-field",
-        dataset["text_field"],
-        "--tokenizer",
-        dataset["tokenizer"],
-        "--output-dir",
-        dataset["output_dir"],
-        "--sequence-length",
-        str(dataset["sequence_length"]),
-        "--num-sequences",
-        str(dataset["num_sequences"]),
-        "--shard-size",
-        str(dataset["shard_size"]),
-        "--token-bytes",
-        str(dataset["token_bytes"]),
-        "--seed",
-        str(dataset["seed"]),
-        "--buffer-docs",
-        str(dataset["buffer_docs"]),
     ]
-    if dataset.get("subset"):
-        command.extend(["--subset", dataset["subset"]])
+    if sources:
+        # Multi-source mixing: one --source per entry. Each carries its own
+        # split / subset / text_field / weight; the singular dataset fields
+        # below are ignored by the script when --source is present.
+        for src in sources:
+            command.extend(["--source", _format_source_arg(src)])
+    else:
+        # Legacy single-source fallback.
+        command.extend(
+            [
+                "--dataset",
+                dataset["dataset"],
+                "--split",
+                dataset["split"],
+                "--text-field",
+                dataset["text_field"],
+            ]
+        )
+        if dataset.get("subset"):
+            command.extend(["--subset", dataset["subset"]])
+
+    command.extend(
+        [
+            "--tokenizer",
+            dataset["tokenizer"],
+            "--output-dir",
+            dataset["output_dir"],
+            "--sequence-length",
+            str(dataset["sequence_length"]),
+            "--num-sequences",
+            str(dataset["num_sequences"]),
+            "--shard-size",
+            str(dataset["shard_size"]),
+            "--token-bytes",
+            str(dataset["token_bytes"]),
+            "--seed",
+            str(dataset["seed"]),
+            "--buffer-docs",
+            str(dataset["buffer_docs"]),
+        ]
+    )
     if dataset.get("trust_remote_code", False):
         command.append("--trust-remote-code")
     return command
+
 
 
 def push_model_command(config: dict) -> list[str]:
@@ -673,13 +807,35 @@ def render_config_form(config: dict) -> str:
         for key, value in values.items():
             name = f"{section}.{key}"
             label = html.escape(name)
+            # Array of source tables -> multi-line textarea. Only the
+            # `dataset.sources` shape is supported; other list/dict values
+            # fall through to the generic string rendering below.
+            if (
+                key == "sources"
+                and isinstance(value, list)
+                and all(isinstance(v, dict) for v in value)
+            ):
+                text = html.escape(format_sources_text(value))
+                fields.append(
+                    f'<label>{label}<textarea name="{label}" rows="6" '
+                    f'placeholder="dataset|split=...|subset=...|text_field=...|weight=...">'
+                    f"{text}</textarea></label>"
+                    "<small>One dataset per line. Format: "
+                    "<code>dataset|split=train|subset=&lt;config&gt;|text_field=content|weight=0.6</code>. "
+                    "Leave empty to use the singular fields above.</small>"
+                )
+                continue
             if isinstance(value, bool):
                 checked = " checked" if value else ""
                 fields.append(f'<label><input style="width:auto" type="checkbox" name="{label}"{checked}> {label}</label>')
+            elif isinstance(value, list):
+                inline = html.escape(json.dumps(value))
+                fields.append(f'<label>{label}<input name="{label}" value="{inline}"></label>')
             else:
                 fields.append(f'<label>{label}<input name="{label}" value="{html.escape(str(value))}"></label>')
         sections.append(f"<fieldset><legend>{html.escape(section)}</legend><div class=\"grid\">{''.join(fields)}</div></fieldset>")
     return "".join(sections)
+
 
 
 class Handler(BaseHTTPRequestHandler):

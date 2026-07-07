@@ -1,4 +1,4 @@
-run_id = "aether0-500m-muon-150m-tokens"
+run_id = "aether1-500m-muon-150m-tokens"
 run_state = "WaitingForMembers"
 
 [config]
@@ -31,7 +31,7 @@ cold_start_warmup_steps = 0
 Server = "167.233.75.197:39406"
 
 [model.LLM.checkpoint.Hub]
-repo_id = "aethercompute/aether0-500m-muon-150m-tokens"
+repo_id = "aethercompute/aether1-500m-muon-150m-tokens"
 
 [model.LLM.lr_schedule.Cosine]
 base_lr = 1.5e-2
