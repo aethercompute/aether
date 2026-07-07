@@ -86,7 +86,10 @@ impl ChannelCoordinatorBackend {
 #[async_trait]
 impl aether_watcher::Backend for ChannelCoordinatorBackend {
     async fn wait_for_new_state(&mut self) -> Result<Coordinator> {
-        Ok(self.rx.recv().await.expect("channel closed? :("))
+        self.rx
+            .recv()
+            .await
+            .ok_or_else(|| anyhow!("coordinator update channel closed"))
     }
 
     async fn send_witness(&mut self, _opportunistic_data: OpportunisticData) -> Result<()> {
@@ -922,5 +925,28 @@ async fn init_wandb(run_id: &str) -> Option<(Arc<wandb::Run>, WandbInfo)> {
             warn!("wandb run build failed ({e:?}); continuing without it.");
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ChannelCoordinatorBackend;
+    use aether_watcher::Backend;
+    use tokio::sync::mpsc;
+
+    #[tokio::test]
+    async fn wait_for_new_state_errors_when_channel_closed() {
+        let (tx, rx) = mpsc::channel(1);
+        drop(tx);
+
+        let mut backend = ChannelCoordinatorBackend { rx };
+        let err = backend
+            .wait_for_new_state()
+            .await
+            .expect_err("closed channel should return an error");
+
+        assert!(err
+            .to_string()
+            .contains("coordinator update channel closed"));
     }
 }
