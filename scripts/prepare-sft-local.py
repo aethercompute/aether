@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -21,6 +22,20 @@ from transformers import AutoTokenizer
 
 
 IGNORE_INDEX = -100
+
+
+def token_ids(value: Any) -> list[int]:
+    """Normalize tokenizer outputs across Transformers versions.
+
+    Some tokenizers return a raw ``list[int]`` from ``apply_chat_template``;
+    newer/fast tokenizer paths can return a BatchEncoding-like mapping with an
+    ``input_ids`` field.
+    """
+    if isinstance(value, Mapping):
+        value = value.get("input_ids")
+    if not isinstance(value, list) or not all(isinstance(x, int) for x in value):
+        raise TypeError(f"expected token id list, got {type(value).__name__}: {value!r}")
+    return value
 
 
 def parse_args() -> argparse.Namespace:
@@ -91,17 +106,21 @@ def chat_tokens(
     prompt_messages.append({"role": "user", "content": prompt})
 
     full_messages = [*prompt_messages, {"role": "assistant", "content": response}]
-    prompt_ids = tokenizer.apply_chat_template(
-        prompt_messages,
-        tokenize=True,
-        add_generation_prompt=True,
+    prompt_ids = token_ids(
+        tokenizer.apply_chat_template(
+            prompt_messages,
+            tokenize=True,
+            add_generation_prompt=True,
+        )
     )
-    full_ids = tokenizer.apply_chat_template(
-        full_messages,
-        tokenize=True,
-        add_generation_prompt=False,
+    full_ids = token_ids(
+        tokenizer.apply_chat_template(
+            full_messages,
+            tokenize=True,
+            add_generation_prompt=False,
+        )
     )
-    return list(prompt_ids), list(full_ids)
+    return prompt_ids, full_ids
 
 
 def prompt_response_tokens(tokenizer, prompt: str, response: str) -> tuple[list[int], list[int]]:
@@ -200,6 +219,8 @@ def main() -> None:
     shard_index = 0
     total = 0
     skipped = 0
+    missing_text = 0
+    no_supervised_tokens = 0
     written_files: list[str] = []
 
     for sample in iter_samples(args):
@@ -207,11 +228,13 @@ def main() -> None:
         response = nonempty_text(sample, args.response_field)
         if prompt is None or response is None:
             skipped += 1
+            missing_text += 1
             continue
 
         example = build_example(tokenizer, prompt, response, args)
         if example is None:
             skipped += 1
+            no_supervised_tokens += 1
             continue
         input_ids, labels = example
         rows.append({"inputs": input_ids, "labels": labels})
@@ -236,7 +259,14 @@ def main() -> None:
         print(f"wrote {len(rows)} examples to {path}")
 
     if total == 0:
-        raise RuntimeError("No SFT examples were produced")
+        raise RuntimeError(
+            "No SFT examples were produced "
+            f"(missing prompt/response text: {missing_text}, "
+            f"no supervised tokens after tokenization/truncation: {no_supervised_tokens}). "
+            f"Check --prompt-field={args.prompt_field!r}, "
+            f"--response-field={args.response_field!r}, --mode={args.mode!r}, "
+            "and --sequence-length."
+        )
 
     metadata = {
         "format": "aether-preprocessed-sft-parquet",
@@ -247,6 +277,8 @@ def main() -> None:
         "sequence_length": args.sequence_length,
         "num_sequences": total,
         "skipped_sequences": skipped,
+        "missing_text_sequences": missing_text,
+        "no_supervised_token_sequences": no_supervised_tokens,
         "mode": args.mode,
         "prompt_field": args.prompt_field,
         "response_field": args.response_field,
