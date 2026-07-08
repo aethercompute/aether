@@ -70,12 +70,22 @@ bash scripts/with-libtorch-env.sh cargo test --workspace
 
 ## Quick Commands
 
+Run the full local gate:
+
+```sh
+just ci-local
+```
+
+`just ci-local` runs formatting checks, cargo-deny, training oracle tests,
+clippy, Rust workspace tests, and Python pytest. Use the targeted commands below
+when you only want one part of the suite:
+
 ```sh
 just fmt-check
 just clippy
 just test
 just training-oracle
-just ci-local
+just deny
 ```
 
 Run the centralized server against the sample training config:
