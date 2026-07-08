@@ -159,10 +159,10 @@ impl FromStr for RelayKind {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "disabled" => Ok(RelayKind::Disabled),
-            "psyche" => Ok(RelayKind::Aether),
+            "aether" | "psyche" => Ok(RelayKind::Aether),
             "n0" => Ok(RelayKind::N0),
             _ => Err(format!(
-                "Invalid relay kind: '{}'. Expected 'psyche' or 'n0'",
+                "Invalid relay kind: '{}'. Expected 'aether', 'psyche', or 'n0'",
                 s
             )),
         }
