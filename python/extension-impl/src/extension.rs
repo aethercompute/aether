@@ -156,6 +156,10 @@ impl Trainer {
         })
     }
 
+    pub fn cancel(&self) {
+        self.cancel.cancel();
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn train(
         self_: PyRef<'_, Self>,

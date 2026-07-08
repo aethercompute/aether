@@ -58,14 +58,17 @@ class FakeEngine:
 
 @pytest.fixture(autouse=True)
 def clear_engines():
-    rust_bridge._engines.clear()
+    with rust_bridge._engines_lock:
+        rust_bridge._engines.clear()
     yield
-    rust_bridge._engines.clear()
+    with rust_bridge._engines_lock:
+        rust_bridge._engines.clear()
 
 
 def test_run_inference_formats_messages_and_returns_output():
     engine = FakeEngine()
-    rust_bridge._engines["engine-1"] = engine
+    with rust_bridge._engines_lock:
+        rust_bridge._engines["engine-1"] = engine
 
     result = rust_bridge.run_inference(
         "engine-1",
@@ -102,7 +105,8 @@ def test_run_inference_uses_chat_template_when_available():
             return FakeChatTemplateTokenizer()
 
     engine = ChatTemplateEngine()
-    rust_bridge._engines["engine-1"] = engine
+    with rust_bridge._engines_lock:
+        rust_bridge._engines["engine-1"] = engine
 
     result = rust_bridge.run_inference(
         "engine-1",
@@ -125,7 +129,8 @@ def test_run_inference_missing_engine_is_error():
 
 
 def test_run_inference_reports_add_request_failure_without_unbound_request_id():
-    rust_bridge._engines["engine-1"] = FakeEngine(fail_on_add=True)
+    with rust_bridge._engines_lock:
+        rust_bridge._engines["engine-1"] = FakeEngine(fail_on_add=True)
 
     result = rust_bridge.run_inference("engine-1", [{"role": "user", "content": "hi"}])
 
@@ -136,7 +141,8 @@ def test_run_inference_reports_add_request_failure_without_unbound_request_id():
 
 def test_shutdown_removes_engine_after_cleanup():
     engine = FakeEngine()
-    rust_bridge._engines["engine-1"] = engine
+    with rust_bridge._engines_lock:
+        rust_bridge._engines["engine-1"] = engine
 
     result = rust_bridge.shutdown_engine("engine-1")
 
@@ -146,7 +152,8 @@ def test_shutdown_removes_engine_after_cleanup():
 
 
 def test_get_engine_stats_reports_registered_engine():
-    rust_bridge._engines["engine-1"] = FakeEngine(outputs=[])
+    with rust_bridge._engines_lock:
+        rust_bridge._engines["engine-1"] = FakeEngine(outputs=[])
 
     result = rust_bridge.get_engine_stats("engine-1")
 
@@ -157,3 +164,15 @@ def test_get_engine_stats_reports_registered_engine():
         "tensor_parallel_size": 1,
         "has_unfinished_requests": False,
     }
+
+
+def test_list_engines_returns_snapshot_not_live_keys_view():
+    with rust_bridge._engines_lock:
+        rust_bridge._engines["engine-1"] = FakeEngine(outputs=[])
+
+    result = rust_bridge.list_engines()
+
+    assert result == {"status": "success", "engine_ids": ["engine-1"]}
+    with rust_bridge._engines_lock:
+        rust_bridge._engines["engine-2"] = FakeEngine(outputs=[])
+    assert result == {"status": "success", "engine_ids": ["engine-1"]}

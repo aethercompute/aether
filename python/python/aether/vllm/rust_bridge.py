@@ -1,10 +1,12 @@
 import logging
+import threading
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
 # Global registry of engines by ID
 _engines: Dict[str, Any] = {}
+_engines_lock = threading.RLock()
 
 
 def create_engine(
@@ -28,7 +30,8 @@ def create_engine(
             gpu_memory_utilization=gpu_memory_utilization,
         )
 
-        _engines[engine_id] = engine
+        with _engines_lock:
+            _engines[engine_id] = engine
 
         logger.info(f"Engine '{engine_id}' created successfully")
 
@@ -49,12 +52,13 @@ def run_inference(
 ) -> Dict[str, Any]:
     request_id = None
     try:
-        if engine_id not in _engines:
+        with _engines_lock:
+            engine = _engines.get(engine_id)
+
+        if engine is None:
             error_msg = f"Engine '{engine_id}' not found"
             logger.error(error_msg)
             return {"status": "error", "error": error_msg}
-
-        engine = _engines[engine_id]
 
         tokenizer = engine.get_tokenizer()
 
@@ -130,16 +134,17 @@ def run_inference(
 
 def shutdown_engine(engine_id: str) -> Dict[str, Any]:
     try:
-        if engine_id not in _engines:
+        with _engines_lock:
+            engine = _engines.pop(engine_id, None)
+
+        if engine is None:
             error_msg = f"Engine '{engine_id}' not found"
             logger.error(error_msg)
             return {"status": "error", "error": error_msg}
 
-        engine = _engines[engine_id]
         logger.info(f"Shutting down engine '{engine_id}'")
 
         engine.shutdown()
-        del _engines[engine_id]
 
         logger.info(f"Engine '{engine_id}' shutdown complete")
 
@@ -153,12 +158,13 @@ def shutdown_engine(engine_id: str) -> Dict[str, Any]:
 
 def get_engine_stats(engine_id: str) -> Dict[str, Any]:
     try:
-        if engine_id not in _engines:
+        with _engines_lock:
+            engine = _engines.get(engine_id)
+
+        if engine is None:
             error_msg = f"Engine '{engine_id}' not found"
             logger.error(error_msg)
             return {"status": "error", "error": error_msg}
-
-        engine = _engines[engine_id]
 
         return {
             "status": "success",
@@ -175,4 +181,6 @@ def get_engine_stats(engine_id: str) -> Dict[str, Any]:
 
 
 def list_engines() -> Dict[str, Any]:
-    return {"status": "success", "engine_ids": list(_engines.keys())}
+    with _engines_lock:
+        engine_ids = list(_engines.keys())
+    return {"status": "success", "engine_ids": engine_ids}

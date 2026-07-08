@@ -132,7 +132,8 @@ def initialize_deepseek_weights(model: DeepseekV3ForCausalLM, config: DeepseekV3
 def main(args):
     if not args.config:
         raise RuntimeError("No config provided")
-    raw_config = json.load(open(args.config))
+    with open(args.config, "r", encoding="utf-8") as f:
+        raw_config = json.load(f)
     model_type = raw_config["model_type"]
 
     if model_type == "llama":
@@ -185,18 +186,21 @@ def main(args):
         if args.tokenizer:
             AutoTokenizer.from_pretrained(args.tokenizer).save_pretrained(args.save)
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        type=str,
+        help="source config repo or path to JSON config",
+    )
+    parser.add_argument("--repo", type=str, help="destination repo")
+    parser.add_argument("--save", type=str, help="save to local")
+    parser.add_argument("--private", action="store_true", help="push as a private repo")
+    parser.add_argument("--dtype", type=int, default=torch.bfloat16, help="torch dtype")
+    parser.add_argument("--device", type=str, help="device to init on")
+    parser.add_argument("--tokenizer", type=str, help="tokenizer")
+    return parser.parse_args()
 
-args = argparse.ArgumentParser()
-args.add_argument(
-    "--config",
-    type=str,
-    help="source config repo or path to JSON config",
-)
-args.add_argument("--repo", type=str, help="destination repo")
-args.add_argument("--save", type=str, help="save to local")
-args.add_argument("--private", action="store_true", help="push as a private repo")
-args.add_argument("--dtype", type=int, default=torch.bfloat16, help="torch dtype")
-args.add_argument("--device", type=str, help="device to init on")
-args.add_argument("--tokenizer", type=str, help="tokenizer")
 
-main(args.parse_args())
+if __name__ == "__main__":
+    main(parse_args())
