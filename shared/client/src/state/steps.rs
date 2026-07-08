@@ -15,7 +15,7 @@ use aether_watcher::OpportunisticData;
 use iroh_blobs::api::Tag;
 use std::{
     fmt,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard},
     time::Instant,
 };
 use tch::TchError;
@@ -72,6 +72,13 @@ pub struct StepStateMachine {
 }
 
 const DESYNC_REJOIN_THRESHOLD: u32 = 5;
+
+fn lock_mutex<'a, T>(lock: &'a Mutex<T>, name: &str) -> MutexGuard<'a, T> {
+    lock.lock().unwrap_or_else(|poisoned| {
+        warn!(lock = name, "step lock poisoned; recovering state");
+        poisoned.into_inner()
+    })
+}
 
 #[derive(Error, Debug)]
 pub enum StepError {
@@ -189,7 +196,10 @@ impl StepStateMachine {
                     .previous_round
                     .batch_ids_not_yet_trained_on
                     .lock()
-                    .unwrap()
+                    .unwrap_or_else(|poisoned| {
+                        warn!("previous round batch tracking lock poisoned; recovering state");
+                        poisoned.into_inner()
+                    })
                     .is_none();
 
                 if step.finished() && all_prev_round_batches_are_trained {
@@ -198,7 +208,8 @@ impl StepStateMachine {
 
                     // check that all batches from the previous round are done deserializing
                     {
-                        let prev_round_downloads = self.previous_round.downloads.lock().unwrap();
+                        let prev_round_downloads =
+                            lock_mutex(&self.previous_round.downloads, "previous_round.downloads");
                         for batch in &*prev_round_downloads {
                             match batch.1 {
                                 // this batch is done deserializing, we can witness on it now.
@@ -455,7 +466,7 @@ impl StepStateMachine {
                 let download_state =
                     PayloadState::Downloading((from_client_id, batch_id, ticket.clone()));
 
-                let mut downloads = round_state.downloads.lock().unwrap();
+                let mut downloads = lock_mutex(&round_state.downloads, "round_state.downloads");
 
                 downloads.insert(hash, download_state);
 
@@ -567,7 +578,7 @@ impl StepStateMachine {
         }
 
         let (from, batch_id, _) = {
-            let downloads = round_state.downloads.lock().unwrap();
+            let downloads = lock_mutex(&round_state.downloads, "round_state.downloads");
             match downloads.get(&hash) {
                 Some(PayloadState::Downloading(x)) => x.clone(),
                 Some(PayloadState::Deserializing(_)) => {
@@ -620,8 +631,11 @@ impl StepStateMachine {
             // TODO: how do we do witnessing for verifiers that might be training on data that's not in the normal remaining batch IDs?
             // TODO: also we want ALL those from everyone, right?
             let just_finished = {
-                let mut batch_ids_not_yet_trained_on = batch_ids_not_yet_trained_on.lock().unwrap();
-                let mut blooms = blooms.lock().unwrap();
+                let mut batch_ids_not_yet_trained_on = lock_mutex(
+                    &batch_ids_not_yet_trained_on,
+                    "batch_ids_not_yet_trained_on",
+                );
+                let mut blooms = lock_mutex(&blooms, "blooms");
                 if let Some(remaining_batch_ids) = &mut *batch_ids_not_yet_trained_on {
                     if let Some((participant_bloom, broadcast_bloom)) = blooms.as_mut() {
                         participant_bloom.add(&sha256(from.signer()));
@@ -655,7 +669,10 @@ impl StepStateMachine {
             };
 
             if just_finished {
-                *batch_ids_not_yet_trained_on.lock().unwrap() = None;
+                *lock_mutex(
+                    &batch_ids_not_yet_trained_on,
+                    "batch_ids_not_yet_trained_on",
+                ) = None;
             }
 
             // we unconditionally store every seen payload, since we're not yet sure what consensus will be on whether it's included.
@@ -686,13 +703,16 @@ impl StepStateMachine {
                 Ok(maybe_results)
             });
 
-            let mut downloads = downloads.lock().unwrap();
+            let mut downloads = lock_mutex(&downloads, "downloads");
 
             downloads.insert(hash, PayloadState::Deserializing(deserializing));
 
             stats_logger
                 .lock()
-                .expect("stats logger mutex poisoned")
+                .unwrap_or_else(|poisoned| {
+                    warn!("stats logger mutex poisoned while recording download; recovering state");
+                    poisoned.into_inner()
+                })
                 .metrics
                 .record_result_downloaded(downloads.len() as u64, current_round, hash, batch_id);
         });
@@ -1279,6 +1299,19 @@ mod tests {
         let Model::LLM(llm) = &mut state.model;
         llm.checkpoint = checkpoint;
         state
+    }
+
+    #[test]
+    fn lock_mutex_recovers_from_poisoned_step_lock() {
+        let lock = Mutex::new(3usize);
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = lock.lock().expect("test lock should start clean");
+            panic!("poison step lock");
+        });
+
+        *lock_mutex(&lock, "test") = 4;
+
+        assert_eq!(*lock_mutex(&lock, "test"), 4);
     }
 
     #[test]

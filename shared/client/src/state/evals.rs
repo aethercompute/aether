@@ -3,7 +3,7 @@ use aether_eval::{EvalTaskOptions, Task};
 use aether_modeling::Trainer;
 use futures::future::try_join_all;
 use rand::{seq::SliceRandom, Rng};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use thiserror::Error;
 use tokenizers::Tokenizer;
 use tokio::{
@@ -11,10 +11,20 @@ use tokio::{
     task::{JoinError, JoinHandle},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info, span, trace, Level};
+use tracing::{error, info, span, trace, warn, Level};
 
-use crate::state::{prompt::PromptTask, prompt_texts::get_prompt_texts};
+use crate::state::{
+    prompt::{read_lock, PromptTask},
+    prompt_texts::get_prompt_texts,
+};
 pub const PROMPT_TASK_NAME: &str = "Prompt";
+
+fn lock_mutex<'a, T>(lock: &'a Mutex<T>, name: &str) -> MutexGuard<'a, T> {
+    lock.lock().unwrap_or_else(|poisoned| {
+        warn!(lock = name, "eval lock poisoned; recovering state");
+        poisoned.into_inner()
+    })
+}
 
 #[derive(Debug)]
 
@@ -266,8 +276,10 @@ impl ModelTaskRunner {
                                     match &model_task.task {
                                         EnumModelTask::EvalTask(eval_task) => {
                                             let next_index = {
-                                                let mut next_indices =
-                                                    eval_task.next_indices.lock().unwrap();
+                                                let mut next_indices = lock_mutex(
+                                                    &eval_task.next_indices,
+                                                    "next_indices",
+                                                );
                                                 next_indices.pop().unwrap()
                                             };
                                             trace!(
@@ -290,7 +302,8 @@ impl ModelTaskRunner {
                                             trace!("Done eval task {}", eval_task.task.name());
                                         }
                                         EnumModelTask::PromptTask(prompt) => {
-                                            let mut is_running = prompt.is_running.lock().unwrap();
+                                            let mut is_running =
+                                                lock_mutex(&prompt.is_running, "is_running");
                                             if *is_running {
                                                 continue;
                                             } else {
@@ -300,11 +313,14 @@ impl ModelTaskRunner {
                                             trace!(
                                                 "Running {} task on prompt index: {}",
                                                 model_task.name(),
-                                                *prompt.selected_prompt.read().unwrap()
+                                                *read_lock(
+                                                    &prompt.selected_prompt,
+                                                    "selected_prompt"
+                                                )
                                             );
 
                                             prompt.run(&mut trainer, cancel.clone());
-                                            *prompt.is_running.lock().unwrap() = false;
+                                            *lock_mutex(&prompt.is_running, "is_running") = false;
                                         }
                                     }
                                     trace!("Done model task {}", model_task.name());
@@ -376,5 +392,25 @@ impl RunningEvals {
             .await?
             .into_iter()
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::lock_mutex;
+
+    #[test]
+    fn lock_mutex_recovers_from_poisoned_eval_lock() {
+        let lock = Mutex::new(3usize);
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = lock.lock().expect("test lock should start clean");
+            panic!("poison eval lock");
+        });
+
+        *lock_mutex(&lock, "test") = 4;
+
+        assert_eq!(*lock_mutex(&lock, "test"), 4);
     }
 }
