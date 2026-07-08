@@ -125,6 +125,7 @@ impl CoordinatorServer {
             Some(WARMUP_TIME),
             true,
             None,
+            None,
         )
         .await
         .unwrap();

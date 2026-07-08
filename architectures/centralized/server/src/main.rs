@@ -12,6 +12,7 @@ use app::{App, DataServerInfo};
 use clap::{ArgAction, Parser};
 use serde::Deserialize;
 use std::{
+    collections::HashSet,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -40,7 +41,7 @@ enum Commands {
     /// Starts the server and launches the coordinator with the declared configuration.
     Run {
         #[command(flatten)]
-        run_args: RunArgs,
+        run_args: Box<RunArgs>,
     },
     // Prints the help, optionally as markdown. Used for docs generation.
     #[clap(hide = true)]
@@ -77,6 +78,11 @@ struct RunArgs {
     /// Path to TOML of data server config
     #[clap(long)]
     data_config: Option<PathBuf>,
+
+    /// Optional admission allowlist file. Each non-empty line must be a 32-byte hex public key.
+    /// Lines may include comments after `#`. If omitted, any client with the run id may join.
+    #[clap(long)]
+    admission_allowlist: Option<PathBuf>,
 
     /// Path to save the server and coordinator state.
     #[clap(long)]
@@ -207,6 +213,51 @@ fn load_experiment(
     Ok((first, data_config, remaining))
 }
 
+fn parse_hex_public_key(raw: &str, line_number: usize) -> Result<[u8; 32]> {
+    let raw = raw.strip_prefix("0x").unwrap_or(raw);
+    if raw.len() != 64 {
+        bail!(
+            "allowlist line {line_number}: expected 64 hex chars, got {}",
+            raw.len()
+        );
+    }
+
+    let mut bytes = [0u8; 32];
+    for (i, byte) in bytes.iter_mut().enumerate() {
+        let start = i * 2;
+        *byte = u8::from_str_radix(&raw[start..start + 2], 16)
+            .with_context(|| format!("allowlist line {line_number}: invalid hex byte {i}"))?;
+    }
+    Ok(bytes)
+}
+
+fn parse_admission_allowlist(contents: &str) -> Result<HashSet<aether_core::NodeIdentity>> {
+    let mut allowlist = HashSet::new();
+    for (line_index, line) in contents.lines().enumerate() {
+        let line_number = line_index + 1;
+        let entry = line.split_once('#').map_or(line, |(entry, _)| entry).trim();
+        if entry.is_empty() {
+            continue;
+        }
+        allowlist.insert(aether_core::NodeIdentity::from_single_key(
+            parse_hex_public_key(entry, line_number)?,
+        ));
+    }
+    Ok(allowlist)
+}
+
+fn load_admission_allowlist(
+    path: Option<PathBuf>,
+) -> Result<Option<HashSet<aether_core::NodeIdentity>>> {
+    path.map(|path| {
+        let contents = std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read admission allowlist file {path:?}"))?;
+        parse_admission_allowlist(&contents)
+            .with_context(|| format!("failed to parse admission allowlist file {path:?}"))
+    })
+    .transpose()
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     #[cfg(feature = "python")]
@@ -231,10 +282,11 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Run { run_args } => {
-            let experiment = match run_args.experiment.clone() {
-                Some(path) => Some(load_experiment(path, run_args.data_config.clone())),
-                None => None,
-            };
+            let run_args = *run_args;
+            let experiment = run_args
+                .experiment
+                .clone()
+                .map(|path| load_experiment(path, run_args.data_config.clone()));
             let config = match (experiment, run_args.state.clone()) {
                 (Some(Ok(config)), _) => Ok(config),
                 (Some(Err(err)), _) => Err(err),
@@ -280,6 +332,8 @@ async fn main() -> Result<()> {
                 .init()?;
             match config {
                 Ok(config) => {
+                    let admission_allowlist =
+                        load_admission_allowlist(run_args.admission_allowlist.clone())?;
                     App::new(
                         run_args.tui,
                         config.0,
@@ -291,6 +345,7 @@ async fn main() -> Result<()> {
                         run_args.init_warmup_time,
                         run_args.withdraw_on_disconnect,
                         Some(run_args.web_port),
+                        admission_allowlist,
                     )
                     .await?
                     .run()
@@ -308,4 +363,27 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_admission_allowlist_accepts_hex_lines_and_comments() {
+        let contents = "\n# comment\n0101010101010101010101010101010101010101010101010101010101010101\n0x0202020202020202020202020202020202020202020202020202020202020202 # trailing\n";
+
+        let allowlist = parse_admission_allowlist(contents).unwrap();
+
+        assert!(allowlist.contains(&aether_core::NodeIdentity::from_single_key([1; 32])));
+        assert!(allowlist.contains(&aether_core::NodeIdentity::from_single_key([2; 32])));
+        assert_eq!(allowlist.len(), 2);
+    }
+
+    #[test]
+    fn parse_admission_allowlist_rejects_wrong_length() {
+        let err = parse_admission_allowlist("abcd").unwrap_err();
+
+        assert!(err.to_string().contains("expected 64 hex chars"));
+    }
 }

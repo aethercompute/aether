@@ -127,6 +127,7 @@ pub struct App {
     wandb_run: Option<Arc<wandb::Run>>,
     wandb_info: Option<WandbInfo>,
     last_admission_change_unix_timestamp: u64,
+    admission_allowlist: Option<HashSet<NodeIdentity>>,
 }
 
 /// Methods intended for testing purposes only.
@@ -208,6 +209,7 @@ impl App {
         init_warmup_time: Option<u64>,
         withdraw_on_disconnect: bool,
         web_port: Option<u16>,
+        admission_allowlist: Option<HashSet<NodeIdentity>>,
     ) -> Result<Self> {
         async {
             Self::reset_ephemeral(&mut coordinator);
@@ -417,6 +419,7 @@ impl App {
                 wandb_run,
                 wandb_info,
                 last_admission_change_unix_timestamp: 0,
+                admission_allowlist,
             })
         }.instrument(info_span!("App::new")).await
     }
@@ -546,6 +549,10 @@ impl App {
         self.loss_history.push(point);
     }
 
+    fn admission_allowed(&self, identity: &NodeIdentity) -> bool {
+        admission_allowed(self.admission_allowlist.as_ref(), identity)
+    }
+
     fn on_disconnect(&mut self, from: PublicKey) -> Result<()> {
         let from_identity = NodeIdentity::from_single_key(*from.as_bytes());
         let removed_pending = self.backend.pending_clients.remove(&from_identity);
@@ -570,19 +577,24 @@ impl App {
         let from_identity = NodeIdentity::from_single_key(*from.as_bytes());
         let broadcast = match event {
             ClientToServerMessage::Join { run_id } => {
-                // TODO: check whitelist
                 let coord_run_id = String::from(&self.coordinator.run_id);
-                if coord_run_id == run_id {
+                if coord_run_id != run_id {
+                    info!("{from:?} tried to join unknown run {run_id}");
+                } else if !self.admission_allowed(&from_identity) {
+                    warn!("{from:?} is not in the admission allowlist for run {run_id}");
+                } else {
                     info!("added pending client {from}");
                     if self.backend.pending_clients.insert(from_identity) {
                         self.last_admission_change_unix_timestamp = Self::get_timestamp();
                     }
-                } else {
-                    info!("{from:?} tried to join unknown run {run_id}");
                 }
                 false
             }
             ClientToServerMessage::ReadyForEpoch => {
+                if !self.admission_allowed(&from_identity) {
+                    warn!("{from:?} is not in the admission allowlist; ignoring readiness");
+                    return;
+                }
                 // The client has finished downloading/loading the checkpoint.
                 // Promote from pending (syncing) to ready so it can be admitted
                 // at the next epoch boundary.
@@ -886,6 +898,13 @@ impl App {
     }
 }
 
+fn admission_allowed(
+    admission_allowlist: Option<&HashSet<NodeIdentity>>,
+    identity: &NodeIdentity,
+) -> bool {
+    admission_allowlist.is_none_or(|allowlist| allowlist.contains(identity))
+}
+
 impl From<&App> for DashboardState {
     fn from(app: &App) -> Self {
         Self {
@@ -959,9 +978,28 @@ async fn init_wandb(run_id: &str) -> Option<(Arc<wandb::Run>, WandbInfo)> {
 
 #[cfg(test)]
 mod tests {
-    use super::ChannelCoordinatorBackend;
+    use super::{admission_allowed, ChannelCoordinatorBackend};
+    use aether_core::NodeIdentity;
     use aether_watcher::Backend;
+    use std::collections::HashSet;
     use tokio::sync::mpsc;
+
+    #[test]
+    fn admission_allowed_is_open_without_allowlist() {
+        let identity = NodeIdentity::from_single_key([1; 32]);
+
+        assert!(admission_allowed(None, &identity));
+    }
+
+    #[test]
+    fn admission_allowed_requires_membership_when_allowlist_is_present() {
+        let allowed = NodeIdentity::from_single_key([1; 32]);
+        let denied = NodeIdentity::from_single_key([2; 32]);
+        let allowlist = HashSet::from([allowed]);
+
+        assert!(admission_allowed(Some(&allowlist), &allowed));
+        assert!(!admission_allowed(Some(&allowlist), &denied));
+    }
 
     #[tokio::test]
     async fn wait_for_new_state_errors_when_channel_closed() {
