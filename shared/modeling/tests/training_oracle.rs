@@ -8,6 +8,7 @@ use aether_modeling::{
     Batch, BatchData, BatchDataCPU, CausalLM, DistroResult, EosToks, LocalTrainer, ParallelModels,
     StableVarStoreIterator, StableVariableIterator, Trainer,
 };
+use aether_network::{distro_results_from_reader, distro_results_to_bytes, SerializedDistroResult};
 use tch::{
     nn::{self, Module, VarStore},
     COptimizer, Device, Kind, Tensor,
@@ -380,6 +381,34 @@ fn optimize_distro_trainer(trainer: Trainer, step: u32, results: Vec<DistroResul
     trainer
         .optimize(step, None, Some(results))
         .expect("distro aggregate optimize succeeds")
+}
+
+fn wire_roundtrip_distro_results(results: &[DistroResults]) -> Vec<DistroResults> {
+    results
+        .iter()
+        .map(|worker_results| {
+            let serialized = worker_results
+                .iter()
+                .map(|result| {
+                    SerializedDistroResult::try_from(result)
+                        .expect("distro result serializes for wire transport")
+                })
+                .collect::<Vec<_>>();
+            let bytes = distro_results_to_bytes(&serialized)
+                .expect("serialized distro results encode to postcard bytes");
+            let decoded = distro_results_from_reader(bytes.as_slice())
+                .collect::<Result<Vec<_>, _>>()
+                .expect("serialized distro results decode from byte stream");
+            assert_eq!(serialized, decoded, "serialized wire payload changed");
+            decoded
+                .iter()
+                .map(|result| {
+                    DistroResult::try_from(result)
+                        .expect("serialized distro result converts back to native tensor result")
+                })
+                .collect()
+        })
+        .collect()
 }
 
 fn batch_id(start: u64, end: u64) -> BatchId {
@@ -855,6 +884,26 @@ fn distro_full_density_step_matches_sign_mean_reference() {
     let actual = extract_state(&mut aggregator);
 
     assert_state_close(&actual, &expected, 2e-5, 2e-5);
+}
+
+#[test]
+fn serialized_distro_results_apply_like_in_memory_results() {
+    let worker_batches = distro_worker_batches();
+    let worker_results = worker_batches
+        .iter()
+        .map(|batch| run_distro_worker(0, batch.clone()).1)
+        .collect::<Vec<_>>();
+    let wire_results = wire_roundtrip_distro_results(&worker_results);
+
+    let original_aggregator = run_distro_worker(0, worker_batches[0].clone()).0;
+    let wire_aggregator = run_distro_worker(0, worker_batches[0].clone()).0;
+
+    let mut original_aggregator = optimize_distro_trainer(original_aggregator, 0, worker_results);
+    let mut wire_aggregator = optimize_distro_trainer(wire_aggregator, 0, wire_results);
+
+    let original_state = extract_state(&mut original_aggregator);
+    let wire_state = extract_state(&mut wire_aggregator);
+    assert_state_close(&wire_state, &original_state, 0.0, 0.0);
 }
 
 #[test]
