@@ -17,7 +17,7 @@ bash scripts/ci-local.sh
 ## Volunteer Launchers
 
 - `aethercompute-client.sh`: one-command installer/launcher for volunteer clients.
-- `aethercompute-seed.sh`: seed-mode wrapper that requires `HF_TOKEN` and `HUB_REPO`.
+- `aethercompute-seed.sh`: seed-mode wrapper that requires `HF_TOKEN`; `HUB_REPO` defaults to `aethercompute/llama3.2-1b-pirate`.
 
 Supported `aethercompute-client.sh` modes include default launch, `seed`,
 `update`, `doctor`, and `uninstall`.
@@ -79,4 +79,4 @@ python3 scripts/push-new-model-hf.py \
 - `LIBTORCH_USE_PYTORCH`: tells `tch`/`torch-sys` to use the Python Torch installation.
 - `CONTROL_PORT`, `SERVER_PORT`, `WEB_PORT`: dashboard and centralized server ports.
 - `TRAINING_RUN_CONFIG`: dashboard config path.
-- `HF_TOKEN`, `HUB_REPO`: Hugging Face credentials and destination repo.
+- `HF_TOKEN`, `HUB_REPO`: Hugging Face credentials and destination repo. Seed mode defaults `HUB_REPO` to `aethercompute/llama3.2-1b-pirate`.

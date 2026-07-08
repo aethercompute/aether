@@ -335,7 +335,7 @@ real training client with live progress, and execs it when you're ready.
 
 Usage:
   curl -fsSL https://aethercompute.org/client.sh | sh           volunteer node
-  curl -fsSL https://aethercompute.org/client.sh | sh -s seed   seed node (requires HF_TOKEN, HUB_REPO)
+  curl -fsSL https://aethercompute.org/client.sh | sh -s seed   seed node (requires HF_TOKEN)
   curl -fsSL https://aethercompute.org/client.sh | sh -s update pull latest source
   curl -fsSL https://aethercompute.org/client.sh | sh -s doctor show what's installed
   curl -fsSL https://aethercompute.org/client.sh | sh -s uninstall
@@ -349,9 +349,9 @@ Subcommands:
 
 Seed mode environment (required):
   HF_TOKEN     HuggingFace access token with write access
-  HUB_REPO     target repo, e.g. "user/model-name"
 
 Seed mode environment (optional):
+  HUB_REPO                 target repo (default: aethercompute/llama3.2-1b-pirate)
   CHECKPOINT_DIR             local checkpoint storage (default: ~/.aethercompute/checkpoints)
   CHECKPOINT_EPOCH_INTERVAL  push every N epochs (default: 1)
   KEEP_STEPS                 step checkpoints to retain (default: 3)
@@ -429,10 +429,7 @@ do_seed() {
   if [[ -z "${HF_TOKEN:-}" ]]; then
     die "HF_TOKEN is required for seed mode. Get one at https://huggingface.co/settings/tokens"
   fi
-  if [[ -z "${HUB_REPO:-}" ]]; then
-    die "HUB_REPO is required for seed mode (e.g. 'user/model-name')"
-  fi
-
+  export HUB_REPO="${HUB_REPO:-aethercompute/llama3.2-1b-pirate}"
   export CHECKPOINT_EPOCH_INTERVAL="${CHECKPOINT_EPOCH_INTERVAL:-1}"
   export KEEP_STEPS="${KEEP_STEPS:-3}"
   export DELETE_OLD_STEPS="${DELETE_OLD_STEPS:-true}"
