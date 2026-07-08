@@ -7,8 +7,11 @@ use std::{
     env,
     io::{BufRead, BufReader},
     path::PathBuf,
-    process::{Command, Stdio},
-    sync::{Arc, Mutex},
+    process::{Child, Command, Stdio},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
@@ -182,7 +185,8 @@ struct Shared {
 /// A backgrounded `cargo build` whose output can be polled from the UI thread.
 pub struct BuildJob {
     shared: Arc<Mutex<Shared>>,
-    _join: Option<JoinHandle<()>>,
+    cancel: Arc<AtomicBool>,
+    join: Option<JoinHandle<()>>,
 }
 
 impl BuildJob {
@@ -202,12 +206,21 @@ impl BuildJob {
 
         let env = Env::detect();
         let shared_for_thread = shared.clone();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cancel_for_thread = cancel.clone();
         let join = thread::spawn(move || {
             if force {
                 push_line(
                     &shared_for_thread,
                     "forcing torch-sys rebuild (libtorch changed)".into(),
                 );
+                if cancel_for_thread.load(Ordering::Relaxed) {
+                    set_state(
+                        &shared_for_thread,
+                        BuildState::Failed("build cancelled".into()),
+                    );
+                    return;
+                }
                 let mut clean = Command::new(&env.cargo);
                 clean.arg("clean").arg("-p").arg("torch-sys");
                 env.apply(&mut clean);
@@ -235,22 +248,26 @@ impl BuildJob {
                 }
             };
             if let Some(stderr) = child.stderr.take() {
-                for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                    push_line(&shared_for_thread, line);
-                }
+                let shared_for_stderr = shared_for_thread.clone();
+                let stderr_reader = thread::spawn(move || {
+                    for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                        push_line(&shared_for_stderr, line);
+                    }
+                });
+
+                let state = wait_for_build_child(child, &cancel_for_thread, &shared_for_thread);
+                let _ = stderr_reader.join();
+                set_state(&shared_for_thread, state);
+            } else {
+                let state = wait_for_build_child(child, &cancel_for_thread, &shared_for_thread);
+                set_state(&shared_for_thread, state);
             }
-            let result = child.wait();
-            let state = match result {
-                Ok(status) if status.success() => BuildState::Success,
-                Ok(status) => BuildState::Failed(format!("cargo exited with {status}")),
-                Err(e) => BuildState::Failed(e.to_string()),
-            };
-            set_state(&shared_for_thread, state);
         });
 
         Self {
             shared,
-            _join: Some(join),
+            cancel,
+            join: Some(join),
         }
     }
 
@@ -271,6 +288,44 @@ impl BuildJob {
             compiles: guard.compiles,
             lines: tail,
             crate_name: guard.crate_name.clone(),
+        }
+    }
+}
+
+fn wait_for_build_child(
+    mut child: Child,
+    cancel: &AtomicBool,
+    shared: &Arc<Mutex<Shared>>,
+) -> BuildState {
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            if let Err(err) = child.kill() {
+                push_line(shared, format!("failed to stop cargo: {err}"));
+            }
+            let _ = child.wait();
+            return BuildState::Failed("build cancelled".into());
+        }
+
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => return BuildState::Success,
+            Ok(Some(status)) => return BuildState::Failed(format!("cargo exited with {status}")),
+            Ok(None) => thread::sleep(Duration::from_millis(100)),
+            Err(err) => return BuildState::Failed(err.to_string()),
+        }
+    }
+}
+
+impl Drop for BuildJob {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+        if let Some(join) = self.join.take() {
+            if join.join().is_err() {
+                push_line(&self.shared, "build worker thread panicked".into());
+                set_state(
+                    &self.shared,
+                    BuildState::Failed("build worker thread panicked".into()),
+                );
+            }
         }
     }
 }
