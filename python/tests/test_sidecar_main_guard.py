@@ -14,6 +14,8 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 
 def _stub_torch(monkeypatch):
     """Install minimal fakes for torch, torch.distributed, and the ( unbuilt)
@@ -115,3 +117,19 @@ def test_dtype_mapping_is_complete(monkeypatch):
     for key in [0, 3, 4, 5, 6, 7, 11, 15]:
         assert key in mapping, f"missing ScalarType {key}"
     assert len(mapping) >= 8
+
+
+def test_receive_distro_results_rejects_mismatched_metadata(monkeypatch):
+    module = _load_main_module(monkeypatch)
+
+    metadata = module.DistroResultsMetadata(
+        sparse_idx_size=[[1]],
+        sparse_idx_dtype=4,
+        sparse_val_size=[],
+        sparse_val_dtype=6,
+        xshape=[[1]],
+        totalk=[1],
+    )
+
+    with pytest.raises(ValueError, match="field lengths must match"):
+        module.receive_distro_results(1, metadata, device=None)

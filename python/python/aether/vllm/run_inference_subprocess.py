@@ -6,8 +6,6 @@ import multiprocessing
 
 os.environ["VLLM_LOGGING_LEVEL"] = "ERROR"
 
-multiprocessing.set_start_method("spawn", force=True)
-
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 
@@ -52,6 +50,8 @@ def run_inference(model_name: str, prompt: str) -> str:
 
 
 if __name__ == "__main__":
+    multiprocessing.set_start_method("spawn", force=True)
+
     if len(sys.argv) != 3:
         print(
             "Usage: python run_inference_subprocess.py <model> <prompt>",

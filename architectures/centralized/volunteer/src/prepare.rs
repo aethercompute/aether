@@ -456,7 +456,10 @@ pub fn exec_client(launch: &config::LaunchConfig) -> Result<()> {
     }
     #[cfg(not(unix))]
     {
-        let _ = cmd.status().context("run training client")?;
+        let status = cmd.status().context("run training client")?;
+        if !status.success() {
+            anyhow::bail!("training client exited with {status}");
+        }
         Ok(())
     }
 }

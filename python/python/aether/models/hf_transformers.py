@@ -1,5 +1,6 @@
 import torch
 import json
+import logging
 import os
 
 from .causal_lm import CausalLM, PretrainedSourceRepoFiles, PretrainedSourceStateDict
@@ -30,6 +31,8 @@ from liger_kernel.transformers.monkey_patch import (
     _apply_liger_kernel_to_instance,
     MODEL_TYPE_TO_APPLY_LIGER_FN,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # adapted from https://github.com/pytorch/torchtitan/blob/49c6d6fc15ef644e5c3b1003ad4e0d9ea5fcb9a9/torchtitan/parallelisms/parallel_dims.py#L48
@@ -125,7 +128,8 @@ class HfTransformersAuto(CausalLM):
                         raise RuntimeError("Not a PyTorch safetensors file")
                     state_dict.update(safe_load_file(file))
                 elif basename == "config.json":
-                    config_json = open(file, "r", encoding="utf-8").read()
+                    with open(file, "r", encoding="utf-8") as f:
+                        config_json = f.read()
 
         if config_json is None:
             raise RuntimeError("No config.json present")
@@ -248,7 +252,7 @@ class HfTransformersAuto(CausalLM):
             model.gradient_checkpointing_enable()
 
         if config.model_type in MODEL_TYPE_TO_APPLY_LIGER_FN:
-            print(f"Applying liger kernels to model type `{config.model_type}`")
+            logger.info("Applying liger kernels to model type `%s`", config.model_type)
             no_tp = tp == 1
             _apply_liger_kernel_to_instance(
                 model=model,
@@ -317,11 +321,8 @@ class HfTransformersAuto(CausalLM):
                     use_cache=False,
                 )
             except Exception as e:
-                import traceback
-
-                print(f"[{self.device}]: {e}")
-                traceback.print_exception(e)
-                raise e
+                logger.exception("[%s]: forward failed", self.device)
+                raise
             if ret.loss and loss_scale:
                 ret.loss /= loss_scale
             return (ret.logits, ret.loss)

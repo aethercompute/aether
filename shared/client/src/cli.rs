@@ -31,7 +31,9 @@ pub fn read_identity_secret_key(
             .try_into()
             .map_err(|_| anyhow!("key file {key_file:?} was not 32 bytes long."))?,
 
-        _ => unreachable!(),
+        (Some(_), Some(_)) => {
+            bail!("Use either --identity-secret-key-path or RAW_IDENTITY_SECRET_KEY, not both")
+        }
     };
     Ok(Some(SecretKey::from_bytes(&bytes)))
 }
@@ -43,6 +45,29 @@ pub fn print_identity_keys(key: Option<&PathBuf>) -> Result<()> {
     println!("Public key: {}", key.public());
     println!("Secret key: {}", hex::encode(key.to_bytes()));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Mutex, OnceLock};
+
+    use super::*;
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn read_identity_secret_key_rejects_env_and_path_together() {
+        let _guard = env_lock().lock().unwrap();
+        std::env::set_var("RAW_IDENTITY_SECRET_KEY", "00".repeat(32));
+
+        let err = read_identity_secret_key(Some(&PathBuf::from("secret.key"))).unwrap_err();
+
+        std::env::remove_var("RAW_IDENTITY_SECRET_KEY");
+        assert!(err.to_string().contains("not both"));
+    }
 }
 
 fn parse_trim_quotes(s: &str) -> Result<String, String> {

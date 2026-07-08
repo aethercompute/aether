@@ -41,9 +41,13 @@ def receive_distro_results(
     metadata: DistroResultsMetadata,
     device: torch.device,
 ) -> list[list[DistroResult]]:
-    assert len(metadata.sparse_idx_size) == len(metadata.sparse_val_size)
-    assert len(metadata.sparse_val_size) == len(metadata.xshape)
-    assert len(metadata.xshape) == len(metadata.totalk)
+    if not (
+        len(metadata.sparse_idx_size)
+        == len(metadata.sparse_val_size)
+        == len(metadata.xshape)
+        == len(metadata.totalk)
+    ):
+        raise ValueError("DistroResultsMetadata field lengths must match")
     sparse_idxs = []
     sparse_vals = []
     params_len = len(metadata.sparse_idx_size)

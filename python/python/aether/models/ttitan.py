@@ -1,5 +1,6 @@
 import torch
 import json
+import logging
 import os
 from contextlib import contextmanager, nullcontext
 
@@ -47,6 +48,8 @@ TRAIN_SPEC_FN = {
 }
 
 COMPILE_PREFIX = "_orig_mod."
+
+logger = logging.getLogger(__name__)
 
 
 class TorchtitanAuto(CausalLM):
@@ -291,7 +294,8 @@ class TorchtitanAuto(CausalLM):
             for file in source.files:
                 basename = os.path.basename(file).lower()
                 if basename == "config.json":
-                    config_json = open(file, "r", encoding="utf-8").read()
+                    with open(file, "r", encoding="utf-8") as f:
+                        config_json = f.read()
 
         if config_json is None:
             raise RuntimeError("No config.json present")
@@ -346,8 +350,10 @@ class TorchtitanAuto(CausalLM):
             model.init_weights(buffer_device=None)
         model.train()
 
-        print(
-            f"created `{config.model_type}`, size: {model_param_count:,} total parameters"
+        logger.info(
+            "created `%s`, size: %s total parameters",
+            config.model_type,
+            f"{model_param_count:,}",
         )
 
         device_type, _ = get_device_info()
@@ -454,11 +460,8 @@ class TorchtitanAuto(CausalLM):
                     shift_labels = labels[:, 1:].contiguous()
                     loss = self.loss_fn(shift_logits, shift_labels)
         except Exception as e:
-            import traceback
-
-            print(f"[{self.device}]: {e}")
-            traceback.print_exception(e)
-            raise e
+            logger.exception("[%s]: forward failed", self.device)
+            raise
         if loss_scale:
             loss = loss / loss_scale
         return (pred, loss)
