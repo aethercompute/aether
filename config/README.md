@@ -56,6 +56,11 @@ python3 scripts/training-control-dashboard.py
 Then click `Prepare dataset`. The panel runs `scripts/prepare-sft-local.py`
 with `english` as the user turn and `pirate` as the assistant turn.
 
+The SFT state advertises its training-data server as
+`train.aethercompute.org:39406`. The coordinator host must publish TCP `39406`
+in addition to the coordinator port `39405`, because volunteers fetch labeled
+SFT batches from that separate data-provider TCP server.
+
 ## SFT Example
 
 Prepare masked-label SFT data:

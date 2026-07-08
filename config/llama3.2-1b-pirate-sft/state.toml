@@ -26,7 +26,7 @@ max_seq_len = 1024
 cold_start_warmup_steps = 0
 
 [model.LLM.data_location]
-Server = "127.0.0.1:39406"
+Server = "train.aethercompute.org:39406"
 
 [model.LLM.checkpoint.Hub]
 repo_id = "meta-llama/Llama-3.2-1B-Instruct"
