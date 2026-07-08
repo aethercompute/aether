@@ -149,6 +149,7 @@ def update_config_from_form(form: dict[str, list[str]]) -> None:
     schema = {
         "server": {
             "state_path": str,
+            "data_config": str,
             "experiment_path": str,
             "server_port": int_value,
             "live_web_port": int_value,
@@ -632,12 +633,28 @@ def run_background_sequence(name: str, commands: list[list[str]], on_success=Non
 
 
 def validate_command(config: dict) -> list[str]:
-    return [
+    command = [
         "aether-centralized-server",
         "validate-config",
         "--state",
         config["server"]["state_path"],
     ]
+    data_config = data_config_path(config)
+    if data_config is not None:
+        command.extend(["--data-config", str(data_config)])
+    return command
+
+
+def data_config_path(config: dict) -> Path | None:
+    server = config.get("server", {})
+    configured = str(server.get("data_config", "")).strip()
+    if configured:
+        return Path(configured)
+
+    # Compatibility for older configs: data.toml next to state.toml means the
+    # coordinator hosts a training-data TCP server.
+    sibling = Path(server.get("state_path", "")).with_name("data.toml")
+    return sibling if sibling.exists() else None
 
 
 def server_command(config: dict) -> list[str]:
@@ -652,11 +669,8 @@ def server_command(config: dict) -> list[str]:
         "--web-port",
         str(server["live_web_port"]),
     ]
-    # When a data.toml sits next to state.toml, the run is in Server data mode:
-    # the coordinator also hosts a DataProviderTcpServer so volunteers fetch
-    # their assigned shards instead of needing a local dataset copy.
-    data_config = Path(server["state_path"]).with_name("data.toml")
-    if data_config.exists():
+    data_config = data_config_path(config)
+    if data_config is not None:
         command.extend(["--data-config", str(data_config)])
     if not server.get("tui", False):
         command.extend(["--tui=false"])
@@ -676,8 +690,8 @@ def experiment_server_command(config: dict) -> list[str]:
         "--web-port",
         str(server["live_web_port"]),
     ]
-    data_config = Path(server["state_path"]).with_name("data.toml")
-    if data_config.exists():
+    data_config = data_config_path(config)
+    if data_config is not None:
         command.extend(["--data-config", str(data_config)])
     if not server.get("tui", False):
         command.extend(["--tui=false"])
@@ -711,6 +725,28 @@ def stop_server_job() -> str:
     return "Training server is not running."
 
 
+def render_actions(config: dict) -> str:
+    actions = [
+        ("/prepare-dataset", "Prepare dataset", config.get("dataset", {}).get("enabled", True)),
+        ("/push-model", "Push init model", config.get("model", {}).get("enabled", True)),
+        (
+            "/push-experiment-models",
+            "Push experiment init models",
+            config.get("model", {}).get("enabled", True),
+        ),
+        ("/validate", "Validate state config", True),
+        ("/start-server", "Start training server", True),
+        ("/stop-server", "Stop training server", True),
+        ("/start-experiment-server", "Start experiment server", True),
+        ("/stop-experiment-server", "Stop experiment server", True),
+    ]
+    return "".join(
+        f'<form method="post" action="{path}"><button type="submit">{label}</button></form>'
+        for path, label, enabled in actions
+        if enabled
+    )
+
+
 TAB_SCRIPT = """
 <script>
 const t = document.querySelectorAll('.tabs button.tab');
@@ -728,10 +764,13 @@ def html_page(message: str | None = None) -> str:
     config = load_config()
     data_ready, data_message = dataset_status(config)
     model_ready, model_message = model_status(config)
-    try:
-        experiment_model_ready, experiment_model_message = experiment_model_status(config)
-    except Exception as err:
-        experiment_model_ready, experiment_model_message = False, str(err)
+    if config.get("model", {}).get("enabled", True):
+        try:
+            experiment_model_ready, experiment_model_message = experiment_model_status(config)
+        except Exception as err:
+            experiment_model_ready, experiment_model_message = False, str(err)
+    else:
+        experiment_model_ready, experiment_model_message = True, "disabled"
     checkpoint = state_checkpoint(config)
     with STATE.lock:
         job = STATE.job
@@ -748,6 +787,7 @@ def html_page(message: str | None = None) -> str:
     data_cls = "ok" if data_ready else "bad"
     model_short = "ready" if model_ready else "pending"
     model_cls = "ok" if model_ready else "warn"
+    actions = render_actions(config)
     return f"""<!doctype html>
 <html>
 <head>
@@ -817,14 +857,7 @@ def html_page(message: str | None = None) -> str:
     </section>
     <section data-panel="actions" hidden>
       <div class="actions">
-        <form method="post" action="/prepare-dataset"><button type="submit">Prepare dataset</button></form>
-        <form method="post" action="/push-model"><button type="submit">Push init model</button></form>
-        <form method="post" action="/push-experiment-models"><button type="submit">Push experiment init models</button></form>
-        <form method="post" action="/validate"><button type="submit">Validate state config</button></form>
-        <form method="post" action="/start-server"><button type="submit">Start training server</button></form>
-        <form method="post" action="/stop-server"><button type="submit">Stop training server</button></form>
-        <form method="post" action="/start-experiment-server"><button type="submit">Start experiment server</button></form>
-        <form method="post" action="/stop-experiment-server"><button type="submit">Stop experiment server</button></form>
+        {actions}
       </div>
     </section>
     <section data-panel="logs" hidden>

@@ -1,5 +1,6 @@
 [server]
-state_path = "config/aether0-500m/state_distro.toml"
+state_path = "config/llama3.2-1b-pirate-sft/state.toml"
+data_config = "config/llama3.2-1b-pirate-sft/data.toml"
 experiment_path = "config/experiment-run.toml"
 server_port = 39405
 live_web_port = 8081
@@ -7,52 +8,22 @@ tui = false
 
 [dataset]
 enabled = true
-objective = "pretraining"
-script = "scripts/prepare-ultra-fineweb-local.py"
-output_dir = "data/corpus-512-bin"
-sequence_length = 512
-num_sequences = 400000
-shard_size = 8192
-token_bytes = 4
-dataset = "openbmb/Ultra-FineWeb"
-split = "en"
-text_field = "content"
-tokenizer = "deepseek-ai/DeepSeek-V3"
+objective = "sft"
+script = "scripts/prepare-sft-local.py"
+output_dir = "data/pirate-speak-llama3.2-1b-sft-1024"
+sequence_length = 1024
+num_sequences = 0
+shard_size = 2048
+dataset = "KafeisM/pirate-speak-dataset"
+split = "train"
+prompt_field = "english"
+response_field = "pirate"
+sft_mode = "chat"
+system_prompt = ""
+tokenizer = "meta-llama/Llama-3.2-1B-Instruct"
 seed = 1337
 buffer_docs = 0
 trust_remote_code = false
 
-# Multiple dataset mixing. Each `[[dataset.sources]]` entry is an independent
-# HuggingFace load with its own split / subset / text_field / weight, and the
-# prepare script interleaves documents across sources in proportion to `weight`.
-#
-# When `[[dataset.sources]]` is present it takes precedence over the singular
-# `dataset` / `split` / `subset` / `text_field` fields above (which then only
-# serve as a single-source fallback).
-[[dataset.sources]]
-dataset = "openbmb/Ultra-FineWeb"
-split = "en"
-text_field = "content"
-weight = 0.30
-
-[[dataset.sources]]
-dataset = "HuggingFaceFW/finepdfs_edu_50BT-dclm_30BT-fineweb_edu_20BT-shuffled"
-split = "train"
-text_field = "text"
-weight = 0.30
-
-[[dataset.sources]]
-dataset = "aethercompute/stack-edu"
-split = "train"
-text_field = "text"
-weight = 0.40
-
 [model]
-enabled = true
-script = "scripts/push-new-model-hf.py"
-config = "config/aether0-500m/model-config.json"
-repo = "aethercompute/aether0-500m-distro-150m-tokens"
-tokenizer = "deepseek-ai/DeepSeek-V3"
-private = false
-dtype = "bfloat16"
-device = ""
+enabled = false

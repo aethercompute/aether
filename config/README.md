@@ -1,24 +1,26 @@
 # Config
 
-Sample configuration for centralized Aether training runs.
+Sample configuration for centralized Aether training runs. The default
+dashboard config is now the Llama 3.2 1B pirate-speak SFT run.
 
 ## Files
 
-- `training-run.toml`: control dashboard/server config. Points at the default state file, server ports, dataset output path, and data-preparation parameters.
+- `training-run.toml`: control dashboard config. Points at the default state file, data-server config, server ports, dataset output path, and data-preparation parameters.
 - `experiment-run.toml`: experiment config containing multiple coordinator state files.
 - `aether0-500m/model-config.json`: DeepSeek V3-style model config used by scripts and sample runs.
 - `aether0-500m/state_distro.toml`: coordinator state for a Distro optimizer run.
 - `aether0-500m/state_muon.toml`: coordinator state for a Muon optimizer run.
-- `aether0-500m/data.toml`: data-provider TCP server config for local preprocessed data.
-- `llama3.2-1b-pirate-sft/`: sample Distro supervised fine-tuning config for `meta-llama/Llama-3.2-1B-Instruct` on `KafeisM/pirate-speak-dataset`.
+- `aether0-500m/data.toml`: data-provider TCP server config for local binary pretraining data.
+- `llama3.2-1b-pirate-sft/state.toml`: Distro SFT coordinator state for `meta-llama/Llama-3.2-1B-Instruct`.
+- `llama3.2-1b-pirate-sft/data.toml`: data-provider TCP server config for the pirate-speak SFT Parquet data.
 
 ## Validate Config
 
 ```sh
 cargo run -p aether-centralized-server -- \
   validate-config \
-  --state config/aether0-500m/state_distro.toml \
-  --data-config config/aether0-500m/data.toml
+  --state config/llama3.2-1b-pirate-sft/state.toml \
+  --data-config config/llama3.2-1b-pirate-sft/data.toml
 ```
 
 ## Run Config
@@ -26,8 +28,8 @@ cargo run -p aether-centralized-server -- \
 ```sh
 bash scripts/with-libtorch-env.sh cargo run -p aether-centralized-server -- \
   run \
-  --state config/aether0-500m/state_distro.toml \
-  --data-config config/aether0-500m/data.toml \
+  --state config/llama3.2-1b-pirate-sft/state.toml \
+  --data-config config/llama3.2-1b-pirate-sft/data.toml \
   --server-port 39405 \
   --web-port 8081
 ```
@@ -43,11 +45,16 @@ bash scripts/with-libtorch-env.sh cargo run -p aether-centralized-server -- \
   --web-port 8081
 ```
 
-## Data Path Assumptions
+## Admin Panel
 
-The sample data config points at `../../data/corpus-512-bin` from the config
-file location. Prepare that directory with `scripts/prepare-ultra-fineweb-local.py`
-or update `aether0-500m/data.toml` to point at an existing pre-tokenized dataset.
+Run the dashboard with the default SFT config:
+
+```sh
+python3 scripts/training-control-dashboard.py
+```
+
+Then click `Prepare dataset`. The panel runs `scripts/prepare-sft-local.py`
+with `english` as the user turn and `pirate` as the assistant turn.
 
 ## SFT Example
 
@@ -64,16 +71,6 @@ python3 scripts/prepare-sft-local.py \
   --sequence-length 1024 \
   --mode chat
 ```
-
-Or use the admin panel with the SFT run config:
-
-```sh
-TRAINING_RUN_CONFIG=config/llama3.2-1b-pirate-sft/training-run.toml \
-  python3 scripts/training-control-dashboard.py
-```
-
-Then click `Prepare dataset`. The panel will run `scripts/prepare-sft-local.py`
-with `english` as the user turn and `pirate` as the assistant turn.
 
 Validate the sample SFT config:
 
