@@ -266,7 +266,9 @@ class HfTransformersAuto(CausalLM):
         if model.supports_gradient_checkpointing:
             model.gradient_checkpointing_enable()
 
-        if config.model_type in MODEL_TYPE_TO_APPLY_LIGER_FN:
+        if sys.version_info >= (3, 14):
+            logger.info("Skipping liger kernels on Python 3.14+")
+        elif config.model_type in MODEL_TYPE_TO_APPLY_LIGER_FN:
             logger.info("Applying liger kernels to model type `%s`", config.model_type)
             no_tp = tp == 1
             _apply_liger_kernel_to_instance(

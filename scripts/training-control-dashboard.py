@@ -696,7 +696,26 @@ def data_config_path(config: dict) -> Path | None:
     # Compatibility for older configs: data.toml next to state.toml means the
     # coordinator hosts a training-data TCP server.
     sibling = Path(server.get("state_path", "")).with_name("data.toml")
-    return sibling if sibling.exists() else None
+    return sibling if (repo_root() / sibling).exists() else None
+
+
+def repo_relative(path: Path) -> Path:
+    return path if path.is_absolute() else repo_root() / path
+
+
+def ensure_data_server_config(config: dict) -> None:
+    endpoint = state_data_server(config)
+    if not endpoint:
+        return
+    data_config = data_config_path(config)
+    if data_config is None:
+        raise RuntimeError(
+            f"state advertises training data server {endpoint}, but server.data_config is not set"
+        )
+    if not repo_relative(data_config).exists():
+        raise RuntimeError(
+            f"state advertises training data server {endpoint}, but data config is missing: {data_config}"
+        )
 
 
 def server_command(config: dict) -> list[str]:
@@ -744,6 +763,7 @@ def ensure_training_prereqs(config: dict) -> None:
     data_ready, data_message = dataset_status(config)
     if config.get("dataset", {}).get("enabled", True) and not data_ready:
         raise RuntimeError(f"dataset is not ready: {data_message}")
+    ensure_data_server_config(config)
     model_ready, model_message = model_status(config)
     if model_push_enabled(config) and not model_ready:
         raise RuntimeError(f"init model is not ready: {model_message}")
@@ -753,6 +773,7 @@ def ensure_experiment_training_prereqs(config: dict) -> None:
     data_ready, data_message = dataset_status(config)
     if config.get("dataset", {}).get("enabled", True) and not data_ready:
         raise RuntimeError(f"dataset is not ready: {data_message}")
+    ensure_data_server_config(config)
     model_ready, model_message = experiment_model_status(config)
     if model_push_enabled(config) and not model_ready:
         raise RuntimeError(f"experiment init models are not ready: {model_message}")
