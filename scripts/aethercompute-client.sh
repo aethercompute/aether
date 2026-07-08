@@ -46,7 +46,7 @@ set -euo pipefail
 
 # --- config (overridable via environment) -----------------------------------
 AETHER_HOME="${AETHER_HOME:-$HOME/.aethercompute}"
-REPO_URL="${AETHER_REPO_URL:-https://github.com/alkinun/aether.git}"
+REPO_URL="${AETHER_REPO_URL:-https://github.com/aethercompute/aether.git}"
 REPO_REF="${AETHER_REPO_REF:-main}"
 
 VOLUNTEER_CRATE="aether-centralized-volunteer"
@@ -152,7 +152,11 @@ ensure_dirs() { mkdir -p "$SANDBOX" "$LOG_DIR"; }
 ensure_repo() {
   if [[ "$EMBEDDED_REPO" == "1" ]]; then return 0; fi
   mkdir -p "$AETHER_HOME"
-  if [[ -f "$REPO_ROOT/Cargo.toml" ]]; then return 0; fi
+  if [[ -f "$REPO_ROOT/Cargo.toml" ]]; then
+    repair_repo_remote
+    update_existing_repo_best_effort
+    return 0
+  fi
   if has git; then
     run_step "fetching aether source" \
       git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$REPO_ROOT" \
@@ -162,6 +166,23 @@ ensure_repo() {
   else
     die "need 'git' or 'tar' to fetch the aether source. Install one and re-run."
   fi
+}
+
+repair_repo_remote() {
+  if ! has git || [[ ! -d "$REPO_ROOT/.git" ]]; then return 0; fi
+  local current
+  current="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)"
+  if [[ "$current" != "$REPO_URL" ]]; then
+    warn "updating source remote: ${current:-<none>} -> $REPO_URL"
+    git -C "$REPO_ROOT" remote set-url origin "$REPO_URL" >/dev/null 2>&1 || true
+  fi
+}
+
+update_existing_repo_best_effort() {
+  if ! has git || [[ ! -d "$REPO_ROOT/.git" ]]; then return 0; fi
+  git -C "$REPO_ROOT" fetch --depth 1 origin "$REPO_REF" >/dev/null 2>&1 || return 0
+  git -C "$REPO_ROOT" checkout -q "$REPO_REF" >/dev/null 2>&1 || true
+  git -C "$REPO_ROOT" reset --hard "origin/$REPO_REF" >/dev/null 2>&1 || true
 }
 
 # Tarball fallback when git is unavailable. GitHub serves source archives at
@@ -320,7 +341,7 @@ Seed mode environment (optional):
 
 Environment:
   AETHER_HOME          install root (default: ~/.aethercompute)
-  AETHER_REPO_URL      git source to clone (default: github.com/alkinun/aether)
+  AETHER_REPO_URL      git source to clone (default: github.com/aethercompute/aether)
   AETHER_REPO_REF      branch/tag to use (default: main)
   AETHER_INSTALLER_URL self-URL for the POSIX sh -> bash re-exec
 HELP
@@ -359,6 +380,7 @@ do_uninstall() {
 do_update() {
   printf "\n  "; brand '◆ AETHERCOMPUTE'; printf "  ${dim}update${reset}\n\n"
   if has git && [[ -d "$REPO_ROOT/.git" ]]; then
+    repair_repo_remote
     run_step "pulling latest source" \
       git -C "$REPO_ROOT" pull --ff-only \
       || ( warn "fast-forward failed; forced update detected, resetting to remote..." \
