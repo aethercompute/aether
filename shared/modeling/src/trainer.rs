@@ -553,6 +553,25 @@ impl LocalTrainer {
         Ok(Some(loss.detach()))
     }
 
+    fn loss_item_count(inputs: &Tensor, labels: Option<&Tensor>) -> f64 {
+        let size = inputs.size();
+        let batch = size[0].max(0) as f64;
+        let shifted_tokens = (size[1] - 1).max(0) as f64;
+
+        match labels {
+            Some(labels) => {
+                let shifted_labels = labels.slice(1, 1, None, 1);
+                let ignored = shifted_labels
+                    .eq(-100)
+                    .to_kind(Kind::Float)
+                    .sum(Kind::Float)
+                    .double_value(&[]);
+                shifted_labels.numel() as f64 - ignored
+            }
+            None => batch * shifted_tokens,
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn forward(
         model: &mut dyn CausalLM,
@@ -878,12 +897,36 @@ impl LocalTrainer {
                                 .collect::<Vec<_>>()
                         })
                         .unwrap_or_else(|| vec![None; grad_accum_steps]);
+                    let loss_item_counts = input_ids
+                        .iter()
+                        .zip(labels.iter())
+                        .map(|(input_ids, labels)| {
+                            Self::loss_item_count(input_ids, labels.as_ref())
+                        })
+                        .collect::<Vec<_>>();
+                    let total_loss_items = loss_item_counts.iter().sum::<f64>();
+                    let loss_scales = loss_item_counts
+                        .iter()
+                        .map(|items| {
+                            if total_loss_items > 0.0 && *items > 0.0 {
+                                total_loss_items / items
+                            } else {
+                                grad_accum_divisor
+                            }
+                        })
+                        .collect::<Vec<_>>();
                     assert_eq!(input_ids.len(), grad_accum_steps);
                     assert_eq!(labels.len(), grad_accum_steps);
                     assert_eq!(position_ids.len(), grad_accum_steps);
                     assert_eq!(sequence_lengths.len(), grad_accum_steps);
-                    let micro_batches =
-                        itertools::izip!(input_ids, labels, position_ids, sequence_lengths);
+                    assert_eq!(loss_scales.len(), grad_accum_steps);
+                    let micro_batches = itertools::izip!(
+                        input_ids,
+                        labels,
+                        position_ids,
+                        sequence_lengths,
+                        loss_scales
+                    );
 
                     if let Some(grad_accum) = &mut grad_accum {
                         grad_accum.zero_grad();
@@ -946,7 +989,7 @@ impl LocalTrainer {
 
                     let mut loss = None;
                     let mut cancelled = false;
-                    for (index, (input_ids, labels, position_ids, sequence_lengths)) in
+                    for (index, (input_ids, labels, position_ids, sequence_lengths, loss_scale)) in
                         micro_batches.into_iter().enumerate()
                     {
                         if cancel_training.is_cancelled() {
@@ -962,7 +1005,7 @@ impl LocalTrainer {
                             position_ids,
                             sequence_lengths,
                             &barrier,
-                            Some(grad_accum_divisor),
+                            Some(loss_scale),
                         ) {
                             Ok(Some(batch_loss)) => {
                                 if batch_loss.double_value(&[]).is_finite() {

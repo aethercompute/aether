@@ -53,6 +53,10 @@ test-fast: test
 
 test-torch: test
 
+# Run the deterministic CPU training oracle/meta-test.
+training-oracle:
+    bash scripts/with-libtorch-env.sh cargo test -p aether-modeling --test training_oracle -- --nocapture
+
 # ── supply chain ─────────────────────────────────────────────────────────────
 # Full gate: advisories + bans + licenses + sources. (cargo-deny: `cargo binstall -y cargo-deny`)
 # Transitive advisories needing major-version bumps are acknowledged in deny.toml.
@@ -65,5 +69,5 @@ ci-local:
     bash scripts/ci-local.sh
 
 # Same checks as ci-local, but run sequentially for easier debugging.
-ci-local-sequential: fmt-check clippy test deny
+ci-local-sequential: fmt-check clippy training-oracle test deny
     @echo "ci suite green"
