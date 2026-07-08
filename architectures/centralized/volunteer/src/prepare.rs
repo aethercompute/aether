@@ -69,8 +69,19 @@ impl Env {
             .env("LIBTORCH_BYPASS_VERSION_CHECK", "1")
             .env("PYO3_USE_ABI3_FORWARD_COMPATIBILITY", "1")
             .env("RUST_MIN_STACK", "268435456");
+        prepend_python_path(cmd, &config::repo_root().join("python").join("python"));
         prepend_library_paths(cmd, "LD_LIBRARY_PATH", &self.torch_lib_dirs);
         prepend_library_paths(cmd, "DYLD_LIBRARY_PATH", &self.torch_lib_dirs);
+    }
+}
+
+fn prepend_python_path(cmd: &mut Command, entry: &PathBuf) {
+    let mut paths = vec![entry.clone()];
+    if let Some(existing) = env::var_os("PYTHONPATH") {
+        paths.extend(env::split_paths(&existing));
+    }
+    if let Ok(joined) = env::join_paths(paths) {
+        cmd.env("PYTHONPATH", joined);
     }
 }
 

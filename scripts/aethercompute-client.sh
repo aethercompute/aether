@@ -273,6 +273,23 @@ ensure_torch() {
   fi
 }
 
+ensure_python_model_deps() {
+  ensure_torch || return 1
+
+  if PYTHONPATH="$REPO_ROOT/python/python${PYTHONPATH:+:$PYTHONPATH}" "$VENV/bin/python" -c "import aether, transformers, safetensors, liger_kernel" >/dev/null 2>&1; then
+    ok "using sandbox Python model dependencies"
+    return 0
+  fi
+
+  warn "installing sandbox Python model dependencies"
+  run_step "installing Python model deps" \
+    "$VENV/bin/pip" install --upgrade \
+      "transformers==4.57.3" \
+      "safetensors" \
+      "liger-kernel" \
+    || die "Python model dependency install failed. See $INSTALL_LOG"
+}
+
 torch_lib_dirs() {
   # torch/lib plus every nvidia/*/lib from the CUDA pip wheels — all needed on
   # the loader path for libtorch_cuda to resolve. Uses the sandbox python so the
@@ -441,7 +458,7 @@ do_launch() {
 
   ensure_rust || exit 1
   ensure_c_compiler || exit 1
-  ensure_torch || exit 1
+  ensure_python_model_deps || exit 1
   ensure_volunteer_bin || exit 1
 
   # Log the commit hash so users can verify which version they're running.
@@ -455,8 +472,10 @@ do_launch() {
   export DYLD_LIBRARY_PATH="${torch_libs:+$torch_libs:}${DYLD_LIBRARY_PATH:-}"
   export LIBTORCH_USE_PYTORCH=1
   export LIBTORCH_BYPASS_VERSION_CHECK=1
+  export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
   export RUST_MIN_STACK=268435456
   export VIRTUAL_ENV="$VENV"
+  export PYTHONPATH="$REPO_ROOT/python/python${PYTHONPATH:+:$PYTHONPATH}"
   export PATH="$VENV/bin:$CARGO_HOME/bin:$PATH"
 
   printf "  ${cyan}${bold}setup complete${reset}\n"
