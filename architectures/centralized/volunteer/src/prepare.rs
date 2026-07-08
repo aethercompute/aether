@@ -67,6 +67,7 @@ impl Env {
         }
         cmd.env("LIBTORCH_USE_PYTORCH", "1")
             .env("LIBTORCH_BYPASS_VERSION_CHECK", "1")
+            .env("PYO3_USE_ABI3_FORWARD_COMPATIBILITY", "1")
             .env("RUST_MIN_STACK", "268435456");
         prepend_library_paths(cmd, "LD_LIBRARY_PATH", &self.torch_lib_dirs);
         prepend_library_paths(cmd, "DYLD_LIBRARY_PATH", &self.torch_lib_dirs);

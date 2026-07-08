@@ -85,6 +85,7 @@ fi
 
 export LIBTORCH_USE_PYTORCH="${LIBTORCH_USE_PYTORCH:-1}"
 export PYO3_PYTHON="${PYO3_PYTHON:-$python_bin}"
+export PYO3_USE_ABI3_FORWARD_COMPATIBILITY="${PYO3_USE_ABI3_FORWARD_COMPATIBILITY:-1}"
 
 # Drop stale torch library paths from other Python installs. Keeping them in
 # LD_LIBRARY_PATH can make test binaries load mismatched torch shared objects.
