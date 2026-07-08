@@ -1,6 +1,6 @@
 use std::{
     fmt::Debug,
-    sync::{Condvar, Mutex},
+    sync::{Condvar, Mutex, MutexGuard},
 };
 
 #[derive(Debug)]
@@ -27,6 +27,21 @@ struct BarrierState {
     cancelled: bool,
 }
 
+fn lock_state(mutex: &Mutex<BarrierState>) -> MutexGuard<'_, BarrierState> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn wait_state<'a>(
+    condvar: &Condvar,
+    state: MutexGuard<'a, BarrierState>,
+) -> MutexGuard<'a, BarrierState> {
+    condvar
+        .wait(state)
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 impl CancellableBarrier {
     pub fn new(n: usize) -> Self {
         assert!(n > 0, "Barrier size must be greater than 0");
@@ -44,7 +59,7 @@ impl CancellableBarrier {
 
 impl Barrier for CancellableBarrier {
     fn wait(&self) -> Result<(), CancelledBarrier> {
-        let mut state = self.mutex.lock().unwrap();
+        let mut state = lock_state(&self.mutex);
 
         if state.cancelled {
             return Err(CancelledBarrier {});
@@ -56,7 +71,7 @@ impl Barrier for CancellableBarrier {
         if state.count < state.total {
             // Not all threads have arrived yet
             while state.count < state.total && state.generation == generation && !state.cancelled {
-                state = self.condvar.wait(state).unwrap();
+                state = wait_state(&self.condvar, state);
             }
 
             if state.cancelled {
@@ -73,20 +88,20 @@ impl Barrier for CancellableBarrier {
     }
 
     fn cancel(&self) {
-        let mut state = self.mutex.lock().unwrap();
+        let mut state = lock_state(&self.mutex);
         state.cancelled = true;
         self.condvar.notify_all();
     }
 
     fn reset(&self) {
-        let mut state = self.mutex.lock().unwrap();
+        let mut state = lock_state(&self.mutex);
         state.cancelled = false;
         state.count = 0;
         state.generation += 1;
     }
 
     fn is_cancelled(&self) -> bool {
-        self.mutex.lock().unwrap().cancelled
+        lock_state(&self.mutex).cancelled
     }
 }
 
@@ -181,5 +196,21 @@ mod tests {
             assert!(t.join().unwrap().is_ok());
             assert!(!barrier.is_cancelled());
         }
+    }
+
+    #[test]
+    fn barrier_recovers_from_poisoned_lock() {
+        let barrier = CancellableBarrier::new(1);
+
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = barrier.mutex.lock().expect("test lock should start clean");
+            panic!("poison barrier lock");
+        });
+
+        assert!(!barrier.is_cancelled());
+        barrier.cancel();
+        assert!(barrier.is_cancelled());
+        barrier.reset();
+        assert!(barrier.wait().is_ok());
     }
 }

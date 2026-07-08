@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::collections::VecDeque;
-use std::sync::RwLock;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[derive(Debug)]
 struct AverageEntry {
@@ -47,6 +47,22 @@ pub struct RunningAverage {
     entries: RwLock<HashMap<String, AverageEntry>>,
 }
 
+fn read_entries(
+    entries: &RwLock<HashMap<String, AverageEntry>>,
+) -> RwLockReadGuard<'_, HashMap<String, AverageEntry>> {
+    entries
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn write_entries(
+    entries: &RwLock<HashMap<String, AverageEntry>>,
+) -> RwLockWriteGuard<'_, HashMap<String, AverageEntry>> {
+    entries
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 impl RunningAverage {
     pub fn new() -> Self {
         RunningAverage {
@@ -55,14 +71,14 @@ impl RunningAverage {
     }
 
     pub fn add_entry_if_needed(&self, name: &str, buffer: usize, min_samples: Option<usize>) {
-        let mut entries = self.entries.write().unwrap();
+        let mut entries = write_entries(&self.entries);
         if !entries.contains_key(name) {
             entries.insert(name.to_string(), AverageEntry::new(buffer, min_samples));
         }
     }
 
     pub fn push(&self, name: &str, value: f64) {
-        let mut entries = self.entries.write().unwrap();
+        let mut entries = write_entries(&self.entries);
         entries
             .get_mut(name)
             .expect("Missing RunningAverage entry")
@@ -70,14 +86,14 @@ impl RunningAverage {
     }
 
     pub fn sample(&self, name: &str) -> Option<f64> {
-        let entries = self.entries.read().unwrap();
+        let entries = read_entries(&self.entries);
         entries.get(name).and_then(|entry| entry.average())
     }
 
     /// Get averages of entries
     /// Skips entries that have not filled at least half buffer to avoid unconfident scores
     pub fn get_all_averages(&self) -> HashMap<String, Option<f64>> {
-        let entries = self.entries.read().unwrap();
+        let entries = read_entries(&self.entries);
         entries
             .iter()
             .map(|(name, entry)| (name.clone(), entry.average()))
@@ -85,7 +101,7 @@ impl RunningAverage {
     }
 
     pub fn all_time_pushes(&self, name: &str) -> Option<usize> {
-        let entries = self.entries.read().unwrap();
+        let entries = read_entries(&self.entries);
         entries.get(name).map(|entry| entry.all_time_pushes)
     }
 }
@@ -169,5 +185,22 @@ mod tests {
         let all = ra.get_all_averages();
         assert_eq!(all.get("a").copied().flatten(), Some(2.0));
         assert_eq!(all.get("b").copied().flatten(), None);
+    }
+
+    #[test]
+    fn running_average_recovers_from_poisoned_lock() {
+        let ra = RunningAverage::new();
+        ra.add_entry_if_needed("loss", 3, None);
+
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = ra.entries.write().expect("test lock should start clean");
+            panic!("poison running average lock");
+        });
+
+        ra.push("loss", 2.0);
+        ra.push("loss", 4.0);
+
+        assert_eq!(ra.sample("loss"), Some(3.0));
+        assert_eq!(ra.all_time_pushes("loss"), Some(2));
     }
 }
