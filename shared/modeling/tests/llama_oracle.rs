@@ -127,6 +127,21 @@ fn new_llama_from_repo_files(repo_files: Vec<PathBuf>) -> LlamaForCausalLM {
     .expect("tiny llama reloads from safetensors repo files")
 }
 
+#[allow(clippy::arc_with_non_send_sync)]
+fn new_llama_from_state(state: &HashMap<String, Tensor>) -> LlamaForCausalLM {
+    let source =
+        PretrainedSource::ConfigAndTensors(tiny_llama_config(), Arc::new(clone_state(state)));
+    LlamaForCausalLM::from_pretrained(
+        &source,
+        Some(Kind::Float),
+        Some(AttentionImplementation::Eager),
+        Some(Device::Cpu),
+        None,
+        None,
+    )
+    .expect("tiny llama loads from supplied state dict")
+}
+
 fn schedule() -> LearningRateSchedule {
     LearningRateSchedule::Constant(ConstantLR::new(0.01, 0, 0.0))
 }
@@ -146,6 +161,46 @@ fn batch() -> Batch {
                 .collect(),
         ),
     }
+}
+
+fn data_parallel_batch() -> Batch {
+    let rows = [
+        [0, 2, 4, 6, 8],
+        [1, 3, 5, 7, 9],
+        [10, 8, 6, 4, 2],
+        [9, 7, 5, 3, 1],
+    ];
+    Batch {
+        id: BatchId(ClosedInterval { start: 0, end: 3 }),
+        data: BatchData::CPU(
+            rows.iter()
+                .map(|row| BatchDataCPU {
+                    input_ids: row.to_vec(),
+                    labels: Some(row.to_vec()),
+                    position_ids: Some((0..SEQ_LEN as i32).collect()),
+                    sequence_lengths: Some(vec![SEQ_LEN as i32]),
+                })
+                .collect(),
+        ),
+    }
+}
+
+fn split_batch_for_workers(batch: &Batch, worker_count: usize) -> Vec<Batch> {
+    let BatchData::CPU(rows) = &batch.data else {
+        panic!("tiny llama oracle batches must be CPU batches")
+    };
+    assert_eq!(rows.len() % worker_count, 0);
+    let chunk_size = rows.len() / worker_count;
+    rows.chunks(chunk_size)
+        .enumerate()
+        .map(|(worker, chunk)| Batch {
+            id: BatchId(ClosedInterval {
+                start: (worker * chunk_size) as u64,
+                end: ((worker + 1) * chunk_size - 1) as u64,
+            }),
+            data: BatchData::CPU(chunk.to_vec()),
+        })
+        .collect()
 }
 
 fn snapshot(model: &dyn CausalLM) -> HashMap<String, Tensor> {
@@ -247,6 +302,96 @@ fn direct_train_step(model: &LlamaForCausalLM, optimizer: &mut COptimizer, batch
     loss_value
 }
 
+fn gradients_from_state(state: &HashMap<String, Tensor>, batch: &Batch) -> HashMap<String, Tensor> {
+    let model = new_llama_from_state(state);
+    for variable in model.variables() {
+        variable.zero_grad();
+    }
+    let batch = batch.clone().gpu(Device::Cpu);
+    let BatchData::GPU(data) = batch.data else {
+        unreachable!("batch was moved to tensor form")
+    };
+    let (_, loss) = model.forward(
+        &data.input_ids,
+        data.labels.as_ref(),
+        data.position_ids.as_ref(),
+        data.sequence_lengths.as_ref(),
+        None,
+        Some(1.0),
+    );
+    loss.expect("tiny llama returns a loss").backward();
+
+    model
+        .variables()
+        .map(|variable| {
+            (
+                variable.name().to_string(),
+                variable
+                    .logical_tensor()
+                    .grad()
+                    .to_device(Device::Cpu)
+                    .copy(),
+            )
+        })
+        .collect()
+}
+
+fn materialize_zero_grads(model: &dyn CausalLM, batch: &Batch) {
+    for variable in model.variables() {
+        variable.zero_grad();
+    }
+    let batch = batch.clone().gpu(Device::Cpu);
+    let BatchData::GPU(data) = batch.data else {
+        unreachable!("batch was moved to tensor form")
+    };
+    let (_, loss) = model.forward(
+        &data.input_ids,
+        data.labels.as_ref(),
+        data.position_ids.as_ref(),
+        data.sequence_lengths.as_ref(),
+        None,
+        Some(1.0),
+    );
+    (loss.expect("tiny llama returns a loss") * 0.0).backward();
+    for variable in model.variables() {
+        variable.zero_grad();
+    }
+}
+
+fn simulated_data_parallel_train_step(
+    model: &LlamaForCausalLM,
+    optimizer: &mut COptimizer,
+    batch: &Batch,
+    worker_count: usize,
+) {
+    let state = snapshot(model);
+    let worker_batches = split_batch_for_workers(batch, worker_count);
+    let worker_grads = worker_batches
+        .iter()
+        .map(|batch| gradients_from_state(&state, batch))
+        .collect::<Vec<_>>();
+
+    materialize_zero_grads(model, worker_batches.first().expect("worker batch present"));
+    for variable in model.variables() {
+        let mut mean_grad = Tensor::zeros_like(
+            worker_grads[0]
+                .get(variable.name())
+                .expect("worker gradient present"),
+        );
+        for grads in &worker_grads {
+            mean_grad += grads.get(variable.name()).expect("worker gradient present");
+        }
+        mean_grad /= worker_grads.len() as f64;
+        variable.set_grad(mean_grad);
+    }
+
+    optimizer
+        .set_learning_rate(schedule().get_lr(0))
+        .expect("valid learning rate");
+    optimizer.step().expect("adamw step succeeds");
+    optimizer.zero_grad().expect("zero gradients succeeds");
+}
+
 fn forward_loss(model: &dyn CausalLM, batch: &Batch) -> (Tensor, Tensor) {
     let batch = batch.clone().gpu(Device::Cpu);
     let BatchData::GPU(data) = batch.data else {
@@ -338,6 +483,28 @@ fn tiny_llama_local_trainer_matches_direct_adamw_reference() {
         .expect("tiny llama optimizer step succeeds");
 
     let actual = trainer.extract().expect("extract tiny llama state");
+    let expected = snapshot(&reference);
+    assert_state_close(&actual, &expected);
+    assert_state_changed(&initial, &actual);
+}
+
+#[test]
+fn tiny_llama_simulated_data_parallel_matches_full_batch_reference() {
+    let initial = tiny_llama_state();
+    let reference = new_llama();
+    let mut reference_optimizer = adamw(&reference);
+    direct_train_step(&reference, &mut reference_optimizer, &data_parallel_batch());
+
+    let distributed = new_llama();
+    let mut distributed_optimizer = adamw(&distributed);
+    simulated_data_parallel_train_step(
+        &distributed,
+        &mut distributed_optimizer,
+        &data_parallel_batch(),
+        2,
+    );
+
+    let actual = snapshot(&distributed);
     let expected = snapshot(&reference);
     assert_state_close(&actual, &expected);
     assert_state_changed(&initial, &actual);
