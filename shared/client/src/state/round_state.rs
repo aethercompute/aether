@@ -9,6 +9,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     sync::{Arc, Mutex},
 };
+use tracing::warn;
 
 use super::types::PayloadState;
 
@@ -49,7 +50,13 @@ impl RoundState {
     }
 
     pub fn distro_result_blob_downloaded(&self, hash: &aether_network::Hash) -> bool {
-        self.downloads.lock().unwrap().contains_key(hash)
+        self.downloads
+            .lock()
+            .unwrap_or_else(|poisoned| {
+                warn!("round downloads lock poisoned; recovering state");
+                poisoned.into_inner()
+            })
+            .contains_key(hash)
     }
 }
 
@@ -97,6 +104,19 @@ mod tests {
         // Nothing inserted yet -> nothing reported as downloaded.
         assert!(!rs.distro_result_blob_downloaded(&hash));
         // The downloads map starts empty.
-        assert!(rs.downloads.lock().unwrap().is_empty());
+        assert!(rs.downloads.lock().expect("test lock poisoned").is_empty());
+    }
+
+    #[test]
+    fn distro_result_blob_downloaded_recovers_from_poisoned_downloads_lock() {
+        let rs = RoundState::new();
+        let hash = aether_network::Hash::from_bytes([1u8; 32]);
+
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = rs.downloads.lock().expect("test lock should start clean");
+            panic!("poison downloads lock");
+        });
+
+        assert!(!rs.distro_result_blob_downloaded(&hash));
     }
 }

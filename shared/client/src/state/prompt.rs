@@ -3,13 +3,33 @@ use aether_coordinator::MAX_TOKENS_TO_SEND;
 use aether_core::FixedVec;
 use aether_modeling::{CausalLM, EosToks};
 use aether_modeling::{LogitsProcessor, Sampling, Trainer};
-use std::sync::{Mutex, RwLock};
+use std::sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tch::Tensor;
 use tokenizers::Tokenizer;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 const MAX_TOKENS_TO_GENERATE: usize = 256;
+
+fn read_lock<'a, T>(lock: &'a RwLock<T>, name: &str) -> RwLockReadGuard<'a, T> {
+    lock.read().unwrap_or_else(|poisoned| {
+        warn!(
+            lock = name,
+            "prompt lock poisoned on read; recovering state"
+        );
+        poisoned.into_inner()
+    })
+}
+
+fn write_lock<'a, T>(lock: &'a RwLock<T>, name: &str) -> RwLockWriteGuard<'a, T> {
+    lock.write().unwrap_or_else(|poisoned| {
+        warn!(
+            lock = name,
+            "prompt lock poisoned on write; recovering state"
+        );
+        poisoned.into_inner()
+    })
+}
 
 #[derive(Debug)]
 pub struct PromptTask {
@@ -50,7 +70,7 @@ impl PromptTask {
         let prompt_texts = get_prompt_texts();
         let new_prompt_index = rng.random_range(0..prompt_texts.len());
 
-        let old_prompt_index = *self.selected_prompt.read().unwrap();
+        let old_prompt_index = *read_lock(&self.selected_prompt, "selected_prompt");
         debug!(
             "Switching from prompt {} to prompt {}",
             old_prompt_index, new_prompt_index
@@ -65,10 +85,10 @@ impl PromptTask {
 
         // Update the prompt data
         let new_prompt_len = new_tokens.len();
-        *self.selected_prompt.write().unwrap() = new_prompt_index;
-        *self.tokens.write().unwrap() = new_tokens;
-        *self.original_prompt_len.write().unwrap() = new_prompt_len;
-        *self.prompt_finished.write().unwrap() = false;
+        *write_lock(&self.selected_prompt, "selected_prompt") = new_prompt_index;
+        *write_lock(&self.tokens, "tokens") = new_tokens;
+        *write_lock(&self.original_prompt_len, "original_prompt_len") = new_prompt_len;
+        *write_lock(&self.prompt_finished, "prompt_finished") = false;
 
         debug!(
             "Reset to new prompt {}: '{}...'",
@@ -80,12 +100,12 @@ impl PromptTask {
 
 impl PromptTask {
     pub fn run(&self, trainer: &mut Trainer, cancel: CancellationToken) {
-        if *self.prompt_finished.read().unwrap() {
+        if *read_lock(&self.prompt_finished, "prompt_finished") {
             trace!("Prompt already finished, getting new prompt");
             // Reset with a completely new prompt instead of same one
             self.reset_with_new_prompt();
         }
-        if self.tokens_to_send.read().unwrap().is_full() {
+        if read_lock(&self.tokens_to_send, "tokens_to_send").is_full() {
             trace!("Prompt Buffer Full");
             return;
         }
@@ -95,17 +115,14 @@ impl PromptTask {
         }
 
         // read input tokens
-        let token_len = self.tokens.read().unwrap().len();
+        let token_len = read_lock(&self.tokens, "tokens").len();
         let max_context_length = trainer.max_context_length();
         if token_len > max_context_length {
-            self.tokens
-                .write()
-                .unwrap()
-                .drain(0..token_len - max_context_length);
+            write_lock(&self.tokens, "tokens").drain(0..token_len - max_context_length);
         }
 
         let input = {
-            let tokens = self.tokens.read().unwrap();
+            let tokens = read_lock(&self.tokens, "tokens");
             Tensor::from_slice(&tokens)
                 .to(trainer.device())
                 .unsqueeze(0)
@@ -127,24 +144,54 @@ impl PromptTask {
         // check if we have reached the end-of-sequence token
         match trainer.eos_token_ids() {
             Some(EosToks::Single(eos_tok_id)) if next_token as i64 == eos_tok_id => {
-                *self.prompt_finished.write().unwrap() = true;
+                *write_lock(&self.prompt_finished, "prompt_finished") = true;
             }
             Some(EosToks::Multiple(ref eos_ids)) if eos_ids.contains(&(next_token as i64)) => {
-                *self.prompt_finished.write().unwrap() = true;
+                *write_lock(&self.prompt_finished, "prompt_finished") = true;
             }
             _ => (),
         }
 
-        let generated_tokens = token_len - *self.original_prompt_len.read().unwrap();
+        let generated_tokens =
+            token_len - *read_lock(&self.original_prompt_len, "original_prompt_len");
         if generated_tokens >= MAX_TOKENS_TO_GENERATE {
-            *self.prompt_finished.write().unwrap() = true;
+            *write_lock(&self.prompt_finished, "prompt_finished") = true;
         }
 
-        self.tokens_to_send
-            .write()
-            .unwrap()
+        write_lock(&self.tokens_to_send, "tokens_to_send")
             .push(next_token as i32)
             .unwrap();
-        self.tokens.write().unwrap().push(next_token as i32);
+        write_lock(&self.tokens, "tokens").push(next_token as i32);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::RwLock;
+
+    use super::{read_lock, write_lock};
+
+    #[test]
+    fn read_lock_recovers_from_poisoned_lock() {
+        let lock = RwLock::new(7usize);
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = lock.write().expect("test lock should start clean");
+            panic!("poison prompt lock");
+        });
+
+        assert_eq!(*read_lock(&lock, "test"), 7);
+    }
+
+    #[test]
+    fn write_lock_recovers_from_poisoned_lock() {
+        let lock = RwLock::new(7usize);
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = lock.write().expect("test lock should start clean");
+            panic!("poison prompt lock");
+        });
+
+        *write_lock(&lock, "test") = 8;
+
+        assert_eq!(*read_lock(&lock, "test"), 8);
     }
 }
