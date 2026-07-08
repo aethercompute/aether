@@ -32,19 +32,19 @@ trust_remote_code = false
 dataset = "openbmb/Ultra-FineWeb"
 split = "en"
 text_field = "content"
-weight = 0.4
+weight = 0.30
 
 [[dataset.sources]]
 dataset = "HuggingFaceFW/finepdfs_edu_50BT-dclm_30BT-fineweb_edu_20BT-shuffled"
 split = "train"
 text_field = "text"
-weight = 0.4
+weight = 0.30
 
 [[dataset.sources]]
 dataset = "aethercompute/stack-edu"
 split = "train"
 text_field = "text"
-weight = 0.2
+weight = 0.40
 
 [model]
 enabled = true
