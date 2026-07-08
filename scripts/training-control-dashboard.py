@@ -5,6 +5,7 @@ import os
 import base64
 import shlex
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -375,6 +376,36 @@ def state_checkpoint(config: dict) -> str:
         if line.strip().startswith("repo_id"):
             return line.split("=", 1)[1].strip().strip('"')
     return "checkpoint repo not found in state file"
+
+
+def state_data_server(config: dict) -> str | None:
+    state_path = repo_root() / config.get("server", {}).get("state_path", "")
+    if not state_path.exists():
+        return None
+    text = state_path.read_text(encoding="utf-8")
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("Server") and "=" in stripped:
+            return stripped.split("=", 1)[1].strip().strip('"')
+    return None
+
+
+def data_server_endpoint_status(config: dict) -> tuple[bool, str]:
+    endpoint = state_data_server(config)
+    if not endpoint:
+        return True, "not configured"
+    if ":" not in endpoint:
+        return False, f"invalid endpoint {endpoint}"
+    host, port_raw = endpoint.rsplit(":", 1)
+    try:
+        port = int(port_raw)
+    except ValueError:
+        return False, f"invalid endpoint {endpoint}"
+    try:
+        with socket.create_connection((host, port), timeout=1.0):
+            return True, f"reachable: {endpoint}"
+    except OSError as err:
+        return False, f"not reachable: {endpoint} ({err})"
 
 
 def model_push_enabled(config: dict) -> bool:
@@ -776,6 +807,7 @@ t.forEach(b => b.addEventListener('click', () => {
 def html_page(message: str | None = None) -> str:
     config = load_config()
     data_ready, data_message = dataset_status(config)
+    data_server_ready, data_server_message = data_server_endpoint_status(config)
     model_ready, model_message = model_status(config)
     if config.get("server", {}).get("experiment_enabled", False) and model_push_enabled(config):
         try:
@@ -798,6 +830,7 @@ def html_page(message: str | None = None) -> str:
         server_short, server_cls = "stopped", "bad"
     data_short = "ready" if data_ready else "pending"
     data_cls = "ok" if data_ready else "bad"
+    data_server_cls = "ok" if data_server_ready else "bad"
     model_short = "ready" if model_ready else "pending"
     model_cls = "ok" if model_ready else "warn"
     actions = render_actions(config)
@@ -856,6 +889,7 @@ def html_page(message: str | None = None) -> str:
     </nav>
     <section data-panel="status">
       <p>Dataset: <span class="{'ok' if data_ready else 'bad'}">{html.escape(data_message)}</span></p>
+      <p>Data server endpoint: <span class="{data_server_cls}">{html.escape(data_server_message)}</span></p>
       <p>Init model: <span class="{'ok' if model_ready else 'warn'}">{html.escape(model_message)}</span></p>
       <p>Experiment init models: <span class="{'ok' if experiment_model_ready else 'warn'}">{html.escape(experiment_model_message)}</span></p>
       <p>State checkpoint: <code>{html.escape(checkpoint)}</code></p>

@@ -298,9 +298,19 @@ impl App {
                         ))?.provider()?;
 
                         let (tx, backend) = ChannelCoordinatorBackend::new();
+                        info!(
+                            advertised = %url_str,
+                            bind_port = data_server_port,
+                            "starting training data TCP server"
+                        );
                         let data_server =
                             DataProviderTcpServer::start(data_provider, backend, data_server_port)
                                 .await?;
+                        info!(
+                            advertised = %url_str,
+                            bind_port = data_server_port,
+                            "training data TCP server started"
+                        );
                         Some((tx, data_server))
                     } else {
                         None
