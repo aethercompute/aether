@@ -388,6 +388,7 @@ dependencies = [
  "flume",
  "itertools 0.14.0",
  "memmap2",
+ "postcard",
  "pyo3",
  "pyo3-tch",
  "rand 0.9.2",

@@ -1,9 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::SystemTime};
 
 use aether_core::{BatchId, CancellableBarrier, ClosedInterval, ConstantLR, LearningRateSchedule};
 use aether_modeling::{
-    AttentionImplementation, Batch, BatchData, BatchDataCPU, CausalLM, EosToks, LlamaConfig,
-    LlamaForCausalLM, LocalTrainer, ParallelModels, PretrainedSource, Trainer,
+    save_tensors_into_safetensors, AttentionImplementation, Batch, BatchData, BatchDataCPU,
+    CausalLM, EosToks, LlamaConfig, LlamaForCausalLM, LocalTrainer, ParallelModels,
+    PretrainedSource, Trainer,
 };
 use tch::{COptimizer, Device, Kind, Tensor};
 use tokio_util::sync::CancellationToken;
@@ -114,6 +115,18 @@ fn new_llama() -> LlamaForCausalLM {
     .expect("tiny llama loads from deterministic state dict")
 }
 
+fn new_llama_from_repo_files(repo_files: Vec<PathBuf>) -> LlamaForCausalLM {
+    LlamaForCausalLM::from_pretrained(
+        &PretrainedSource::RepoFiles(repo_files),
+        Some(Kind::Float),
+        Some(AttentionImplementation::Eager),
+        Some(Device::Cpu),
+        None,
+        None,
+    )
+    .expect("tiny llama reloads from safetensors repo files")
+}
+
 fn schedule() -> LearningRateSchedule {
     LearningRateSchedule::Constant(ConstantLR::new(0.01, 0, 0.0))
 }
@@ -145,6 +158,21 @@ fn snapshot(model: &dyn CausalLM) -> HashMap<String, Tensor> {
             )
         })
         .collect()
+}
+
+fn clone_state(state: &HashMap<String, Tensor>) -> HashMap<String, Tensor> {
+    state
+        .iter()
+        .map(|(key, tensor)| (key.clone(), tensor.shallow_clone()))
+        .collect()
+}
+
+fn temp_checkpoint_dir(name: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("system time after unix epoch")
+        .as_nanos();
+    PathBuf::from("/tmp/opencode").join(format!("aether-{name}-{}-{nanos}", std::process::id()))
 }
 
 fn assert_state_close(actual: &HashMap<String, Tensor>, expected: &HashMap<String, Tensor>) {
@@ -217,6 +245,25 @@ fn direct_train_step(model: &LlamaForCausalLM, optimizer: &mut COptimizer, batch
     optimizer.step().expect("adamw step succeeds");
     optimizer.zero_grad().expect("zero gradients succeeds");
     loss_value
+}
+
+fn forward_loss(model: &dyn CausalLM, batch: &Batch) -> (Tensor, Tensor) {
+    let batch = batch.clone().gpu(Device::Cpu);
+    let BatchData::GPU(data) = batch.data else {
+        unreachable!("batch was moved to tensor form")
+    };
+    let (logits, loss) = model.forward(
+        &data.input_ids,
+        data.labels.as_ref(),
+        data.position_ids.as_ref(),
+        data.sequence_lengths.as_ref(),
+        None,
+        None,
+    );
+    (
+        logits.expect("tiny llama returns logits"),
+        loss.expect("tiny llama returns a loss"),
+    )
 }
 
 #[test]
@@ -294,4 +341,42 @@ fn tiny_llama_local_trainer_matches_direct_adamw_reference() {
     let expected = snapshot(&reference);
     assert_state_close(&actual, &expected);
     assert_state_changed(&initial, &actual);
+}
+
+#[test]
+fn tiny_llama_safetensors_checkpoint_reloads_identical_state_and_forward() {
+    let model = new_llama();
+    let mut optimizer = adamw(&model);
+    direct_train_step(&model, &mut optimizer, &batch());
+    let trained_state = snapshot(&model);
+
+    let checkpoint_dir = temp_checkpoint_dir("tiny-llama-checkpoint");
+    std::fs::create_dir_all(&checkpoint_dir).expect("create checkpoint dir");
+    let config_path = checkpoint_dir.join("config.json");
+    std::fs::write(
+        &config_path,
+        serde_json::to_string(&tiny_llama_config()).expect("serialize tiny llama config"),
+    )
+    .expect("write tiny llama config");
+    let mut repo_files =
+        save_tensors_into_safetensors(clone_state(&trained_state), checkpoint_dir.clone())
+            .expect("save tiny llama safetensors");
+    repo_files.push(config_path);
+
+    let reloaded = new_llama_from_repo_files(repo_files);
+    let reloaded_state = snapshot(&reloaded);
+    assert_state_close(&reloaded_state, &trained_state);
+
+    let (expected_logits, expected_loss) = forward_loss(&model, &batch());
+    let (actual_logits, actual_loss) = forward_loss(&reloaded, &batch());
+    assert!(
+        actual_logits.allclose(&expected_logits, 1e-6, 1e-6, false),
+        "reloaded logits differ from original checkpoint"
+    );
+    assert!(
+        actual_loss.allclose(&expected_loss, 1e-6, 1e-6, false),
+        "reloaded loss differs from original checkpoint"
+    );
+
+    let _ = std::fs::remove_dir_all(checkpoint_dir);
 }

@@ -8,7 +8,10 @@ use aether_modeling::{
     Batch, BatchData, BatchDataCPU, CausalLM, DistroResult, EosToks, LocalTrainer, ParallelModels,
     StableVarStoreIterator, StableVariableIterator, Trainer,
 };
-use aether_network::{distro_results_from_reader, distro_results_to_bytes, SerializedDistroResult};
+use aether_network::{
+    distro_results_from_reader, distro_results_to_bytes, SerializedDistroResult,
+    TransmittableDistroResult,
+};
 use tch::{
     nn::{self, Module, VarStore},
     COptimizer, Device, Kind, Tensor,
@@ -407,6 +410,16 @@ fn wire_roundtrip_distro_results(results: &[DistroResults]) -> Vec<DistroResults
                         .expect("serialized distro result converts back to native tensor result")
                 })
                 .collect()
+        })
+        .collect()
+}
+
+fn serialize_distro_results(results: &DistroResults) -> Vec<SerializedDistroResult> {
+    results
+        .iter()
+        .map(|result| {
+            SerializedDistroResult::try_from(result)
+                .expect("distro result serializes for wire transport")
         })
         .collect()
 }
@@ -904,6 +917,45 @@ fn serialized_distro_results_apply_like_in_memory_results() {
     let original_state = extract_state(&mut original_aggregator);
     let wire_state = extract_state(&mut wire_aggregator);
     assert_state_close(&wire_state, &original_state, 0.0, 0.0);
+}
+
+#[test]
+fn transmittable_distro_result_hash_survives_postcard_roundtrip() {
+    let results = run_distro_worker(7, distro_worker_batches()[0].clone()).1;
+    let payload = TransmittableDistroResult {
+        step: 7,
+        trainer_nonce: 42,
+        batch_id: batch_id(11, 12),
+        distro_results: serialize_distro_results(&results),
+    };
+    let hash = payload.comptue_hash();
+
+    let bytes = postcard::to_allocvec(&payload).expect("transmittable result serializes");
+    let decoded: TransmittableDistroResult =
+        postcard::from_bytes(&bytes).expect("transmittable result deserializes");
+
+    assert_eq!(decoded.step, payload.step);
+    assert_eq!(decoded.trainer_nonce, payload.trainer_nonce);
+    assert_eq!(decoded.batch_id.0.start, payload.batch_id.0.start);
+    assert_eq!(decoded.batch_id.0.end, payload.batch_id.0.end);
+    assert_eq!(decoded.distro_results, payload.distro_results);
+    assert_eq!(decoded.comptue_hash(), hash, "hash changed after roundtrip");
+
+    let mut changed_step = decoded.clone();
+    changed_step.step += 1;
+    assert_ne!(
+        changed_step.comptue_hash(),
+        hash,
+        "hash must commit to the training step"
+    );
+
+    let mut changed_batch = decoded;
+    changed_batch.batch_id = batch_id(12, 13);
+    assert_ne!(
+        changed_batch.comptue_hash(),
+        hash,
+        "hash must commit to the batch id"
+    );
 }
 
 #[test]

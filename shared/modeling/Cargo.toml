@@ -33,6 +33,7 @@ aether-network.workspace = true
 aether-python-extension-impl.workspace = true
 aether-tui.workspace = true
 tokio.workspace = true
+postcard.workspace = true
 
 [features]
 parallelism = ["tch/nccl", "torch-sys/nccl"]
