@@ -14,6 +14,13 @@ use sysinfo::{Pid, System};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, trace};
 
+type TrainBatchData = (
+    PyTensor,
+    Option<PyTensor>,
+    Option<PyTensor>,
+    Option<Vec<Vec<i32>>>,
+);
+
 #[pyfunction]
 fn add_one(tensor: PyTensor) -> PyResult<PyTensor> {
     let tensor = tensor.f_add_scalar(1.0).map_err(wrap_tch_err)?;
@@ -172,16 +179,12 @@ impl Trainer {
         self.cancel.cancel();
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn train(
         self_: PyRef<'_, Self>,
         step: u32,
         zero_optim: bool,
         batch_id: (u64, u64),
-        input_ids: PyTensor,
-        labels: Option<PyTensor>,
-        position_ids: Option<PyTensor>,
-        sequence_lengths: Option<Vec<Vec<i32>>>,
+        batch_data: TrainBatchData,
         warmup_lr_between: Option<(u32, u32)>,
         prev_self_distro_results: Option<Vec<Vec<Py<DistroResult>>>>,
     ) -> PyResult<(Option<Vec<DistroResult>>, f32)> {
@@ -189,6 +192,7 @@ impl Trainer {
         let trainer = self_.take_trainer()?;
         let id = BatchId(ClosedInterval::new(batch_id.0, batch_id.1));
         let cancel = self_.cancel.clone();
+        let (input_ids, labels, position_ids, sequence_lengths) = batch_data;
         let prev_self_distro_results =
             DistroResult::to_native(self_.py(), prev_self_distro_results)?;
         let output = self_

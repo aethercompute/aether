@@ -274,10 +274,7 @@ def main():
                 train.step,
                 train.zero_optim,
                 (train.batch_id[0], train.batch_id[1]),
-                input_ids,
-                labels,
-                position_ids,
-                train.batch_sequence_lengths,
+                (input_ids, labels, position_ids, train.batch_sequence_lengths),
                 (
                     (train.warmup_lr_between[0], train.warmup_lr_between[1])
                     if train.warmup_lr_between is not None
