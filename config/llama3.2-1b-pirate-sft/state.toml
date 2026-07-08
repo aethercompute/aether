@@ -16,7 +16,7 @@ global_batch_size_warmup_tokens = 0
 
 verification_percent = 0
 witness_nodes = 1
-total_steps = 200
+total_steps = 32
 waiting_for_members_extra_time = 120
 
 [model.LLM]
@@ -33,9 +33,9 @@ repo_id = "meta-llama/Llama-3.2-1B-Instruct"
 
 [model.LLM.lr_schedule.Cosine]
 base_lr = 2.0e-5
-warmup_steps = 20
+warmup_steps = 3
 warmup_init_lr = 0.0
-total_steps = 200
+total_steps = 32
 final_lr = 2.0e-6
 
 [model.LLM.optimizer.Distro]
