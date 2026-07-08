@@ -11,7 +11,7 @@ use tracing::{debug, trace, warn};
 
 const MAX_TOKENS_TO_GENERATE: usize = 256;
 
-fn read_lock<'a, T>(lock: &'a RwLock<T>, name: &str) -> RwLockReadGuard<'a, T> {
+pub(super) fn read_lock<'a, T>(lock: &'a RwLock<T>, name: &str) -> RwLockReadGuard<'a, T> {
     lock.read().unwrap_or_else(|poisoned| {
         warn!(
             lock = name,
@@ -21,7 +21,7 @@ fn read_lock<'a, T>(lock: &'a RwLock<T>, name: &str) -> RwLockReadGuard<'a, T> {
     })
 }
 
-fn write_lock<'a, T>(lock: &'a RwLock<T>, name: &str) -> RwLockWriteGuard<'a, T> {
+pub(super) fn write_lock<'a, T>(lock: &'a RwLock<T>, name: &str) -> RwLockWriteGuard<'a, T> {
     lock.write().unwrap_or_else(|poisoned| {
         warn!(
             lock = name,

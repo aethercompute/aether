@@ -6,7 +6,7 @@ use tokio::{
     sync::mpsc::{self},
     task::JoinHandle,
 };
-use tracing::{info, trace};
+use tracing::{info, trace, warn};
 
 use super::{
     evals::{EvalError, MaybeRunningEvals, ModelTaskRunner, RunningEvals},
@@ -101,8 +101,14 @@ impl WitnessStep {
         let merkle = MerkleTree::new(&previous_round.broadcasts);
         let broadcast_merkle = merkle.get_root().cloned().unwrap_or(MerkleRoot::default());
 
-        let (participant_bloom, broadcast_bloom) =
-            previous_round.blooms.lock().unwrap().unwrap_or_default();
+        let (participant_bloom, broadcast_bloom) = previous_round
+            .blooms
+            .lock()
+            .unwrap_or_else(|poisoned| {
+                warn!("round blooms lock poisoned; recovering state");
+                poisoned.into_inner()
+            })
+            .unwrap_or_default();
 
         info!("Submitting witness blooms");
         previous_round.sent_witness = true;
@@ -117,5 +123,40 @@ impl WitnessStep {
             broadcast_bloom,
             broadcast_merkle,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use aether_coordinator::{CommitteeProof, CommitteeSelection, WitnessProof};
+    use aether_core::SmallBoolean;
+
+    use super::*;
+
+    #[test]
+    fn get_witness_to_send_recovers_from_poisoned_blooms_lock() {
+        let mut previous_round = RoundState::new();
+        let mut current_round = RoundState::new();
+        current_round.committee_info = Some((
+            CommitteeProof::default(),
+            WitnessProof {
+                witness: SmallBoolean::TRUE,
+                ..WitnessProof::default()
+            },
+            CommitteeSelection::new(0, 1, 0, 1, 7).unwrap(),
+        ));
+
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = previous_round
+                .blooms
+                .lock()
+                .expect("test lock should start clean");
+            panic!("poison blooms lock");
+        });
+
+        let witness = WitnessStep::get_witness_to_send(&mut previous_round, &mut current_round);
+
+        assert!(witness.is_some());
+        assert!(previous_round.sent_witness);
     }
 }

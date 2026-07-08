@@ -579,7 +579,10 @@ impl TrainingStepMetadata {
                 let mut desync_skips: usize = 0;
 
                 trace!("Have commitments for batches {:?}", commitments.keys().collect::<Vec<_>>());
-                trace!("Have payloads for hashes {:?}", payloads.lock().unwrap().keys().collect::<Vec<_>>());
+                trace!("Have payloads for hashes {:?}", payloads.lock().unwrap_or_else(|poisoned| {
+                    warn!("round payloads lock poisoned while tracing; recovering state");
+                    poisoned.into_inner()
+                }).keys().collect::<Vec<_>>());
 
                 for batch_id in batch_ids {
                     let batch_commitments = match commitments.get(&batch_id) {
@@ -617,7 +620,10 @@ impl TrainingStepMetadata {
                     trace!("Consensus commitment for batch {batch_id}: {consensus:?}");
 
                     let (commitment, result) = &batch_commitments[consensus].1;
-                    let payload_remove_result = payloads.lock().unwrap().remove(&result.ticket.hash());
+                    let payload_remove_result = payloads.lock().unwrap_or_else(|poisoned| {
+                        warn!("round payloads lock poisoned while applying results; recovering state");
+                        poisoned.into_inner()
+                    }).remove(&result.ticket.hash());
                     let maybe_results: Result<(Vec<DistroResult>, u32), DeserializeError> = match payload_remove_result {
                         Some(PayloadState::Deserializing(x)) => match x.is_finished() {
                             true => x.await.unwrap(),

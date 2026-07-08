@@ -10,7 +10,10 @@ use tokenizers::Tokenizer;
 use tracing::{debug, trace, warn};
 use wandb::{DataValue, LogData};
 
-use crate::state::evals::{EnumModelTask, PROMPT_TASK_NAME};
+use crate::state::{
+    evals::{EnumModelTask, PROMPT_TASK_NAME},
+    prompt::{read_lock, write_lock},
+};
 
 use super::evals::ModelTaskRunner;
 
@@ -317,7 +320,7 @@ impl StatsLogger {
         for eval_task in self.model_task_runner.tasks().iter().flatten() {
             if let EnumModelTask::PromptTask(prompt_task) = &eval_task.task {
                 {
-                    let tokens = prompt_task.tokens_to_send.read().unwrap();
+                    let tokens = read_lock(&prompt_task.tokens_to_send, "tokens_to_send");
                     results.extend(tokens.iter().cloned()).unwrap();
                 }
                 if let Ok(decoded) = prompt_task
@@ -326,7 +329,7 @@ impl StatsLogger {
                 {
                     debug!("Prompt result: {}", decoded);
                 }
-                prompt_task.tokens_to_send.write().unwrap().clear();
+                write_lock(&prompt_task.tokens_to_send, "tokens_to_send").clear();
             }
         }
         trace!(
@@ -340,7 +343,7 @@ impl StatsLogger {
     pub fn get_prompt_index(&self) -> u8 {
         for eval_task in self.model_task_runner.tasks().iter().flatten() {
             if let EnumModelTask::PromptTask(prompt_task) = &eval_task.task {
-                return *prompt_task.selected_prompt.read().unwrap() as u8;
+                return *read_lock(&prompt_task.selected_prompt, "selected_prompt") as u8;
             }
         }
         // Default to 0 if no prompt task found
