@@ -1,5 +1,5 @@
 import torch
-from typing import Iterable, List
+from typing import List
 from torch import Tensor
 from torch.distributed.tensor import DTensor, distribute_tensor, zeros
 
@@ -37,7 +37,7 @@ def set_grad(tensor: Tensor | DTensor, grad: Tensor):
         grad = distribute_tensor(
             grad, device_mesh=tensor.grad.device_mesh, placements=tensor.grad.placements
         )
-        tensor.grad._local_tensor.copy_(grad._local_tensor)
+        tensor.grad.to_local().copy_(grad.to_local())
     else:
         tensor.grad.copy_(grad)
 
@@ -45,6 +45,6 @@ def set_grad(tensor: Tensor | DTensor, grad: Tensor):
 def zero_grad(tensor: Tensor | DTensor):
     if tensor.grad is not None:
         if isinstance(tensor, DTensor):
-            tensor.grad._local_tensor.zero_()
+            tensor.grad.to_local().zero_()
         else:
             tensor.grad.zero_()
