@@ -1,5 +1,45 @@
-# Network
+# aether-network
 
-## Bandwidth test
+Iroh-based networking utilities used by Aether clients and services.
 
-Run `cargo run -p aether-network --example bandwidth_test` on one PC, then copy the node id at the top (might need to shift-click to select it, make sure you get the whole thing even if it's multiline) and do `cargo run -p aether-network --example bandwidth_test -- node_id_here` on another machine. In ~15s they should start swapping data.
+## Responsibilities
+
+- Initializes P2P endpoints and discovery/relay configuration.
+- Sends and verifies signed gossip messages.
+- Shares blobs, model parameters, and model configs.
+- Schedules downloads and tracks peer state.
+- Provides simple TCP client/server utilities for architecture protocols.
+- Exposes network state suitable for TUI rendering.
+
+## Important Types
+
+- `NetworkConnection`, `NetworkInit`, `NetworkEvent`: main P2P runtime API.
+- `DiscoveryMode`, `RelayKind`: endpoint discovery/relay configuration.
+- `Networkable`, `SignedMessage`: signed gossip payload support.
+- `TcpClient`, `TcpServer`: framed TCP message transport.
+- `DownloadType`, `TransmittableDownload`, `DownloadSchedulerHandle`: download coordination.
+- `SharableModel`, `PeerManagerHandle`, `TransmittableModelConfig`: model sharing.
+- `NetworkTui`, `NetworkTUIState`: terminal UI state.
+
+## Bandwidth Test
+
+Run the example on one machine:
+
+```sh
+cargo run -p aether-network --example bandwidth_test
+```
+
+Copy the printed node ID, then run a second node on another machine:
+
+```sh
+cargo run -p aether-network --example bandwidth_test -- <node_id>
+```
+
+After roughly 15 seconds the peers should start exchanging data.
+
+## Commands
+
+```sh
+cargo test -p aether-network
+cargo run -p aether-network --example bandwidth_test
+```

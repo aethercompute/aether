@@ -1,8 +1,19 @@
-# event-sourcing
+# aether-event-sourcing
 
-structured event logging for aether runs. uses postcard for compact serialization and COBS framing for crash-safe streaming writes to disk.
+Structured event logging for Aether runs.
 
-## usage
+Events are serialized with postcard and framed with COBS so append-only files can
+be imported even after partial writes or process crashes.
+
+## Responsibilities
+
+- Provides a global `EventStore` with pluggable backends.
+- Stores events in memory for tests and debugging.
+- Streams events to epoch-scoped files on disk.
+- Bridges tracing events into the event store.
+- Builds timeline/projection views over event streams.
+
+## Usage
 
 ```rust
 use aether_event_sourcing::*;
@@ -30,15 +41,17 @@ event!(train::TrainingFinished { batch_id, step: 1, loss: Some(0.5) });
 event!(EpochStarted { epoch_number: 1 });
 ```
 
-## backends
+## Backends
 
-InMemoryBackend keeps events in a vec, useful for tests
+`InMemoryBackend` keeps events in a vector and is useful for tests.
 
-FileBackend streams to disk with an async actor, auto-rotates files on each `EpochStarted` event
+`FileBackend` streams to disk with an async actor and auto-rotates files on each
+`EpochStarted` event.
 
-files are named `events-epoch-{n}-{timestamp}.postcard` and each is self-contained (includes RunStarted + EpochStarted).
+Files are named `events-epoch-{n}-{timestamp}.postcard`. Each file is
+self-contained and includes the run/epoch context needed to read it back.
 
-## reading events back
+## Reading Events Back
 
 ```rust
 // import from file into InMemoryBackend
@@ -55,6 +68,13 @@ EventStore::with_backend::<InMemoryBackend, _, _>(|b| {
 });
 ```
 
-## crash safety
+## Crash Safety
 
-COBS framing means partial writes from crashes get detected and skipped on import. earlier events are never corrupted.
+COBS framing means partial writes from crashes are detected and skipped on
+import. Earlier complete events are not corrupted by a truncated final frame.
+
+## Commands
+
+```sh
+cargo test -p aether-event-sourcing
+```
