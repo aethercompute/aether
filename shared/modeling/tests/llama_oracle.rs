@@ -1,0 +1,297 @@
+use std::{collections::HashMap, sync::Arc};
+
+use aether_core::{BatchId, CancellableBarrier, ClosedInterval, ConstantLR, LearningRateSchedule};
+use aether_modeling::{
+    AttentionImplementation, Batch, BatchData, BatchDataCPU, CausalLM, EosToks, LlamaConfig,
+    LlamaForCausalLM, LocalTrainer, ParallelModels, PretrainedSource, Trainer,
+};
+use tch::{COptimizer, Device, Kind, Tensor};
+use tokio_util::sync::CancellationToken;
+
+const VOCAB_SIZE: i64 = 11;
+const HIDDEN_SIZE: i64 = 8;
+const INTERMEDIATE_SIZE: i64 = 16;
+const SEQ_LEN: usize = 5;
+
+fn tiny_llama_config() -> LlamaConfig {
+    LlamaConfig {
+        hidden_size: HIDDEN_SIZE as usize,
+        intermediate_size: INTERMEDIATE_SIZE as usize,
+        vocab_size: VOCAB_SIZE as usize,
+        num_hidden_layers: 1,
+        num_attention_heads: 2,
+        num_key_value_heads: Some(2),
+        rms_norm_eps: 1e-5,
+        rope_theta: 10_000.0,
+        bos_token_id: Some(0),
+        eos_token_id: Some(EosToks::Single(1)),
+        rope_scaling: None,
+        max_position_embeddings: 16,
+        tie_word_embeddings: false,
+        attention_bias: None,
+    }
+}
+
+fn tensor_for(name: &str, shape: &[i64]) -> Tensor {
+    if name.contains("norm.weight") || name.contains("layernorm.weight") {
+        return Tensor::ones(shape, (Kind::Float, Device::Cpu));
+    }
+
+    let scale = match name {
+        "model.embed_tokens.weight" => 97.0,
+        "lm_head.weight" => 89.0,
+        name if name.contains("q_proj") => 83.0,
+        name if name.contains("k_proj") => 79.0,
+        name if name.contains("v_proj") => 73.0,
+        name if name.contains("o_proj") => 71.0,
+        name if name.contains("gate_proj") => 67.0,
+        name if name.contains("up_proj") => 61.0,
+        name if name.contains("down_proj") => 59.0,
+        _ => 53.0,
+    };
+    let numel = shape.iter().product::<i64>();
+    (Tensor::arange(numel, (Kind::Float, Device::Cpu)).reshape(shape) / scale) - 0.25
+}
+
+fn tiny_llama_state() -> HashMap<String, Tensor> {
+    let specs: [(&str, &[i64]); 12] = [
+        ("lm_head.weight", &[VOCAB_SIZE, HIDDEN_SIZE]),
+        ("model.embed_tokens.weight", &[VOCAB_SIZE, HIDDEN_SIZE]),
+        ("model.layers.0.input_layernorm.weight", &[HIDDEN_SIZE]),
+        (
+            "model.layers.0.mlp.down_proj.weight",
+            &[HIDDEN_SIZE, INTERMEDIATE_SIZE],
+        ),
+        (
+            "model.layers.0.mlp.gate_proj.weight",
+            &[INTERMEDIATE_SIZE, HIDDEN_SIZE],
+        ),
+        (
+            "model.layers.0.mlp.up_proj.weight",
+            &[INTERMEDIATE_SIZE, HIDDEN_SIZE],
+        ),
+        (
+            "model.layers.0.post_attention_layernorm.weight",
+            &[HIDDEN_SIZE],
+        ),
+        (
+            "model.layers.0.self_attn.k_proj.weight",
+            &[HIDDEN_SIZE, HIDDEN_SIZE],
+        ),
+        (
+            "model.layers.0.self_attn.o_proj.weight",
+            &[HIDDEN_SIZE, HIDDEN_SIZE],
+        ),
+        (
+            "model.layers.0.self_attn.q_proj.weight",
+            &[HIDDEN_SIZE, HIDDEN_SIZE],
+        ),
+        (
+            "model.layers.0.self_attn.v_proj.weight",
+            &[HIDDEN_SIZE, HIDDEN_SIZE],
+        ),
+        ("model.norm.weight", &[HIDDEN_SIZE]),
+    ];
+
+    specs
+        .into_iter()
+        .map(|(name, shape)| (name.to_string(), tensor_for(name, shape)))
+        .collect()
+}
+
+#[allow(clippy::arc_with_non_send_sync)]
+fn new_llama() -> LlamaForCausalLM {
+    let source =
+        PretrainedSource::ConfigAndTensors(tiny_llama_config(), Arc::new(tiny_llama_state()));
+    LlamaForCausalLM::from_pretrained(
+        &source,
+        Some(Kind::Float),
+        Some(AttentionImplementation::Eager),
+        Some(Device::Cpu),
+        None,
+        None,
+    )
+    .expect("tiny llama loads from deterministic state dict")
+}
+
+fn schedule() -> LearningRateSchedule {
+    LearningRateSchedule::Constant(ConstantLR::new(0.01, 0, 0.0))
+}
+
+fn batch() -> Batch {
+    let rows = [[0, 2, 4, 6, 8], [1, 3, 5, 7, 9], [10, 8, 6, 4, 2]];
+    Batch {
+        id: BatchId(ClosedInterval { start: 0, end: 2 }),
+        data: BatchData::CPU(
+            rows.iter()
+                .map(|row| BatchDataCPU {
+                    input_ids: row.to_vec(),
+                    labels: Some(row.to_vec()),
+                    position_ids: Some((0..SEQ_LEN as i32).collect()),
+                    sequence_lengths: Some(vec![SEQ_LEN as i32]),
+                })
+                .collect(),
+        ),
+    }
+}
+
+fn snapshot(model: &dyn CausalLM) -> HashMap<String, Tensor> {
+    model
+        .variables()
+        .map(|variable| {
+            (
+                variable.name().to_string(),
+                variable.gather_full_tensor().to_device(Device::Cpu).copy(),
+            )
+        })
+        .collect()
+}
+
+fn assert_state_close(actual: &HashMap<String, Tensor>, expected: &HashMap<String, Tensor>) {
+    let mut actual_keys = actual.keys().cloned().collect::<Vec<_>>();
+    let mut expected_keys = expected.keys().cloned().collect::<Vec<_>>();
+    actual_keys.sort();
+    expected_keys.sort();
+    assert_eq!(actual_keys, expected_keys, "state dict keys changed");
+
+    for key in expected_keys {
+        let actual_tensor = actual.get(&key).expect("actual tensor present");
+        let expected_tensor = expected.get(&key).expect("expected tensor present");
+        let diff = (actual_tensor - expected_tensor).abs();
+        let max_abs = diff.max().double_value(&[]);
+        assert!(
+            actual_tensor.allclose(expected_tensor, 1e-5, 1e-5, false),
+            "tensor {key} differs: max_abs={max_abs:.6e}, shape={:?}",
+            actual_tensor.size()
+        );
+    }
+}
+
+fn assert_state_changed(initial: &HashMap<String, Tensor>, final_state: &HashMap<String, Tensor>) {
+    assert!(
+        initial.iter().any(|(key, initial_tensor)| {
+            !initial_tensor.allclose(
+                final_state.get(key).expect("final tensor present"),
+                0.0,
+                0.0,
+                false,
+            )
+        }),
+        "tiny llama training did not update any parameters"
+    );
+}
+
+fn adamw(model: &dyn CausalLM) -> COptimizer {
+    let mut optimizer =
+        COptimizer::adamw(0.1, 0.9, 0.95, 0.01, 1e-8, false).expect("adamw optimizer initializes");
+    for variable in model.variables() {
+        optimizer
+            .add_parameters(&variable.logical_tensor(), 0)
+            .expect("parameter can be added to adamw");
+    }
+    optimizer
+}
+
+fn direct_train_step(model: &LlamaForCausalLM, optimizer: &mut COptimizer, batch: &Batch) -> f32 {
+    for variable in model.variables() {
+        variable.zero_grad();
+    }
+    let batch = batch.clone().gpu(Device::Cpu);
+    let BatchData::GPU(data) = batch.data else {
+        unreachable!("batch was moved to tensor form")
+    };
+    let (_, loss) = model.forward(
+        &data.input_ids,
+        data.labels.as_ref(),
+        data.position_ids.as_ref(),
+        data.sequence_lengths.as_ref(),
+        None,
+        Some(1.0),
+    );
+    let loss = loss.expect("tiny llama returns a loss");
+    let loss_value = loss.double_value(&[]) as f32;
+    loss.backward();
+    optimizer
+        .set_learning_rate(schedule().get_lr(0))
+        .expect("valid learning rate");
+    optimizer.step().expect("adamw step succeeds");
+    optimizer.zero_grad().expect("zero gradients succeeds");
+    loss_value
+}
+
+#[test]
+fn tiny_llama_loads_state_and_forward_loss_is_finite() {
+    let model = new_llama();
+    assert_state_close(&snapshot(&model), &tiny_llama_state());
+
+    let batch = batch().gpu(Device::Cpu);
+    let BatchData::GPU(data) = batch.data else {
+        unreachable!("batch was moved to tensor form")
+    };
+    let (logits, loss) = model.forward(
+        &data.input_ids,
+        data.labels.as_ref(),
+        data.position_ids.as_ref(),
+        data.sequence_lengths.as_ref(),
+        None,
+        None,
+    );
+
+    let logits = logits.expect("tiny llama returns logits");
+    assert_eq!(logits.size(), [3, SEQ_LEN as i64, VOCAB_SIZE]);
+    let loss = loss.expect("tiny llama returns a loss");
+    assert!(loss.double_value(&[]).is_finite(), "loss must be finite");
+}
+
+#[test]
+fn tiny_llama_local_trainer_matches_direct_adamw_reference() {
+    let initial = tiny_llama_state();
+    let reference = new_llama();
+    let mut reference_optimizer = adamw(&reference);
+    let expected_loss = direct_train_step(&reference, &mut reference_optimizer, &batch());
+
+    let trainer: Trainer = LocalTrainer::new(
+        ParallelModels {
+            models: vec![Box::new(new_llama()) as Box<dyn CausalLM>],
+            barrier: Arc::new(CancellableBarrier::new(1)),
+            data_parallel: None,
+        },
+        schedule(),
+        aether_core::OptimizerDefinition::AdamW {
+            betas: [0.9, 0.95],
+            weight_decay: 0.01,
+            eps: 1e-8,
+            clip_grad_norm: None,
+        },
+        3,
+        None,
+        false,
+    )
+    .into();
+
+    let output = trainer
+        .train(
+            0,
+            batch(),
+            None,
+            false,
+            vec![],
+            None,
+            CancellationToken::new(),
+        )
+        .expect("tiny llama trainer train succeeds");
+    assert!(
+        (output.loss - expected_loss).abs() < 1e-5,
+        "loss differs: actual={}, expected={expected_loss}",
+        output.loss
+    );
+    let mut trainer = output
+        .trainer
+        .optimize(0, None, None)
+        .expect("tiny llama optimizer step succeeds");
+
+    let actual = trainer.extract().expect("extract tiny llama state");
+    let expected = snapshot(&reference);
+    assert_state_close(&actual, &expected);
+    assert_state_changed(&initial, &actual);
+}

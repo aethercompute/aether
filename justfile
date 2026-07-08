@@ -55,7 +55,7 @@ test-torch: test
 
 # Run the deterministic CPU training oracle/meta-test.
 training-oracle:
-    bash scripts/with-libtorch-env.sh cargo test -p aether-modeling --test training_oracle -- --nocapture
+    bash scripts/with-libtorch-env.sh cargo test -p aether-modeling --test training_oracle --test llama_oracle -- --nocapture
 
 # ── supply chain ─────────────────────────────────────────────────────────────
 # Full gate: advisories + bans + licenses + sources. (cargo-deny: `cargo binstall -y cargo-deny`)
