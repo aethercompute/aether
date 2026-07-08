@@ -233,6 +233,8 @@ impl BuildJob {
                 .arg("--release")
                 .arg("-p")
                 .arg(&crate_name)
+                .arg("--features")
+                .arg("python")
                 .current_dir(config::repo_root())
                 .stdout(Stdio::null())
                 .stderr(Stdio::piped());

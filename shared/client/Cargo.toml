@@ -41,7 +41,7 @@ iroh-blobs.workspace = true
 
 [features]
 parallelism = ["aether-modeling/parallelism"]
-python = ["aether-python-extension-impl"]
+python = ["aether-python-extension-impl", "aether-modeling/python"]
 
 [dev-dependencies]
 bytemuck.workspace = true

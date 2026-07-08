@@ -33,7 +33,7 @@ tikv-jemallocator.workspace = true
 
 [features]
 parallelism = ["aether-client/parallelism"]
-python = ["aether-python-extension-impl"]
+python = ["aether-python-extension-impl", "aether-client/python", "aether-modeling/python"]
 
 [lints]
 workspace = true
