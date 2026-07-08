@@ -2,6 +2,7 @@ import torch
 import json
 import logging
 import os
+import sys
 
 from .causal_lm import CausalLM, PretrainedSourceRepoFiles, PretrainedSourceStateDict
 from transformers import (
@@ -91,6 +92,16 @@ def auto_config_from_dict(config: dict):
         raise ValueError(f"Unknown model_type {model_type}")
 
     return config_class.from_dict(config)
+
+
+def maybe_compile_loss_function(model: torch.nn.Module) -> None:
+    if sys.version_info >= (3, 14):
+        logger.info("Skipping torch.compile for loss_function on Python 3.14+")
+        return
+    try:
+        model.loss_function = torch.compile(model.loss_function)
+    except RuntimeError as err:
+        logger.warning("Skipping torch.compile for loss_function: %s", err)
 
 
 class HfTransformersAuto(CausalLM):
@@ -259,8 +270,9 @@ class HfTransformersAuto(CausalLM):
                 fused_linear_cross_entropy=no_tp,  # liger fused ce can't deal with mixed tensor/dtensors which happens in non-pure-fsdp mode
             )
 
-        # compile the loss, greatly reduces mem usage for large vocabularies
-        model.loss_function = torch.compile(model.loss_function)
+        # Compiling the loss reduces memory for large vocabularies, but Torch
+        # does not support torch.compile on Python 3.14+ yet.
+        maybe_compile_loss_function(model)
 
         # for super large models, loading the entire model in RAM nproc times can CPU OOM
         # TODO: switch to use torch.distributed.checkpoint.state_dict_loader.load()
