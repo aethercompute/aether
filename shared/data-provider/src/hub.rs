@@ -37,6 +37,13 @@ fn check_extensions(sibling: &Siblings, extensions: &[&'static str]) -> bool {
     }
 }
 
+fn hub_read_token(explicit: Option<String>, cache: &Cache) -> Option<String> {
+    explicit
+        .or_else(|| std::env::var("HF_TOKEN").ok())
+        .or_else(|| std::env::var("HUGGING_FACE_HUB_TOKEN").ok())
+        .or_else(|| cache.token())
+}
+
 async fn download_repo_async(
     repo: Repo,
     cache: Option<PathBuf>,
@@ -52,7 +59,7 @@ async fn download_repo_async(
     };
     let api = builder
         .with_cache_dir(cache.path().clone())
-        .with_token(token.or(cache.token()))
+        .with_token(hub_read_token(token, &cache))
         .with_progress(progress_bar)
         .build()?
         .repo(repo);
@@ -149,7 +156,7 @@ fn download_repo_sync(
     };
     let api = builder
         .with_cache_dir(cache.path().clone())
-        .with_token(token.or(cache.token()))
+        .with_token(hub_read_token(token, &cache))
         .with_progress(progress_bar)
         .build()?
         .repo(repo);
