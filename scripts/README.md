@@ -26,6 +26,7 @@ Supported `aethercompute-client.sh` modes include default launch, `seed`,
 
 - `training-control-dashboard.py`: basic-auth web dashboard for editing config, preparing data, pushing initial models, validating config, and starting/stopping training.
 - `prepare-ultra-fineweb-local.py`: streams Hugging Face datasets, tokenizes text, and writes binary shards plus metadata.
+- `prepare-sft-local.py`: streams prompt/response datasets, applies chat templates, and writes masked-label SFT Parquet data.
 - `push-new-model-hf.py`: initializes a random model from config and pushes it to Hugging Face Hub or saves locally.
 - `run-inference.py`: simple Hugging Face Transformers checkpoint inference helper.
 
@@ -44,6 +45,23 @@ python3 scripts/prepare-ultra-fineweb-local.py \
   --tokenizer deepseek-ai/DeepSeek-V3 \
   --sequence-length 512
 ```
+
+Prepare Llama 3.2 1B Instruct SFT data from the pirate-speak dataset:
+
+```sh
+python3 scripts/prepare-sft-local.py \
+  --dataset KafeisM/pirate-speak-dataset \
+  --split train \
+  --prompt-field english \
+  --response-field pirate \
+  --tokenizer meta-llama/Llama-3.2-1B-Instruct \
+  --output-dir data/pirate-speak-llama3.2-1b-sft-1024 \
+  --sequence-length 1024 \
+  --mode chat
+```
+
+The SFT script stores prompt and padding labels as `-100`, so training loss is
+computed only on assistant response tokens.
 
 Initialize and push a model:
 

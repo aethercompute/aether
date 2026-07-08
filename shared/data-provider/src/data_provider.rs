@@ -1,6 +1,6 @@
 use crate::{
-    http::HttpDataProvider, DummyDataProvider, LocalDataProvider, PreprocessedDataProvider,
-    TokenizedData, TokenizedDataProvider, WeightedDataProvider,
+    http::HttpDataProvider, DummyDataProvider, LengthKnownDataProvider, LocalDataProvider,
+    PreprocessedDataProvider, TokenizedData, TokenizedDataProvider, WeightedDataProvider,
 };
 
 #[cfg(feature = "remote")]
@@ -28,6 +28,20 @@ impl TokenizedDataProvider for DataProvider {
             DataProvider::WeightedHttp(provider) => provider.get_samples(data_ids).await,
             DataProvider::Local(provider) => provider.get_samples(data_ids).await,
             DataProvider::Preprocessed(provider) => provider.get_samples(data_ids).await,
+        }
+    }
+}
+
+impl LengthKnownDataProvider for DataProvider {
+    fn num_sequences(&self) -> usize {
+        match self {
+            DataProvider::Http(provider) => provider.num_sequences(),
+            #[cfg(feature = "remote")]
+            DataProvider::Server(_) => 0,
+            DataProvider::Dummy(provider) => provider.num_sequences(),
+            DataProvider::WeightedHttp(provider) => provider.num_sequences(),
+            DataProvider::Local(provider) => provider.num_sequences(),
+            DataProvider::Preprocessed(provider) => provider.num_sequences(),
         }
     }
 }

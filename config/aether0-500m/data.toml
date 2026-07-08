@@ -9,6 +9,7 @@
 # next to state.toml (same convention as the llama2-20m-dolma configs).
 # Relative paths resolve against THIS file's directory (see server main.rs
 # load_config_state), so use ../../ to reach the repo root.
+kind = "local_bin"
 dir = "../../data/corpus-512-bin"
 token_size = "FourBytes"
 seq_len = 512

@@ -156,6 +156,7 @@ def update_config_from_form(form: dict[str, list[str]]) -> None:
         },
         "dataset": {
             "enabled": bool_value,
+            "objective": str,
             "script": str,
             "output_dir": str,
             "sequence_length": int_value,
@@ -164,7 +165,12 @@ def update_config_from_form(form: dict[str, list[str]]) -> None:
             "token_bytes": int_value,
             "dataset": str,
             "split": str,
+            "subset": str,
             "text_field": str,
+            "prompt_field": str,
+            "response_field": str,
+            "sft_mode": str,
+            "system_prompt": str,
             "tokenizer": str,
             "seed": int_value,
             "buffer_docs": int_value,
@@ -204,6 +210,14 @@ def update_config_from_form(form: dict[str, list[str]]) -> None:
 
 def shell_join(args: list[str]) -> str:
     return " ".join(shlex.quote(arg) for arg in args)
+
+
+def is_sft_dataset(dataset: dict) -> bool:
+    objective = str(dataset.get("objective", "")).strip().lower()
+    if objective == "sft":
+        return True
+    script = Path(str(dataset.get("script", ""))).name
+    return script == "prepare-sft-local.py"
 
 
 def marker_dir() -> Path:
@@ -258,6 +272,11 @@ def dataset_status(config: dict) -> tuple[bool, str]:
     expected_seq_len = int(dataset.get("sequence_length", 0))
     if int(metadata.get("sequence_length", 0)) != expected_seq_len:
         return False, "sequence length does not match config"
+    if is_sft_dataset(dataset):
+        shard_count = len(list(output_dir.rglob("*.parquet")))
+        if shard_count == 0:
+            return False, "metadata exists but no .parquet shards were found"
+        return True, f"ready: {actual_sequences:,} SFT examples across {shard_count:,} shards"
     expected_token_bytes = int(dataset.get("token_bytes", 0))
     if int(metadata.get("token_bytes", 0)) != expected_token_bytes:
         return False, "token byte width does not match config"
@@ -452,6 +471,43 @@ def prepare_dataset_command(config: dict) -> list[str]:
         sys.executable,
         dataset.get("script", "scripts/prepare-ultra-fineweb-local.py"),
     ]
+    if is_sft_dataset(dataset):
+        command.extend(
+            [
+                "--dataset",
+                dataset["dataset"],
+                "--split",
+                dataset.get("split", "train"),
+                "--prompt-field",
+                dataset.get("prompt_field", "english"),
+                "--response-field",
+                dataset.get("response_field", "pirate"),
+                "--tokenizer",
+                dataset["tokenizer"],
+                "--output-dir",
+                dataset["output_dir"],
+                "--sequence-length",
+                str(dataset["sequence_length"]),
+                "--shard-size",
+                str(dataset["shard_size"]),
+                "--seed",
+                str(dataset["seed"]),
+                "--buffer-docs",
+                str(dataset["buffer_docs"]),
+                "--mode",
+                dataset.get("sft_mode", "chat"),
+            ]
+        )
+        if dataset.get("num_sequences"):
+            command.extend(["--num-sequences", str(dataset["num_sequences"])])
+        if dataset.get("subset"):
+            command.extend(["--subset", dataset["subset"]])
+        if dataset.get("system_prompt"):
+            command.extend(["--system-prompt", dataset["system_prompt"]])
+        if dataset.get("trust_remote_code", False):
+            command.append("--trust-remote-code")
+        return command
+
     if sources:
         # Multi-source mixing: one --source per entry. Each carries its own
         # split / subset / text_field / weight; the singular dataset fields

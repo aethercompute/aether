@@ -9,8 +9,8 @@ use async_trait::async_trait;
 
 use aether_core::{FixedVec, NodeIdentity, Shuffle, SizedIterator, TokenSize};
 use aether_data_provider::{
-    download_model_from_gcs_async, download_model_repo_async, DataProviderTcpServer, DataServerTui,
-    LocalDataProvider,
+    download_model_from_gcs_async, download_model_repo_async, DataProvider, DataProviderTcpServer,
+    DataServerTui, LocalDataProvider, PreprocessedDataProvider, Split,
 };
 use aether_network::{ClientNotification, PublicKey, TcpServer};
 use aether_tui::{
@@ -105,7 +105,7 @@ impl aether_watcher::Backend for ChannelCoordinatorBackend {
     }
 }
 
-type DataServer = DataProviderTcpServer<LocalDataProvider, ChannelCoordinatorBackend>;
+type DataServer = DataProviderTcpServer<DataProvider, ChannelCoordinatorBackend>;
 
 pub struct App {
     cancel: CancellationToken,
@@ -188,12 +188,68 @@ impl App {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DataServerKind {
+    LocalBin,
+    Preprocessed,
+}
+
+fn default_data_server_kind() -> DataServerKind {
+    DataServerKind::LocalBin
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DataServerInfo {
+    #[serde(default = "default_data_server_kind")]
+    pub kind: DataServerKind,
     pub dir: PathBuf,
-    pub token_size: TokenSize,
+    #[serde(default)]
+    pub token_size: Option<TokenSize>,
     pub seq_len: usize,
     pub shuffle_seed: [u8; 32],
+    #[serde(default)]
+    pub split: Option<String>,
+    #[serde(default)]
+    pub subset: Option<String>,
+}
+
+impl DataServerInfo {
+    fn provider(self) -> Result<DataProvider> {
+        match self.kind {
+            DataServerKind::LocalBin => {
+                let token_size = self
+                    .token_size
+                    .ok_or_else(|| anyhow!("local_bin data server config requires `token_size`"))?;
+                Ok(DataProvider::Local(LocalDataProvider::new_from_directory(
+                    self.dir,
+                    token_size,
+                    self.seq_len,
+                    Shuffle::Seeded(self.shuffle_seed),
+                )?))
+            }
+            DataServerKind::Preprocessed => Ok(DataProvider::Preprocessed(
+                PreprocessedDataProvider::new_from_directory(
+                    self.dir,
+                    self.seq_len,
+                    Shuffle::Seeded(self.shuffle_seed),
+                    Some(parse_data_split(self.split.as_deref())?),
+                    self.subset,
+                )?,
+            )),
+        }
+    }
+}
+
+fn parse_data_split(split: Option<&str>) -> Result<Split> {
+    match split.unwrap_or("train").to_ascii_lowercase().as_str() {
+        "train" => Ok(Split::Train),
+        "validation" => Ok(Split::Validation),
+        "test" => Ok(Split::Test),
+        "dev" => Ok(Split::Dev),
+        "val" => Ok(Split::Val),
+        other => bail!("unsupported data split {other:?}"),
+    }
 }
 
 impl App {
@@ -237,25 +293,13 @@ impl App {
                                     "Failed to parse training data server URL {url_str:?}: expected \"host:port\""
                                 )
                             })?;
-                        let DataServerInfo {
-                            dir,
-                            seq_len,
-                            shuffle_seed,
-                            token_size
-                        } = data_server_config.ok_or_else(|| anyhow!(
+                        let data_provider = data_server_config.ok_or_else(|| anyhow!(
                             "Coordinator state requires we host training data, but no --data-config passed."
-                        ))?;
-
-                        let local_data_provider = LocalDataProvider::new_from_directory(
-                            dir,
-                            token_size,
-                            seq_len,
-                            Shuffle::Seeded(shuffle_seed),
-                        )?;
+                        ))?.provider()?;
 
                         let (tx, backend) = ChannelCoordinatorBackend::new();
                         let data_server =
-                            DataProviderTcpServer::start(local_data_provider, backend, data_server_port)
+                            DataProviderTcpServer::start(data_provider, backend, data_server_port)
                                 .await?;
                         Some((tx, data_server))
                     } else {

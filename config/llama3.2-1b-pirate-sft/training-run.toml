@@ -1,0 +1,35 @@
+[server]
+state_path = "config/llama3.2-1b-pirate-sft/state.toml"
+experiment_path = "config/experiment-run.toml"
+server_port = 39405
+live_web_port = 8081
+tui = false
+
+[dataset]
+enabled = true
+objective = "sft"
+script = "scripts/prepare-sft-local.py"
+output_dir = "data/pirate-speak-llama3.2-1b-sft-1024"
+sequence_length = 1024
+num_sequences = 0
+shard_size = 2048
+dataset = "KafeisM/pirate-speak-dataset"
+split = "train"
+prompt_field = "english"
+response_field = "pirate"
+sft_mode = "chat"
+system_prompt = ""
+tokenizer = "meta-llama/Llama-3.2-1B-Instruct"
+seed = 1337
+buffer_docs = 0
+trust_remote_code = false
+
+[model]
+enabled = false
+script = "scripts/push-new-model-hf.py"
+config = "config/aether0-500m/model-config.json"
+repo = "meta-llama/Llama-3.2-1B-Instruct"
+tokenizer = "meta-llama/Llama-3.2-1B-Instruct"
+private = false
+dtype = "bfloat16"
+device = ""

@@ -52,6 +52,35 @@ fn list_to_vec(row: &Row, column: usize, required_len: Option<usize>) -> Result<
     Ok(ret)
 }
 
+fn validate_labels(labels: &[i32]) -> Result<()> {
+    if labels.iter().all(|label| *label == -100) {
+        bail!("`labels` contains no supervised tokens");
+    }
+    if let Some(label) = labels.iter().find(|label| **label < 0 && **label != -100) {
+        bail!("`labels` contains invalid negative token id {label}; only -100 is ignored");
+    }
+    Ok(())
+}
+
+fn collect_parquet_files(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) -> Result<()> {
+    for entry in std::fs::read_dir(dir)
+        .map_err(|e| anyhow!("couldn't load training data from {}: {e}", dir.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_parquet_files(&path, files)?;
+        } else if path
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|extension| extension == PARQUET_EXTENSION)
+        {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
 pub struct PreprocessedDataProvider {
     data: Vec<TokenizedData>,
 }
@@ -68,17 +97,7 @@ impl PreprocessedDataProvider {
             .map_err(|e| anyhow!("Failed to open data directory {:?}: {e}", dir.as_ref()))?;
 
         let mut files = vec![];
-        for file in std::fs::read_dir(&dir)
-            .map_err(|e| anyhow!("couldn't load training data from {}: {e}", dir.display()))?
-            .flatten()
-        {
-            let file = file.path();
-            if let Some(extension) = file.extension().and_then(|s| s.to_str()) {
-                if extension == PARQUET_EXTENSION {
-                    files.push(file);
-                }
-            }
-        }
+        collect_parquet_files(&dir, &mut files)?;
         if files.is_empty() {
             bail!("No training data files in directory {:?}", dir);
         }
@@ -106,11 +125,15 @@ impl PreprocessedDataProvider {
                                     Some(num_tokens_per_sequence),
                                 )?;
                                 let labels = match labels_column {
-                                    Some(column) => Some(list_to_vec(
-                                        &row,
-                                        column,
-                                        Some(num_tokens_per_sequence),
-                                    )?),
+                                    Some(column) => {
+                                        let labels = list_to_vec(
+                                            &row,
+                                            column,
+                                            Some(num_tokens_per_sequence),
+                                        )?;
+                                        validate_labels(&labels)?;
+                                        Some(labels)
+                                    }
                                     None => None,
                                 };
                                 let position_ids = match position_ids_column {
