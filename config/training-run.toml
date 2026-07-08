@@ -2,6 +2,7 @@
 state_path = "config/llama3.2-1b-pirate-sft/state.toml"
 data_config = "config/llama3.2-1b-pirate-sft/data.toml"
 experiment_path = "config/experiment-run.toml"
+experiment_enabled = false
 server_port = 39405
 live_web_port = 8081
 tui = false

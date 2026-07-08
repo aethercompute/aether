@@ -151,6 +151,7 @@ def update_config_from_form(form: dict[str, list[str]]) -> None:
             "state_path": str,
             "data_config": str,
             "experiment_path": str,
+            "experiment_enabled": bool_value,
             "server_port": int_value,
             "live_web_port": int_value,
             "tui": bool_value,
@@ -293,7 +294,7 @@ def dataset_status(config: dict) -> tuple[bool, str]:
 
 def model_status(config: dict) -> tuple[bool, str]:
     model = config.get("model", {})
-    if not model.get("enabled", True):
+    if not model_push_enabled(config):
         return True, "disabled"
     markers = read_model_markers()
     if not markers:
@@ -355,7 +356,7 @@ def experiment_model_configs(config: dict) -> list[str]:
 
 
 def experiment_model_status(config: dict) -> tuple[bool, str]:
-    if not config.get("model", {}).get("enabled", True):
+    if not model_push_enabled(config):
         return True, "disabled"
     repos = experiment_model_repos(config)
     markers = read_model_markers()
@@ -374,6 +375,14 @@ def state_checkpoint(config: dict) -> str:
         if line.strip().startswith("repo_id"):
             return line.split("=", 1)[1].strip().strip('"')
     return "checkpoint repo not found in state file"
+
+
+def model_push_enabled(config: dict) -> bool:
+    model = config.get("model", {})
+    if not model.get("enabled", False):
+        return False
+    required = ("config", "repo", "tokenizer")
+    return all(str(model.get(key, "")).strip() for key in required)
 
 
 @dataclass
@@ -557,6 +566,8 @@ def prepare_dataset_command(config: dict) -> list[str]:
 
 
 def push_model_command(config: dict) -> list[str]:
+    if not model_push_enabled(config):
+        raise RuntimeError("init model push is disabled for this run")
     model = config["model"]
     command = [
         sys.executable,
@@ -703,7 +714,7 @@ def ensure_training_prereqs(config: dict) -> None:
     if config.get("dataset", {}).get("enabled", True) and not data_ready:
         raise RuntimeError(f"dataset is not ready: {data_message}")
     model_ready, model_message = model_status(config)
-    if config.get("model", {}).get("enabled", True) and not model_ready:
+    if model_push_enabled(config) and not model_ready:
         raise RuntimeError(f"init model is not ready: {model_message}")
 
 
@@ -712,7 +723,7 @@ def ensure_experiment_training_prereqs(config: dict) -> None:
     if config.get("dataset", {}).get("enabled", True) and not data_ready:
         raise RuntimeError(f"dataset is not ready: {data_message}")
     model_ready, model_message = experiment_model_status(config)
-    if config.get("model", {}).get("enabled", True) and not model_ready:
+    if model_push_enabled(config) and not model_ready:
         raise RuntimeError(f"experiment init models are not ready: {model_message}")
 
 
@@ -726,19 +737,21 @@ def stop_server_job() -> str:
 
 
 def render_actions(config: dict) -> str:
+    push_enabled = model_push_enabled(config)
+    experiment_enabled = config.get("server", {}).get("experiment_enabled", False)
     actions = [
         ("/prepare-dataset", "Prepare dataset", config.get("dataset", {}).get("enabled", True)),
-        ("/push-model", "Push init model", config.get("model", {}).get("enabled", True)),
+        ("/push-model", "Push init model", push_enabled),
         (
             "/push-experiment-models",
             "Push experiment init models",
-            config.get("model", {}).get("enabled", True),
+            push_enabled and experiment_enabled,
         ),
         ("/validate", "Validate state config", True),
         ("/start-server", "Start training server", True),
         ("/stop-server", "Stop training server", True),
-        ("/start-experiment-server", "Start experiment server", True),
-        ("/stop-experiment-server", "Stop experiment server", True),
+        ("/start-experiment-server", "Start experiment server", experiment_enabled),
+        ("/stop-experiment-server", "Stop experiment server", experiment_enabled),
     ]
     return "".join(
         f'<form method="post" action="{path}"><button type="submit">{label}</button></form>'
@@ -764,7 +777,7 @@ def html_page(message: str | None = None) -> str:
     config = load_config()
     data_ready, data_message = dataset_status(config)
     model_ready, model_message = model_status(config)
-    if config.get("model", {}).get("enabled", True):
+    if config.get("server", {}).get("experiment_enabled", False) and model_push_enabled(config):
         try:
             experiment_model_ready, experiment_model_message = experiment_model_status(config)
         except Exception as err:
@@ -959,6 +972,8 @@ class Handler(BaseHTTPRequestHandler):
                 run_background("prepare dataset", command)
                 message = "Dataset preparation started."
             elif path == "/push-model":
+                if not model_push_enabled(config):
+                    raise RuntimeError("init model push is disabled for this run")
                 command = push_model_command(config)
 
                 def mark_model() -> None:
@@ -967,6 +982,10 @@ class Handler(BaseHTTPRequestHandler):
                 run_background("push init model", command, on_success=mark_model)
                 message = "Init model push started."
             elif path == "/push-experiment-models":
+                if not config.get("server", {}).get("experiment_enabled", False):
+                    raise RuntimeError("experiment mode is disabled for this run")
+                if not model_push_enabled(config):
+                    raise RuntimeError("experiment init model push is disabled for this run")
                 configs = experiment_model_configs(config)
                 commands = [push_model_command(exp_config) for exp_config in configs]
 
@@ -990,6 +1009,8 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/stop-server":
                 message = stop_server_job()
             elif path == "/start-experiment-server":
+                if not config.get("server", {}).get("experiment_enabled", False):
+                    raise RuntimeError("experiment mode is disabled for this run")
                 ensure_experiment_training_prereqs(config)
                 experiment_path = repo_root() / config.get("server", {}).get(
                     "experiment_path", "config/experiment-run.toml"
