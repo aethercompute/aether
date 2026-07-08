@@ -26,11 +26,23 @@ fn start_process_watcher(pid: usize, duration: Duration) -> PyResult<()> {
         std::thread::sleep(duration);
         let mut system = System::new_all();
         if !system.refresh_process(Pid::from(pid)) {
-            info!("Parent process {pid} gone, exiting");
-            std::process::exit(0);
+            info!("Parent process {pid} gone, interrupting Python main thread");
+            interrupt_python_main_thread();
+            break;
         }
     });
     Ok(())
+}
+
+fn interrupt_python_main_thread() {
+    pyo3::Python::with_gil(|py| match py.import("_thread") {
+        Ok(thread_module) => {
+            if let Err(err) = thread_module.call_method0("interrupt_main") {
+                err.write_unraisable(py, None);
+            }
+        }
+        Err(err) => err.write_unraisable(py, None),
+    });
 }
 
 #[pyclass]
