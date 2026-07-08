@@ -104,6 +104,10 @@ def maybe_compile_loss_function(model: torch.nn.Module) -> None:
         logger.warning("Skipping torch.compile for loss_function: %s", err)
 
 
+def missing_tied_lm_head(name: str, config) -> bool:
+    return name == "lm_head.weight" and getattr(config, "tie_word_embeddings", False)
+
+
 class HfTransformersAuto(CausalLM):
     def __init__(self, model, config, world_mesh: DeviceMesh, device: torch.device):
         self.model = model
@@ -280,6 +284,9 @@ class HfTransformersAuto(CausalLM):
         for name, dest in model.state_dict().items():
             source: Optional[torch.Tensor] = state_dict.get(name)
             if source is None:
+                if missing_tied_lm_head(name, config):
+                    logger.info("Skipping missing tied lm_head.weight; will retie weights after load")
+                    continue
                 raise RuntimeError(f"Missing parameter {name}")
 
             if isinstance(dest, DTensor):
@@ -288,6 +295,9 @@ class HfTransformersAuto(CausalLM):
                 )
 
             dest.copy_(source)
+
+        if getattr(config, "tie_word_embeddings", False):
+            model.tie_weights()
 
         return HfTransformersAuto(model, config, world_mesh, device)
 
