@@ -3,7 +3,7 @@ use aether_network::Hash;
 use aether_network::RelayKind;
 use aether_network::{
     allowlist, fmt_bytes, BlobTicket, DiscoveryMode, DownloadType, NetworkConnection, NetworkEvent,
-    NetworkTUIState, NetworkTui,
+    NetworkInit, NetworkTUIState, NetworkTui,
 };
 use aether_tui::{
     logging::LoggerWidget,
@@ -313,16 +313,18 @@ async fn main() -> Result<()> {
     let (cancel, tx_tui_state) = maybe_start_render_loop(tui.then(Tui::default))?;
 
     let network = NC::init(
-        "123",
-        args.bind_port,
-        args.bind_interface,
-        DiscoveryMode::N0,
-        RelayKind::Aether,
-        single_endpoint_id.into_iter().collect(),
-        secret_key,
+        NetworkInit {
+            run_id: "123".to_string(),
+            port: args.bind_port,
+            interface: args.bind_interface,
+            discovery_mode: DiscoveryMode::N0,
+            relay_kind: RelayKind::Aether,
+            bootstrap_peers: single_endpoint_id.into_iter().collect(),
+            secret_key,
+            metrics: Arc::new(ClientMetrics::new(None, None)),
+            cancel: Some(cancel.clone()),
+        },
         allowlist::AllowAll,
-        Arc::new(ClientMetrics::new(None, None)),
-        Some(cancel.clone()),
     )
     .await?;
 

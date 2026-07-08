@@ -7,7 +7,9 @@ use aether_core::NodeIdentity;
 use aether_event_sourcing::event;
 use aether_event_sourcing::events::RpcCallType;
 use aether_metrics::ClientMetrics;
-use aether_network::{allowlist, EndpointId, NetworkTUIState, NetworkTui, SecretKey, TcpClient};
+use aether_network::{
+    allowlist, EndpointId, NetworkInit, NetworkTUIState, NetworkTui, SecretKey, TcpClient,
+};
 use aether_tui::logging::LoggerWidget;
 use aether_tui::{CustomWidget, TabbedWidget};
 use aether_watcher::{Backend as WatcherBackend, CoordinatorTui, OpportunisticData};
@@ -116,16 +118,18 @@ pub async fn build_app(
     let allowlist = allowlist::AllowDynamic::new();
 
     let p2p = NC::init(
-        &p.run_id,
-        p.bind_p2p_port,
-        p.bind_p2p_interface,
-        p.iroh_discovery,
-        p.iroh_relay,
-        vec![],
-        Some(identity_secret_key.clone()),
+        NetworkInit {
+            run_id: p.run_id.clone(),
+            port: p.bind_p2p_port,
+            interface: p.bind_p2p_interface,
+            discovery_mode: p.iroh_discovery,
+            relay_kind: p.iroh_relay,
+            bootstrap_peers: vec![],
+            secret_key: Some(identity_secret_key.clone()),
+            metrics: metrics.clone(),
+            cancel: Some(cancel.clone()),
+        },
         allowlist.clone(),
-        metrics.clone(),
-        Some(cancel.clone()),
     )
     .await?;
 

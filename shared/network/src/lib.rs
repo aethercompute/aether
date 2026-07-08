@@ -99,6 +99,18 @@ pub use tui::{NetworkTUIState, NetworkTui};
 use url::Url;
 pub use util::fmt_bytes;
 
+pub struct NetworkInit {
+    pub run_id: String,
+    pub port: Option<u16>,
+    pub interface: Option<String>,
+    pub discovery_mode: DiscoveryMode,
+    pub relay_kind: RelayKind,
+    pub bootstrap_peers: Vec<EndpointAddr>,
+    pub secret_key: Option<SecretKey>,
+    pub metrics: Arc<ClientMetrics>,
+    pub cancel: Option<CancellationToken>,
+}
+
 use crate::allowlist::AllowlistHook;
 use crate::p2p_model_sharing::ModelSharing;
 
@@ -221,53 +233,33 @@ where
     BroadcastMessage: Networkable,
     Download: Networkable,
 {
-    #[allow(clippy::too_many_arguments)]
     pub async fn init<A: Allowlist + 'static + Send + std::marker::Sync>(
-        run_id: &str,
-        port: Option<u16>,
-        interface: Option<String>,
-        discovery_mode: DiscoveryMode,
-        relay_kind: RelayKind,
-        bootstrap_peers: Vec<EndpointAddr>,
-        secret_key: Option<SecretKey>,
+        config: NetworkInit,
         allowlist: A,
-        metrics: Arc<ClientMetrics>,
-        cancel: Option<CancellationToken>,
     ) -> Result<Self> {
-        Self::init_internal::<A, iroh_gossip::net::Gossip>(
-            run_id,
-            port,
-            interface,
-            discovery_mode,
-            relay_kind,
-            bootstrap_peers,
-            secret_key,
-            allowlist,
-            metrics,
-            cancel,
-            None,
-        )
-        .await
+        Self::init_internal::<A, iroh_gossip::net::Gossip>(config, allowlist, None).await
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn init_with_custom_protocol<
         A: Allowlist + 'static + Send + std::marker::Sync,
         P: ProtocolHandler + Clone,
     >(
-        run_id: &str,
-        port: Option<u16>,
-        interface: Option<String>,
-        discovery_mode: DiscoveryMode,
-        relay_kind: RelayKind,
-        bootstrap_peers: Vec<EndpointAddr>,
-        secret_key: Option<SecretKey>,
+        config: NetworkInit,
         allowlist: A,
-        metrics: Arc<ClientMetrics>,
-        cancel: Option<CancellationToken>,
         additional_protocol: (&'static [u8], P),
     ) -> Result<Self> {
-        Self::init_internal(
+        Self::init_internal(config, allowlist, Some(additional_protocol)).await
+    }
+
+    async fn init_internal<
+        A: Allowlist + 'static + Send + std::marker::Sync,
+        P: ProtocolHandler + Clone,
+    >(
+        config: NetworkInit,
+        allowlist: A,
+        additional_protocol: Option<(&'static [u8], P)>,
+    ) -> Result<Self> {
+        let NetworkInit {
             run_id,
             port,
             interface,
@@ -275,31 +267,9 @@ where
             relay_kind,
             bootstrap_peers,
             secret_key,
-            allowlist,
             metrics,
             cancel,
-            Some(additional_protocol),
-        )
-        .await
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn init_internal<
-        A: Allowlist + 'static + Send + std::marker::Sync,
-        P: ProtocolHandler + Clone,
-    >(
-        run_id: &str,
-        port: Option<u16>,
-        interface: Option<String>,
-        discovery_mode: DiscoveryMode,
-        relay_kind: RelayKind,
-        bootstrap_peers: Vec<EndpointAddr>,
-        secret_key: Option<SecretKey>,
-        allowlist: A,
-        metrics: Arc<ClientMetrics>,
-        cancel: Option<CancellationToken>,
-        additional_protocol: Option<(&'static [u8], P)>,
-    ) -> Result<Self> {
+        } = config;
         let secret_key = match secret_key {
             None => SecretKey::generate(&mut rand::rng()),
             Some(key) => key,
@@ -498,7 +468,7 @@ where
             .map(|client| spawn_network_diagnostics_loop(client.clone()));
 
         let (gossip_tx, gossip_rx) = gossip
-            .subscribe(gossip_topic(run_id), bootstrap_endpoint_ids)
+            .subscribe(gossip_topic(&run_id), bootstrap_endpoint_ids)
             .await?
             .split();
         info!("Connected!");

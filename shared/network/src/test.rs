@@ -17,7 +17,7 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
-use crate::{allowlist, DiscoveryMode, DownloadType, NetworkConnection, NetworkEvent};
+use crate::{allowlist, DiscoveryMode, DownloadType, NetworkConnection, NetworkEvent, NetworkInit};
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Message {
@@ -191,16 +191,18 @@ async fn spawn_new_node(
     println!("joining gossip room");
 
     let network = NC::init(
-        "test",
-        None,
-        None,
-        DiscoveryMode::Local,
-        RelayKind::Aether,
-        peers,
-        None,
+        NetworkInit {
+            run_id: "test".to_string(),
+            port: None,
+            interface: None,
+            discovery_mode: DiscoveryMode::Local,
+            relay_kind: RelayKind::Aether,
+            bootstrap_peers: peers,
+            secret_key: None,
+            metrics: Arc::new(ClientMetrics::new(None, None)),
+            cancel: None,
+        },
         allowlist::AllowAll,
-        Arc::new(ClientMetrics::new(None, None)),
-        None,
     )
     .await?;
 
