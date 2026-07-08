@@ -11,6 +11,15 @@ class FakeTokenizer:
     eos_token = "</s>"
 
 
+class FakeChatTemplateTokenizer(FakeTokenizer):
+    chat_template = "fake-template"
+
+    def apply_chat_template(self, messages, tokenize, add_generation_prompt):
+        assert tokenize is False
+        assert add_generation_prompt is True
+        return "|".join(f"{msg['role']}={msg['content']}" for msg in messages) + "|assistant="
+
+
 class FakeEngine:
     model_name = "fake-model"
     tensor_parallel_size = 1
@@ -85,6 +94,27 @@ def test_run_inference_formats_messages_and_returns_output():
             "stop": ["</s>"],
         }
     ]
+
+
+def test_run_inference_uses_chat_template_when_available():
+    class ChatTemplateEngine(FakeEngine):
+        def get_tokenizer(self):
+            return FakeChatTemplateTokenizer()
+
+    engine = ChatTemplateEngine()
+    rust_bridge._engines["engine-1"] = engine
+
+    result = rust_bridge.run_inference(
+        "engine-1",
+        [
+            {"role": "system", "content": "be terse"},
+            {"role": "user", "content": "hello"},
+        ],
+    )
+
+    assert result["status"] == "success"
+    assert result["full_text"] == "system=be terse|user=hello|assistant=done"
+    assert engine.prompts == ["system=be terse|user=hello|assistant="]
 
 
 def test_run_inference_missing_engine_is_error():

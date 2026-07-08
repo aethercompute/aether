@@ -101,3 +101,82 @@ impl tracing::field::Visit for FieldCollector {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serial_test::serial;
+    use tracing_subscriber::{prelude::*, Registry};
+
+    use super::*;
+    use crate::events::{client, Client, EventData};
+    use crate::InMemoryBackend;
+
+    fn captured_messages() -> Vec<(bool, String)> {
+        EventStore::with_backend::<InMemoryBackend, _, _>(|backend| {
+            backend.with_events(|events| {
+                events
+                    .iter()
+                    .filter_map(|event| match &event.data {
+                        EventData::Client(Client::Error(client::Error { message })) => {
+                            Some((true, message.clone()))
+                        }
+                        EventData::Client(Client::Warning(client::Warning { message })) => {
+                            Some((false, message.clone()))
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            })
+        })
+        .unwrap()
+    }
+
+    #[test]
+    #[serial]
+    fn tracing_layer_captures_warn_and_error_events() {
+        EventStore::reset_for_testing();
+        EventStore::init(vec![Box::<InMemoryBackend>::default()]);
+
+        let subscriber = Registry::default().with(EventStoreTracingLayer);
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::warn!(target: "event_sourcing_test", peer = "node-7", "slow peer");
+            tracing::error!(target: "event_sourcing_test", code = 503, "request failed");
+            tracing::info!(target: "event_sourcing_test", "ignored");
+        });
+
+        assert_eq!(
+            captured_messages(),
+            vec![
+                (
+                    false,
+                    "[event_sourcing_test] slow peer (peer=node-7)".to_string(),
+                ),
+                (
+                    true,
+                    "[event_sourcing_test] request failed (code=503)".to_string(),
+                ),
+            ]
+        );
+
+        EventStore::reset_for_testing();
+    }
+
+    #[test]
+    #[serial]
+    fn tracing_layer_strips_debug_quotes_from_message_field() {
+        EventStore::reset_for_testing();
+        EventStore::init(vec![Box::<InMemoryBackend>::default()]);
+
+        let subscriber = Registry::default().with(EventStoreTracingLayer);
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::warn!(target: "event_sourcing_test", "quoted message");
+        });
+
+        assert_eq!(
+            captured_messages(),
+            vec![(false, "[event_sourcing_test] quoted message".to_string(),)]
+        );
+
+        EventStore::reset_for_testing();
+    }
+}

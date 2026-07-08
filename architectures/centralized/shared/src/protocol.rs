@@ -25,6 +25,7 @@ pub enum ServerToClientMessage {
 #[cfg(test)]
 mod tests {
     use aether_coordinator::{model, Witness};
+    use bytemuck::Zeroable;
 
     use super::*;
 
@@ -65,5 +66,13 @@ mod tests {
         let msg = ClientToServerMessage::Checkpoint(model::Checkpoint::Ephemeral);
         let back = aether_test_support::postcard_roundtrip(&msg);
         assert!(matches!(back, ClientToServerMessage::Checkpoint(_)));
+    }
+
+    #[test]
+    fn server_to_client_coordinator_roundtrip() {
+        let msg = ServerToClientMessage::Coordinator(Box::new(Coordinator::zeroed()));
+        let back = aether_test_support::postcard_roundtrip(&msg);
+
+        assert!(matches!(back, ServerToClientMessage::Coordinator(_)));
     }
 }

@@ -31,6 +31,10 @@ aether-test-support.workspace = true
 serial_test.workspace = true
 rand.workspace = true
 tempfile = "3"
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+  "registry",
+  "std",
+] }
 tokio = { workspace = true, features = [
   "sync",
   "rt",
