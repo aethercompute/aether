@@ -903,6 +903,19 @@ impl StepStateMachine {
 
                 ActiveStep::Cooldown(self.cooldown.start(trainers, &state)?)
             }
+            // The final step can transition directly from witnessing to finished
+            // without a separate cooldown state. Still checkpoint here so seed
+            // nodes upload the completed model.
+            (ActiveStep::Witness(witnessing), RunState::Finished) => {
+                let trainers = witnessing.finish().await?.stop_evals().await?;
+                self.cleanup_completed_uploads();
+                let cooldown = self.cooldown.start(trainers, &state)?;
+                let (_evals, upload_handle) = cooldown.finish().await?;
+                if let Some(handle) = upload_handle {
+                    self.pending_upload_handles.push(handle);
+                }
+                ActiveStep::Intermediate
+            }
             // cooldown is done, we consider waiting for members and warmup to be basically the same
             (ActiveStep::Cooldown(cooldown), RunState::WaitingForMembers)
             | (ActiveStep::Cooldown(cooldown), RunState::Warmup)
@@ -918,7 +931,10 @@ impl StepStateMachine {
                 ))
             }
             (ActiveStep::Cooldown(cooldown), RunState::Finished) => {
-                let (_trainers, _upload_handle) = cooldown.finish().await?;
+                let (_evals, upload_handle) = cooldown.finish().await?;
+                if let Some(handle) = upload_handle {
+                    self.pending_upload_handles.push(handle);
+                }
                 ActiveStep::Intermediate
             }
             (
