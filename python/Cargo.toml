@@ -14,6 +14,8 @@ aether-python-extension-impl.workspace = true
 
 [features]
 parallelism = ["aether-python-extension-impl/parallelism"]
+# Enables python-extension link args in build.rs when building the cdylib.
+python-extension = []
 
 [lints]
 workspace = true

@@ -24,6 +24,9 @@ pub struct Bloom<const U: usize, const K: usize> {
 #[repr(transparent)]
 pub struct BitArrayWrapper<const U: usize>(#[ts(type = "number[]")] pub BitArray<[u64; U]>);
 
+// SAFETY: `BitArrayWrapper` is `repr(transparent)` over `BitArray<[u64; U]>`.
+// A zeroed `[u64; U]` represents a valid bit array with every bit cleared, and
+// there are no padding or reference fields that could hold invalid values.
 unsafe impl<const U: usize> Zeroable for BitArrayWrapper<U> {}
 
 impl<const U: usize> BitArrayWrapper<U> {

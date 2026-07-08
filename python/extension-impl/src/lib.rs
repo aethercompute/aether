@@ -6,6 +6,11 @@ pub fn init_embedded_python() -> std::io::Result<()> {
 
         std::fs::create_dir_all(triton_home)?;
 
+        // SAFETY: on Rust 2024 this operation is unsafe because environment
+        // mutation can race with other threads. This initializer runs before
+        // `prepare_freethreaded_python` and before the embedded Python runtime
+        // starts worker threads, so there are no concurrent environment readers
+        // created by this crate at this point.
         std::env::set_var("TRITON_HOME", triton_home);
     }
 

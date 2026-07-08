@@ -25,6 +25,8 @@ serde.workspace = true
 tracing.workspace = true
 bytes.workspace = true
 rand.workspace = true
+# `wandb` currently depends on rand 0.8 APIs; keep this alias until that
+# dependency is updated to the workspace rand 0.9 line.
 rand08 = { package = "rand", version = "0.8.5" }
 sha2.workspace = true
 futures-util.workspace = true

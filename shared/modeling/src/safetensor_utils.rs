@@ -53,6 +53,10 @@ pub fn load_safetensors_into_variables(
             .is_some_and(|y| y.eq_ignore_ascii_case("safetensors"))
     }) {
         let file = std::fs::File::open(path)?;
+        // SAFETY: the mapping is read-only, scoped to this function, and is
+        // only used to parse immutable safetensors bytes before `file`/`content`
+        // are dropped. Concurrent mutation of checkpoint files is outside the
+        // supported loading contract.
         let content = unsafe { memmap2::MmapOptions::new().map(&file)? };
         let safetensors = SafeTensors::deserialize(&content)?;
         let mut variables = vs.variables_.lock().unwrap();
@@ -99,10 +103,16 @@ pub fn load_safetensors_into_variables(
                         .map_err(|_| LoadSafetensorsError::FailedToSlice(name.clone()))?;
                     let data: Vec<u8> = data_iterator.flatten().cloned().collect();
                     size[dim] = block_size;
+                    // SAFETY: `from_blob` borrows `data` only for the duration
+                    // of `src_tensor`; `f_copy_` synchronously copies into the
+                    // destination tensor before `data` is dropped.
                     let src_tensor =
                         unsafe { Tensor::from_blob(data.as_ptr(), &size, &[], kind, Device::Cpu) };
                     var.f_copy_(&src_tensor)?;
                 } else {
+                    // SAFETY: `from_blob` borrows the safetensors view backed by
+                    // `content`; `f_copy_` synchronously copies into the
+                    // destination tensor while the mmap is still alive.
                     let src_tensor = unsafe {
                         Tensor::from_blob(view.data().as_ptr(), &size, &[], kind, Device::Cpu)
                     };

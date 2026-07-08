@@ -226,6 +226,10 @@ pub struct Coordinator {
     pub pending_pause: SmallBoolean,
 }
 
+// SAFETY: `Coordinator` is persisted and replayed as raw bytes by the event
+// timeline. Every field is `repr(C)`/fixed-size and is itself `Pod` or a
+// transparent fixed-capacity wrapper over `Pod` data; there are no pointers,
+// references, heap allocations, or invalid bit-pattern booleans in this layout.
 unsafe impl Pod for Coordinator {}
 
 impl TryFrom<usize> for RunState {

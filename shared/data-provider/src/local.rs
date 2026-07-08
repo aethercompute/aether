@@ -19,7 +19,10 @@ fn is_truthy_env_bool(value: &str) -> bool {
 fn mmap_file(p: &std::path::PathBuf) -> Result<Box<dyn AsRef<[u8]> + Send>> {
     let file = std::fs::File::open(p)?;
 
-    // try to mmap first, only falling back to read if allowed
+    // Try to mmap first, only falling back to read if allowed.
+    // SAFETY: the mmap is read-only and owned by the returned object. Training
+    // data files are treated as immutable after provider construction; mutating
+    // them concurrently is outside the supported data-provider contract.
     match unsafe { memmap2::MmapOptions::new().map(&file) } {
         Ok(mmap) => Ok(Box::new(mmap)),
         Err(e)
