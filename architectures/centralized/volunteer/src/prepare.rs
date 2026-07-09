@@ -6,7 +6,7 @@ use anyhow::Result;
 use std::{
     env,
     io::{BufRead, BufReader},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -75,8 +75,8 @@ impl Env {
     }
 }
 
-fn prepend_python_path(cmd: &mut Command, entry: &PathBuf) {
-    let mut paths = vec![entry.clone()];
+fn prepend_python_path(cmd: &mut Command, entry: &Path) {
+    let mut paths = vec![entry.to_path_buf()];
     if let Some(existing) = env::var_os("PYTHONPATH") {
         paths.extend(env::split_paths(&existing));
     }
@@ -123,7 +123,7 @@ fn detect_torch_lib_dirs() -> Vec<PathBuf> {
 
 /// Run the dir-collecting snippet against one python; returns `Some` only when
 /// that python can actually `import torch`.
-fn probe_torch_lib_dirs(python: &PathBuf) -> Option<Vec<PathBuf>> {
+fn probe_torch_lib_dirs(python: &Path) -> Option<Vec<PathBuf>> {
     let script = "import pathlib\n\
 try:\n    import torch\nexcept Exception:\n    raise SystemExit(1)\n\
 torch_file = pathlib.Path(torch.__file__).resolve()\n\
