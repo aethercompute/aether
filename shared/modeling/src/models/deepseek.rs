@@ -6,6 +6,7 @@ use crate::{
     LanguageModelForward, ModelLoadError, ParallelExpandHeads, PretrainedSource, RMSNorm,
     RoPECache, RoPEConfig, RoPEType, RowParallelLinear,
 };
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tch::{
@@ -36,6 +37,13 @@ pub enum TopKMethod {
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct DeepseekRoPEParameters {
+    pub rope_theta: Option<f32>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct DeepseekConfig {
     pub hidden_size: usize,
     pub intermediate_size: usize,
@@ -43,7 +51,10 @@ pub struct DeepseekConfig {
     pub num_hidden_layers: usize,
     pub num_attention_heads: usize,
     pub rms_norm_eps: f64,
-    pub rope_theta: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rope_theta: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rope_parameters: Option<DeepseekRoPEParameters>,
     pub max_position_embeddings: usize,
     pub tie_word_embeddings: bool,
     pub bos_token_id: Option<i64>,
@@ -1102,6 +1113,12 @@ impl LanguageModelConfig for DeepseekConfig {
 
     fn rope_theta(&self) -> f32 {
         self.rope_theta
+            .or_else(|| {
+                self.rope_parameters
+                    .as_ref()
+                    .and_then(|parameters| parameters.rope_theta)
+            })
+            .unwrap_or_else(crate::default_rope)
     }
 
     fn max_position_embeddings(&self) -> usize {
@@ -1114,5 +1131,51 @@ impl LanguageModelConfig for DeepseekConfig {
 
     fn eos_token_ids(&self) -> Option<crate::EosToks> {
         self.eos_token_id.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config_with_rope(rope: serde_json::Value) -> serde_json::Value {
+        let mut config = serde_json::json!({
+            "hidden_size": 64,
+            "intermediate_size": 128,
+            "vocab_size": 256,
+            "num_hidden_layers": 2,
+            "num_attention_heads": 4,
+            "rms_norm_eps": 0.000001,
+            "max_position_embeddings": 4096,
+            "tie_word_embeddings": false,
+            "bos_token_id": 0,
+            "eos_token_id": 1,
+            "rope_scaling": null
+        });
+        config
+            .as_object_mut()
+            .unwrap()
+            .extend(rope.as_object().unwrap().clone());
+        config
+    }
+
+    #[test]
+    fn reads_top_level_rope_theta() {
+        let config: DeepseekConfig = serde_json::from_value(config_with_rope(
+            serde_json::json!({ "rope_theta": 12_345.0 }),
+        ))
+        .unwrap();
+
+        assert_eq!(config.rope_theta(), 12_345.0);
+    }
+
+    #[test]
+    fn reads_rope_theta_from_rope_parameters() {
+        let config: DeepseekConfig = serde_json::from_value(config_with_rope(
+            serde_json::json!({ "rope_parameters": { "rope_theta": 54_321.0 } }),
+        ))
+        .unwrap();
+
+        assert_eq!(config.rope_theta(), 54_321.0);
     }
 }

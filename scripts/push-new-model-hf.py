@@ -140,16 +140,17 @@ def main(args):
             config = LlamaConfig.from_pretrained(args.config)
     elif model_type == "deepseek_v3":
         rope_parameters = getattr(config, "rope_parameters", None) or {}
-        has_rope_theta = (
-            getattr(config, "rope_theta", None) is not None
-            or rope_parameters.get("rope_theta") is not None
-        )
-        if not has_rope_theta:
+        rope_theta = getattr(config, "rope_theta", None)
+        if rope_theta is None:
+            rope_theta = rope_parameters.get("rope_theta")
+        if rope_theta is None:
             raise RuntimeError(
                 "DeepSeek config is missing required fields: rope_theta"
             )
         if not isinstance(config, DeepseekV3Config):
             config = DeepseekV3Config.from_pretrained(args.config)
+        # Native clients still consume the legacy top-level field.
+        config.rope_theta = rope_theta
     else:
         raise ValueError(f"Unsupported model type `{model_type}`")
 
