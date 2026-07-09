@@ -4,7 +4,6 @@ use crate::{
     TokenizedDataProvider,
 };
 use parquet::file::reader::FileReader;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use aether_core::{BatchId, Shuffle};
 use anyhow::{anyhow, bail, Result};
@@ -113,7 +112,7 @@ impl PreprocessedDataProvider {
 
         let data: Result<Vec<TokenizedData>, _> = dataset
             .files()
-            .par_iter()
+            .iter()
             .flat_map(|file| -> Vec<anyhow::Result<TokenizedData>> {
                 match file.get_row_iter(None) {
                     Ok(rows) => rows
