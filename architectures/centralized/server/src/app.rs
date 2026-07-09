@@ -1,4 +1,4 @@
-use aether_centralized_shared::{ClientToServerMessage, ServerToClientMessage};
+use aether_centralized_shared::{ClientToServerMessage, ServerErrorCode, ServerToClientMessage};
 use aether_coordinator::model::{self, Checkpoint, LLMTrainingDataLocation, Model, LLM};
 use aether_coordinator::{
     Client, Coordinator, CoordinatorError, HealthChecks, Round, RunState, TickResult,
@@ -607,6 +607,22 @@ impl App {
         admission_allowed(self.admission_allowlist.as_ref(), identity)
     }
 
+    fn has_joined(&self, identity: &NodeIdentity) -> bool {
+        self.backend.pending_clients.contains(identity)
+            || self.backend.ready_clients.contains(identity)
+    }
+
+    async fn reject_client(&mut self, to: PublicKey, code: ServerErrorCode, message: String) {
+        if let Err(err) = self
+            .backend
+            .net_server
+            .send_to(to, ServerToClientMessage::Error { code, message })
+            .await
+        {
+            warn!(client = %to, "failed to send rejection: {err}");
+        }
+    }
+
     fn on_disconnect(&mut self, from: PublicKey) -> Result<()> {
         let from_identity = NodeIdentity::from_single_key(*from.as_bytes());
         let removed_pending = self.backend.pending_clients.remove(&from_identity);
@@ -629,40 +645,54 @@ impl App {
 
     async fn on_client_message(&mut self, from: PublicKey, event: ClientToServerMessage) {
         let from_identity = NodeIdentity::from_single_key(*from.as_bytes());
+        if !matches!(&event, ClientToServerMessage::Join { .. }) && !self.has_joined(&from_identity)
+        {
+            warn!(client = %from, "ignoring message from client that has not joined");
+            self.reject_client(
+                from,
+                ServerErrorCode::JoinRequired,
+                "a successful Join is required before sending this message".to_string(),
+            )
+            .await;
+            return;
+        }
+
         let broadcast = match event {
             ClientToServerMessage::Join { run_id } => {
                 let coord_run_id = String::from(&self.coordinator.run_id);
                 if coord_run_id != run_id {
                     info!("{from:?} tried to join unknown run {run_id}");
+                    self.reject_client(
+                        from,
+                        ServerErrorCode::RunIdMismatch,
+                        format!("run id {run_id:?} does not match the active run"),
+                    )
+                    .await;
                 } else if !self.admission_allowed(&from_identity) {
                     warn!("{from:?} is not in the admission allowlist for run {run_id}");
+                    self.reject_client(
+                        from,
+                        ServerErrorCode::NotAllowlisted,
+                        "client identity is not in the admission allowlist".to_string(),
+                    )
+                    .await;
                 } else {
                     info!("added pending client {from}");
-                    if self.backend.pending_clients.insert(from_identity) {
+                    if !self.backend.ready_clients.contains(&from_identity)
+                        && self.backend.pending_clients.insert(from_identity)
+                    {
                         self.last_admission_change_unix_timestamp = Self::get_timestamp();
                     }
                 }
                 false
             }
             ClientToServerMessage::ReadyForEpoch => {
-                if !self.admission_allowed(&from_identity) {
-                    warn!("{from:?} is not in the admission allowlist; ignoring readiness");
-                    return;
-                }
                 // The client has finished downloading/loading the checkpoint.
                 // Promote from pending (syncing) to ready so it can be admitted
                 // at the next epoch boundary.
                 let mut changed = false;
                 if self.backend.pending_clients.remove(&from_identity) {
                     info!("client {from} is ready for epoch admission");
-                    self.backend.ready_clients.insert(from_identity);
-                    self.last_admission_change_unix_timestamp = Self::get_timestamp();
-                    changed = true;
-                } else if !self.backend.ready_clients.contains(&from_identity) {
-                    // Received readiness from a client we don't know about
-                    // (e.g. it joined before the server started, or re-connected).
-                    // Accept it as ready directly.
-                    info!("client {from} signalled readiness (was not in pending)");
                     self.backend.ready_clients.insert(from_identity);
                     self.last_admission_change_unix_timestamp = Self::get_timestamp();
                     changed = true;
@@ -914,9 +944,8 @@ impl App {
         self.original_warmup_time = self.coordinator.config.warmup_time;
         self.loss_history.clear();
         self.last_admission_change_unix_timestamp = Self::get_timestamp();
-        self.backend
-            .pending_clients
-            .extend(self.backend.ready_clients.drain());
+        self.backend.pending_clients.clear();
+        self.backend.ready_clients.clear();
         let (wandb_run, wandb_info) = match init_wandb(&run_id).await {
             Some((run, info)) => (Some(run), Some(info)),
             None => (None, None),

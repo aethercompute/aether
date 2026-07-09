@@ -61,6 +61,9 @@ def test_push_new_model_script_import_does_not_parse_args(monkeypatch):
 
     fake_torch = types.ModuleType("torch")
     fake_torch.bfloat16 = "bfloat16"
+    fake_torch.float16 = "float16"
+    fake_torch.float32 = "float32"
+    fake_torch.float64 = "float64"
     fake_torch.no_grad = lambda: None
     fake_torch.nn = types.SimpleNamespace(init=types.SimpleNamespace(ones_=lambda *_a: None))
 
@@ -80,6 +83,8 @@ def test_push_new_model_script_import_does_not_parse_args(monkeypatch):
 
     import argparse
 
+    real_parse_args = argparse.ArgumentParser.parse_args
+
     def fail_if_called(self):
         raise AssertionError("parse_args should only run from __main__")
 
@@ -91,3 +96,7 @@ def test_push_new_model_script_import_does_not_parse_args(monkeypatch):
 
     spec.loader.exec_module(module)
     assert callable(module.parse_args)
+
+    monkeypatch.setattr(argparse.ArgumentParser, "parse_args", real_parse_args)
+    assert module.parse_args(["--dtype", "float16"]).dtype == fake_torch.float16
+    assert module.parse_args(["--dtype", "float32"]).dtype == fake_torch.float32

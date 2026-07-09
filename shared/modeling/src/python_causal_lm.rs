@@ -82,12 +82,12 @@ impl PythonModelConfig {
             .as_object()
             .and_then(|x| x.get("eos_token_id"))
             .and_then(|x| match x {
-                serde_json::Value::Number(number) => {
-                    Some(EosToks::Single(number.as_i64().unwrap()))
-                }
-                serde_json::Value::Array(values) => Some(EosToks::Multiple(
-                    values.iter().map(|x| x.as_i64().unwrap()).collect(),
-                )),
+                serde_json::Value::Number(number) => number.as_i64().map(EosToks::Single),
+                serde_json::Value::Array(values) => values
+                    .iter()
+                    .map(serde_json::Value::as_i64)
+                    .collect::<Option<Vec<_>>>()
+                    .map(EosToks::Multiple),
                 _ => None,
             })
     }
@@ -98,6 +98,24 @@ impl PythonModelConfig {
             .and_then(|x| x.get("max_position_embeddings"))
             .and_then(|x| x.as_u64())
             .map(|x| x as usize)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_eos_token_ids_are_ignored() {
+        for eos_token_id in [
+            serde_json::json!([1, "not-an-integer"]),
+            serde_json::json!(u64::MAX),
+        ] {
+            let config = PythonModelConfig::from(serde_json::json!({
+                "eos_token_id": eos_token_id,
+            }));
+            assert!(config.eos_token_ids().is_none());
+        }
     }
 }
 
@@ -154,7 +172,8 @@ impl PythonCausalLM {
                     class.call1(args)?.into()
                 }
                 PretrainedSource::ConfigAndTensors(config, state_dict) => {
-                    let config_json = serde_json::to_string_pretty(&config).unwrap();
+                    let config_json = serde_json::to_string_pretty(&config)
+                        .map_err(|err| pyo3::exceptions::PyValueError::new_err(err.to_string()))?;
                     let state_dict = state_dict
                         .iter()
                         .map(|(k, v)| {
@@ -182,7 +201,7 @@ impl PythonCausalLM {
             Ok(causal_lm.unbind())
         });
         let causal_lm = result?;
-        let order = StablePythonParametersIterator::new(&causal_lm);
+        let order = StablePythonParametersIterator::new(&causal_lm)?;
         let max_context_length = override_max_position_embeddings
             .or(config.max_position_embeddings())
             .unwrap_or(2048); // Default fallback
@@ -199,16 +218,25 @@ impl PythonCausalLM {
     }
 
     pub fn from_python(causal_lm: PyObject, device: Device, config: serde_json::Value) -> Self {
+        Self::try_from_python(causal_lm, device, config)
+            .expect("failed to initialize Python model parameters")
+    }
+
+    pub fn try_from_python(
+        causal_lm: PyObject,
+        device: Device,
+        config: serde_json::Value,
+    ) -> Result<Self, PythonCausalLMError> {
         let config = PythonModelConfig { config };
-        Self {
-            order: StablePythonParametersIterator::new(&causal_lm),
+        Ok(Self {
+            order: StablePythonParametersIterator::new(&causal_lm)?,
             causal_lm,
             device,
             bos_token_id: config.bos_token_id(),
             eos_token_id: config.eos_token_ids(),
             max_context_length: config.max_position_embeddings().unwrap_or(2048),
             pure_fsdp: None,
-        }
+        })
     }
 
     pub fn device(&self) -> Device {
@@ -393,7 +421,7 @@ pub struct StablePythonParametersIterator {
 }
 
 impl StablePythonParametersIterator {
-    pub fn new(causal_lm: &PyObject) -> Self {
+    pub fn new(causal_lm: &PyObject) -> PyResult<Self> {
         let entries: PyResult<Vec<PythonCausalLMVariable>> = Python::with_gil(|py| {
             let aether = py.import("aether.dtensor_helpers")?;
             let full_tensor_shape = aether.getattr("full_tensor_shape")?;
@@ -450,12 +478,12 @@ impl StablePythonParametersIterator {
             result
         });
 
-        let mut entries = entries.unwrap();
+        let mut entries = entries?;
 
         // this is in reverse order! then we can pop off the back as we iterate
         entries.sort_by(|a, b| b.name.cmp(&a.name));
 
-        Self { entries }
+        Ok(Self { entries })
     }
 }
 

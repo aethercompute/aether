@@ -110,6 +110,63 @@ has_nvidia() { command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>
 
 has() { command -v "$1" >/dev/null 2>&1; }
 
+canonical_path() {
+  local path="$1"
+  [[ -n "$path" ]] || return 1
+  if [[ -d "$path" ]]; then
+    (cd -P -- "$path" 2>/dev/null && pwd)
+    return
+  fi
+
+  local parent base
+  parent="$(dirname -- "$path")"
+  base="$(basename -- "$path")"
+  parent="$(cd -P -- "$parent" 2>/dev/null && pwd)" || return 1
+  printf '%s/%s\n' "${parent%/}" "$base"
+}
+
+safe_rm_rf() {
+  local path="$1" purpose="$2" resolved home_resolved repo_resolved install_resolved expected
+  [[ -n "$path" ]] || die "refusing unsafe removal path: <empty>"
+  if [[ ! -e "$path" && ! -L "$path" ]]; then
+    return 0
+  fi
+  resolved="$(canonical_path "$path")" || die "refusing unsafe removal path: ${path:-<empty>}"
+  home_resolved="$(canonical_path "$HOME")" || die "could not resolve HOME safely"
+  repo_resolved="$(canonical_path "$REPO_ROOT")" || die "could not resolve repository path safely"
+
+  [[ -n "$resolved" && "$resolved" != "/" && "$resolved" != "$home_resolved" ]] \
+    || die "refusing unsafe recursive removal: $resolved"
+
+  case "$purpose" in
+    sandbox)
+      expected="$(canonical_path "$REPO_ROOT/.aethercompute")" \
+        || die "could not resolve expected sandbox path"
+      [[ "$resolved" == "$expected" && "$resolved" != "$repo_resolved" ]] \
+        || die "refusing to remove unexpected sandbox path: $resolved"
+      ;;
+    install-home)
+      expected="$(canonical_path "$AETHER_HOME")" \
+        || die "could not resolve expected install path"
+      [[ "$resolved" == "$expected" && "$resolved" != "$repo_resolved" ]] \
+        || die "refusing to remove repository or unexpected install path: $resolved"
+      ;;
+    standalone-repo)
+      install_resolved="$(canonical_path "$AETHER_HOME")" \
+        || die "could not resolve standalone install root"
+      expected="$(canonical_path "$AETHER_HOME/repo")" \
+        || die "could not resolve expected standalone repository path"
+      [[ "$install_resolved" != "/" && "$install_resolved" != "$home_resolved" ]] \
+        || die "refusing repository replacement under unsafe install root: $install_resolved"
+      [[ "$EMBEDDED_REPO" == "0" && "$resolved" == "$expected" && "$resolved" == "$repo_resolved" ]] \
+        || die "refusing to replace unexpected repository path: $resolved"
+      ;;
+    *) die "unknown recursive removal purpose: $purpose" ;;
+  esac
+
+  rm -rf -- "$resolved"
+}
+
 # --- path resolution -------------------------------------------------------
 # Dev mode:  the script lives at <repo>/scripts/aethercompute-client.sh, so the
 #            repo is one level up from the script's own directory.
@@ -365,31 +422,35 @@ HELP
 }
 
 check() {
-  local label="$1" test="$2"
-  if eval "$test" >/dev/null 2>&1; then ok "$label"; else fail "$label"; fi
+  local label="$1"; shift
+  if "$@" >/dev/null 2>&1; then ok "$label"; else fail "$label"; fi
+}
+
+has_c_compiler() {
+  has cc || has gcc || has clang
 }
 
 do_doctor() {
   printf "  %s\n\n" "$(brand '◆ AETHERCOMPUTE · environment check')"
-  check "source repo"      "[[ -f '$REPO_ROOT/Cargo.toml' ]]"
-  check "sandbox dir"      "[[ -d '$SANDBOX' ]]"
-  check "cargo (sandbox)"  "[[ -x '$CARGO_HOME/bin/cargo' ]]"
-  check "rust toolchain"   "'$CARGO_HOME/bin/rustc' -V >/dev/null 2>&1"
-  check "C compiler"       "command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 || command -v clang >/dev/null 2>&1"
-  check "python3"          "command -v python3 >/dev/null 2>&1"
-  check "system torch"     "python3 -c 'import torch' >/dev/null 2>&1"
-  check "launcher binary"  "[[ -x '$VOLUNTEER_BIN' ]]"
+  check "source repo"      test -f "$REPO_ROOT/Cargo.toml"
+  check "sandbox dir"      test -d "$SANDBOX"
+  check "cargo (sandbox)"  test -x "$CARGO_HOME/bin/cargo"
+  check "rust toolchain"   "$CARGO_HOME/bin/rustc" -V
+  check "C compiler"       has_c_compiler
+  check "python3"          has python3
+  check "system torch"     python3 -c 'import torch'
+  check "launcher binary"  test -x "$VOLUNTEER_BIN"
   echo
 }
 
 do_uninstall() {
   if [[ "$EMBEDDED_REPO" == "1" ]]; then
     printf "  ${amber}Removing sandbox %s${reset}\n" "$SANDBOX"
-    rm -rf "$SANDBOX"
+    safe_rm_rf "$SANDBOX" sandbox
     ok "sandbox removed (repo source untouched)."
   else
     printf "  ${amber}Removing %s${reset}\n" "$AETHER_HOME"
-    rm -rf "$AETHER_HOME"
+    safe_rm_rf "$AETHER_HOME" install-home
     ok "all aethercompute data removed."
   fi
 }
@@ -406,8 +467,11 @@ do_update() {
         ) \
       || warn "could not pull updates (continuing with existing source)."
   else
-    # Tarball install (or embedded repo without git): re-fetch from scratch.
-    rm -rf "$REPO_ROOT"
+    # A standalone tarball install has no Git metadata, so replace only its
+    # dedicated source directory. Never replace an embedded checkout.
+    [[ "$EMBEDDED_REPO" == "0" ]] \
+      || die "cannot replace an embedded repository without Git metadata"
+    safe_rm_rf "$REPO_ROOT" standalone-repo
     if has git; then
       mkdir -p "$AETHER_HOME"
       run_step "re-cloning aether source" \

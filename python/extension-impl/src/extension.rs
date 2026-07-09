@@ -147,9 +147,9 @@ impl Trainer {
         let device = tch::Device::from_c_int(device);
         let config: serde_json::Value = serde_json::from_str(config_json)
             .map_err(|err| PyRuntimeError::new_err(format!("{err}")))?;
-        let models = vec![
-            Box::new(PythonCausalLM::from_python(causal_lm, device, config)) as Box<dyn CausalLM>,
-        ];
+        let model = PythonCausalLM::try_from_python(causal_lm, device, config)
+            .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+        let models = vec![Box::new(model) as Box<dyn CausalLM>];
 
         let lr_scheduler: LearningRateSchedule = serde_json::from_str(lr_scheduler_json)
             .map_err(|err| PyRuntimeError::new_err(format!("{err}")))?;

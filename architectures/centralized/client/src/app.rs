@@ -1,7 +1,5 @@
 use aether_centralized_shared::{ClientToServerMessage, ServerToClientMessage};
-use aether_client::{
-    read_identity_secret_key, Client, ClientTUI, ClientTUIState, RunInitConfig, TrainArgs, NC,
-};
+use aether_client::{Client, ClientTUI, ClientTUIState, RunInitConfig, TrainArgs, NC};
 use aether_coordinator::{model, Coordinator, HealthChecks};
 use aether_core::NodeIdentity;
 use aether_event_sourcing::event;
@@ -13,7 +11,7 @@ use aether_network::{
 use aether_tui::logging::LoggerWidget;
 use aether_tui::{CustomWidget, TabbedWidget};
 use aether_watcher::{Backend as WatcherBackend, CoordinatorTui, OpportunisticData};
-use anyhow::{Error, Result};
+use anyhow::{bail, Error, Result};
 use bytemuck::Zeroable;
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,7 +19,7 @@ use tokio::sync::mpsc::Sender;
 use tokio::time::interval;
 use tokio::{select, sync::mpsc, time::Interval};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 pub(super) type Tabs = TabbedWidget<(ClientTUI, CoordinatorTui, NetworkTui, LoggerWidget)>;
 pub const TAB_NAMES: [&str; 4] = ["Client", "Coordinator", "Network", "Logger"];
@@ -93,14 +91,13 @@ pub async fn build_app(
     cancel: CancellationToken,
     server_addr: String,
     tx_tui_state: Option<Sender<TabsData>>,
+    identity_secret_key: SecretKey,
     p: TrainArgs,
 ) -> Result<(App, allowlist::AllowDynamic, NC, RunInitConfig)> {
     let metrics = Arc::new(ClientMetrics::new(
         p.metrics_local_port,
         Some(Duration::from_secs(30)),
     ));
-    let identity_secret_key = read_identity_secret_key(p.identity_secret_key_path.as_ref())?
-        .unwrap_or_else(|| SecretKey::generate(&mut rand::rng()));
     let server_conn = TcpClient::<ClientToServerMessage, ServerToClientMessage>::connect(
         &server_addr,
         identity_secret_key.clone(),
@@ -167,12 +164,7 @@ pub async fn build_app(
 }
 
 impl App {
-    pub async fn run(
-        &mut self,
-        allowlist: allowlist::AllowDynamic,
-        p2p: NC,
-        state_options: RunInitConfig,
-    ) -> Result<()> {
+    async fn join(&mut self) -> Result<()> {
         event!(coordinator::RpcCallSubmitted {
             call_type: RpcCallType::Join
         });
@@ -183,18 +175,30 @@ impl App {
             })
             .await
         {
-            Ok(()) => event!(coordinator::RpcCallResult {
-                call_type: RpcCallType::Join,
-                result: Ok(())
-            }),
-            Err(e) => {
+            Ok(()) => {
                 event!(coordinator::RpcCallResult {
                     call_type: RpcCallType::Join,
-                    result: Err(e.to_string())
+                    result: Ok(())
                 });
-                return Err(e);
+                Ok(())
+            }
+            Err(err) => {
+                event!(coordinator::RpcCallResult {
+                    call_type: RpcCallType::Join,
+                    result: Err(err.to_string())
+                });
+                Err(err)
             }
         }
+    }
+
+    pub async fn run(
+        &mut self,
+        allowlist: allowlist::AllowDynamic,
+        p2p: NC,
+        state_options: RunInitConfig,
+    ) -> Result<()> {
+        self.join().await?;
 
         let (tx_from_server_message, rx_from_server_message) = mpsc::unbounded_channel();
         let (tx_to_server_message, mut rx_to_server_message) = mpsc::unbounded_channel();
@@ -217,7 +221,7 @@ impl App {
                    break;
                 }
                 message = self.server_conn.receive() => {
-                    self.on_server_message(message?, &tx_from_server_message).await;
+                    self.on_server_message(message?, &tx_from_server_message).await?;
                 }
                 _ = self.update_tui_interval.tick() => {
                     let (client_tui_state, network_tui_state) = client.tui_states().await;
@@ -274,12 +278,22 @@ impl App {
         &mut self,
         message: ServerToClientMessage,
         tx: &mpsc::UnboundedSender<Coordinator>,
-    ) {
+    ) -> Result<()> {
         match message {
             ServerToClientMessage::Coordinator(state) => {
+                let state_run_id = String::from(&state.run_id);
+                if self.run_id != state_run_id {
+                    info!(old_run_id = %self.run_id, new_run_id = %state_run_id, "joining next experiment run");
+                    self.run_id = state_run_id;
+                    self.join().await?;
+                }
                 self.coordinator_state = *state;
                 let _ = tx.send(*state);
             }
+            ServerToClientMessage::Error { code, message } => {
+                bail!("server rejected request ({code:?}): {message}");
+            }
         }
+        Ok(())
     }
 }

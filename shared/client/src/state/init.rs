@@ -128,6 +128,32 @@ impl RunInitConfig {
     }
 }
 
+fn validate_parallelism(
+    data_parallelism: usize,
+    tensor_parallelism: usize,
+    requires_native_parallelism: bool,
+) -> Result<(), InitRunError> {
+    if data_parallelism == 0 || tensor_parallelism == 0 {
+        return Err(InitRunError::InvalidParallelism {
+            data_parallelism,
+            tensor_parallelism,
+        });
+    }
+
+    #[cfg(not(feature = "parallelism"))]
+    if requires_native_parallelism && (data_parallelism > 1 || tensor_parallelism > 1) {
+        return Err(InitRunError::ParallelismNotEnabled {
+            data_parallelism,
+            tensor_parallelism,
+        });
+    }
+
+    #[cfg(feature = "parallelism")]
+    let _ = requires_native_parallelism;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,6 +272,50 @@ mod tests {
         cfg.apply_run_templates("z");
         assert_eq!(cfg.wandb_info.as_ref().unwrap().run, "z-z");
     }
+
+    #[test]
+    fn parallelism_counts_must_be_nonzero() {
+        assert!(matches!(
+            validate_parallelism(0, 1, true),
+            Err(InitRunError::InvalidParallelism {
+                data_parallelism: 0,
+                tensor_parallelism: 1,
+            })
+        ));
+        assert!(matches!(
+            validate_parallelism(1, 0, true),
+            Err(InitRunError::InvalidParallelism {
+                data_parallelism: 1,
+                tensor_parallelism: 0,
+            })
+        ));
+    }
+
+    #[cfg(not(feature = "parallelism"))]
+    #[test]
+    fn native_parallelism_requires_parallelism_feature() {
+        for (data_parallelism, tensor_parallelism) in [(2, 1), (1, 2), (2, 2)] {
+            assert!(matches!(
+                validate_parallelism(data_parallelism, tensor_parallelism, true),
+                Err(InitRunError::ParallelismNotEnabled {
+                    data_parallelism: error_dp,
+                    tensor_parallelism: error_tp,
+                }) if error_dp == data_parallelism && error_tp == tensor_parallelism
+            ));
+        }
+    }
+
+    #[cfg(all(not(feature = "parallelism"), feature = "python"))]
+    #[test]
+    fn python_distributed_parallelism_does_not_require_native_feature() {
+        assert!(validate_parallelism(2, 2, false).is_ok());
+    }
+
+    #[cfg(feature = "parallelism")]
+    #[test]
+    fn native_parallelism_is_accepted_when_enabled() {
+        assert!(validate_parallelism(2, 2, true).is_ok());
+    }
 }
 
 #[derive(Debug, Error)]
@@ -294,6 +364,22 @@ pub enum InitRunError {
 
     #[error("Unsupported architecture: {0}")]
     UnsupportedArchitecture(String),
+
+    #[error(
+        "data_parallelism and tensor_parallelism must both be at least 1 (got data_parallelism={data_parallelism}, tensor_parallelism={tensor_parallelism})"
+    )]
+    InvalidParallelism {
+        data_parallelism: usize,
+        tensor_parallelism: usize,
+    },
+
+    #[error(
+        "native data/tensor parallelism requires the `parallelism` feature (got data_parallelism={data_parallelism}, tensor_parallelism={tensor_parallelism})"
+    )]
+    ParallelismNotEnabled {
+        data_parallelism: usize,
+        tensor_parallelism: usize,
+    },
 
     #[cfg(feature = "python")]
     #[error("Python distributed error: {0}")]
@@ -371,6 +457,20 @@ impl RunInitConfigAndIO {
         let run_id = String::from(&state.run_id);
         init_config.apply_run_templates(&run_id);
 
+        let model::Model::LLM(llm) = state.model;
+
+        let requires_native_parallelism = !cfg!(feature = "python")
+            || matches!(
+                &llm.architecture,
+                model::LLMArchitecture::HfLlama | model::LLMArchitecture::HfDeepseek
+            )
+            || matches!(&llm.checkpoint, model::Checkpoint::Dummy(_));
+        validate_parallelism(
+            init_config.data_parallelism,
+            init_config.tensor_parallelism,
+            requires_native_parallelism,
+        )?;
+
         tch::manual_seed(1337);
 
         // Check device availability early
@@ -379,8 +479,6 @@ impl RunInitConfigAndIO {
                 aether_modeling::ModelLoadError::UnavailbleDevice(init_config.device),
             ));
         }
-
-        let model::Model::LLM(llm) = state.model;
 
         let hub_read_token = init_config.hub_read_token.clone();
         let hub_max_concurrent_downloads = init_config.hub_max_concurrent_downloads;
@@ -793,14 +891,14 @@ impl RunInitConfigAndIO {
                                 let devices = init_config.device.clone();
 
                                 for dp in 0..init_config.data_parallelism {
+                                    #[cfg(feature = "parallelism")]
                                     let communicator_id: Option<CommunicatorId> =
                                         match init_config.tensor_parallelism {
                                             0 | 1 => None,
-                                            #[cfg(feature = "parallelism")]
                                             _ => Some(tch::CStore::new().into()),
-                                            #[cfg(not(feature = "parallelism"))]
-                                            _ => unimplemented!(),
                                         };
+                                    #[cfg(not(feature = "parallelism"))]
+                                    let communicator_id: Option<CommunicatorId> = None;
                                     for tp in 0..init_config.tensor_parallelism {
                                         let tensor_parallelism_world =
                                             communicator_id.as_ref().map(|communicator_id| {
@@ -985,7 +1083,7 @@ impl RunInitConfigAndIO {
 
                         #[cfg(not(feature = "parallelism"))]
                         {
-                            unimplemented!()
+                            None
                         }
                     } else {
                         None

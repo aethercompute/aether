@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use aether_centralized_shared::{ClientToServerMessage, ServerErrorCode, ServerToClientMessage};
 use aether_centralized_testing::{
     client::ClientHandle,
     run_test,
@@ -14,7 +15,23 @@ use aether_coordinator::{
     model::{Checkpoint, HubRepo},
     RunState,
 };
+use aether_network::{SecretKey, TcpClient};
 use tracing::info;
+
+async fn receive_server_error(
+    client: &mut TcpClient<ClientToServerMessage, ServerToClientMessage>,
+) -> (ServerErrorCode, String) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let ServerToClientMessage::Error { code, message } = client.receive().await.unwrap()
+            {
+                return (code, message);
+            }
+        }
+    })
+    .await
+    .expect("server did not return an error response")
+}
 
 #[test_log::test]
 fn connect_single_node() {
@@ -31,6 +48,68 @@ fn connect_single_node() {
         let connected_clients = || server_handle.get_connected_clients_len();
 
         assert_with_retries(connected_clients, 1).await;
+    });
+}
+
+#[test_log::test]
+fn wrong_run_id_is_rejected() {
+    run_test(async {
+        let server = CoordinatorServerHandle::new(2, 4, 1).await;
+        let mut client = TcpClient::<ClientToServerMessage, ServerToClientMessage>::connect(
+            &format!("127.0.0.1:{}", server.server_port),
+            SecretKey::generate(&mut rand::rng()),
+        )
+        .await
+        .unwrap();
+
+        client
+            .send(ClientToServerMessage::Join {
+                run_id: "wrong-run-id".to_string(),
+            })
+            .await
+            .unwrap();
+
+        let (code, message) = receive_server_error(&mut client).await;
+        assert_eq!(code, ServerErrorCode::RunIdMismatch);
+        assert!(message.contains("does not match"));
+        assert_eq!(server.get_pending_clients_len().await, 0);
+    });
+}
+
+#[test_log::test]
+fn ready_before_join_is_rejected() {
+    run_test(async {
+        let server = CoordinatorServerHandle::new(2, 4, 1).await;
+        let mut client = TcpClient::<ClientToServerMessage, ServerToClientMessage>::connect(
+            &format!("127.0.0.1:{}", server.server_port),
+            SecretKey::generate(&mut rand::rng()),
+        )
+        .await
+        .unwrap();
+
+        client
+            .send(ClientToServerMessage::ReadyForEpoch)
+            .await
+            .unwrap();
+
+        let (code, _) = receive_server_error(&mut client).await;
+        assert_eq!(code, ServerErrorCode::JoinRequired);
+        assert_eq!(server.get_ready_clients_len().await, 0);
+    });
+}
+
+#[test_log::test]
+fn client_exits_when_join_is_rejected() {
+    run_test(async {
+        let server = CoordinatorServerHandle::new(2, 4, 1).await;
+        let client = ClientHandle::default(server.server_port, "wrong-run-id").await;
+
+        let result = tokio::time::timeout(Duration::from_secs(5), client.client_handle)
+            .await
+            .expect("client kept waiting after join rejection")
+            .expect("client task panicked");
+        let err = result.expect_err("rejected client should return an error");
+        assert!(err.to_string().contains("RunIdMismatch"));
     });
 }
 

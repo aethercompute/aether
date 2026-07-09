@@ -1,0 +1,59 @@
+import importlib.util
+import sys
+from pathlib import Path
+
+import pytest
+
+
+def load_dashboard():
+    script_path = (
+        Path(__file__).parents[2] / "scripts" / "training-control-dashboard.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "training_control_dashboard_under_test", script_path
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_remote_dashboard_bind_requires_explicit_password():
+    dashboard = load_dashboard()
+
+    dashboard.validate_control_settings("127.0.0.1", False)
+    dashboard.validate_control_settings("::1", False)
+    with pytest.raises(RuntimeError, match="CONTROL_PASSWORD"):
+        dashboard.validate_control_settings("0.0.0.0", False)
+    dashboard.validate_control_settings("0.0.0.0", True)
+
+
+def test_dashboard_commands_only_allow_known_repo_scripts():
+    dashboard = load_dashboard()
+
+    assert dashboard.known_repo_script(
+        "scripts/prepare-sft-local.py",
+        dashboard.DATASET_SCRIPTS[0],
+        dashboard.DATASET_SCRIPTS,
+    ) == "scripts/prepare-sft-local.py"
+
+    with pytest.raises(RuntimeError, match="not allowed"):
+        dashboard.known_repo_script(
+            "/tmp/untrusted.py",
+            dashboard.DATASET_SCRIPTS[0],
+            dashboard.DATASET_SCRIPTS,
+        )
+
+
+def test_dashboard_action_forms_include_csrf_token():
+    dashboard = load_dashboard()
+    config = {
+        "server": {"experiment_enabled": False},
+        "dataset": {},
+        "model": {"enabled": False},
+    }
+
+    actions = dashboard.render_actions(config)
+
+    assert actions.count('name="_csrf"') == 8
+    assert f'value="{dashboard.CSRF_TOKEN}"' in actions

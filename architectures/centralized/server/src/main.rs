@@ -330,29 +330,32 @@ async fn main() -> Result<()> {
                     run_id: None,
                 })
                 .init()?;
-            match config {
-                Ok(config) => {
-                    let admission_allowlist =
-                        load_admission_allowlist(run_args.admission_allowlist.clone())?;
-                    App::new(
-                        run_args.tui,
-                        config.0,
-                        config.1,
-                        config.2,
-                        run_args.server_port,
-                        run_args.save_state_dir,
-                        run_args.events_dir,
-                        run_args.init_warmup_time,
-                        run_args.withdraw_on_disconnect,
-                        Some(run_args.web_port),
-                        admission_allowlist,
-                    )
-                    .await?
-                    .run()
-                    .await?
+            let config = match config {
+                Ok(config) => config,
+                Err(err) => {
+                    error!("Error found in config: {err:#}");
+                    logger.shutdown()?;
+                    return Err(err);
                 }
-                Err(err) => error!("Error found in config: {err:#}"),
-            }
+            };
+            let admission_allowlist =
+                load_admission_allowlist(run_args.admission_allowlist.clone())?;
+            App::new(
+                run_args.tui,
+                config.0,
+                config.1,
+                config.2,
+                run_args.server_port,
+                run_args.save_state_dir,
+                run_args.events_dir,
+                run_args.init_warmup_time,
+                run_args.withdraw_on_disconnect,
+                Some(run_args.web_port),
+                admission_allowlist,
+            )
+            .await?
+            .run()
+            .await?;
             logger.shutdown()?;
         }
         Commands::PrintAllHelp { markdown: _ } => {

@@ -20,6 +20,17 @@ pub enum ClientToServerMessage {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ServerToClientMessage {
     Coordinator(Box<Coordinator>),
+    Error {
+        code: ServerErrorCode,
+        message: String,
+    },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerErrorCode {
+    RunIdMismatch,
+    NotAllowlisted,
+    JoinRequired,
 }
 
 #[cfg(test)]
@@ -74,5 +85,22 @@ mod tests {
         let back = aether_test_support::postcard_roundtrip(&msg);
 
         assert!(matches!(back, ServerToClientMessage::Coordinator(_)));
+    }
+
+    #[test]
+    fn server_to_client_error_roundtrip() {
+        let msg = ServerToClientMessage::Error {
+            code: ServerErrorCode::RunIdMismatch,
+            message: "wrong run id".to_string(),
+        };
+        let back = aether_test_support::postcard_roundtrip(&msg);
+
+        assert!(matches!(
+            back,
+            ServerToClientMessage::Error {
+                code: ServerErrorCode::RunIdMismatch,
+                ..
+            }
+        ));
     }
 }

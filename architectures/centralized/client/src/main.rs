@@ -125,7 +125,7 @@ async fn async_main() -> Result<()> {
             )?;
 
             let (mut app, allowlist, p2p, state_options) =
-                build_app(cancel, server_addr, tx_tui_state, args)
+                build_app(cancel, server_addr, tx_tui_state, identity_secret_key, args)
                     .await
                     .context("failed to build centralized client app")?;
 

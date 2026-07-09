@@ -12,6 +12,14 @@ import torch
 import math
 
 
+DTYPES = {
+    "bfloat16": torch.bfloat16,
+    "float16": torch.float16,
+    "float32": torch.float32,
+    "float64": torch.float64,
+}
+
+
 def _init_normal(module, std: float, cutoff_factor: float = 3.0):
     with torch.no_grad():
         cutoff = std * cutoff_factor
@@ -186,7 +194,8 @@ def main(args):
         if args.tokenizer:
             AutoTokenizer.from_pretrained(args.tokenizer).save_pretrained(args.save)
 
-def parse_args():
+
+def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--config",
@@ -196,10 +205,17 @@ def parse_args():
     parser.add_argument("--repo", type=str, help="destination repo")
     parser.add_argument("--save", type=str, help="save to local")
     parser.add_argument("--private", action="store_true", help="push as a private repo")
-    parser.add_argument("--dtype", type=int, default=torch.bfloat16, help="torch dtype")
+    parser.add_argument(
+        "--dtype",
+        choices=DTYPES,
+        default="bfloat16",
+        help="torch dtype (default: bfloat16)",
+    )
     parser.add_argument("--device", type=str, help="device to init on")
     parser.add_argument("--tokenizer", type=str, help="tokenizer")
-    return parser.parse_args()
+    args = parser.parse_args(argv)
+    args.dtype = DTYPES[args.dtype]
+    return args
 
 
 if __name__ == "__main__":

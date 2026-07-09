@@ -36,6 +36,15 @@ Run the dashboard locally:
 python3 scripts/training-control-dashboard.py
 ```
 
+The dashboard listens on `CONTROL_HOST=127.0.0.1` and `CONTROL_PORT=8080` by
+default. Local-only runs generate and print a password if `CONTROL_PASSWORD` is
+unset. Set a non-empty `CONTROL_PASSWORD` explicitly before setting
+`CONTROL_HOST` to a non-loopback address. `CONTROL_USERNAME` defaults to
+`admin`; authenticated forms include CSRF protection. Executable script fields
+in the editable config are restricted to the dataset preparation and model
+push scripts in this repository. Basic authentication does not encrypt traffic;
+put the dashboard behind a TLS-terminating reverse proxy for any remote access.
+
 Prepare a local dataset shard set:
 
 ```sh
@@ -69,14 +78,20 @@ Initialize and push a model:
 python3 scripts/push-new-model-hf.py \
   --config config/aether0-500m/model-config.json \
   --repo user/model \
-  --tokenizer deepseek-ai/DeepSeek-V3
+  --tokenizer deepseek-ai/DeepSeek-V3 \
+  --dtype bfloat16
 ```
+
+Supported model initialization dtypes are `bfloat16`, `float16`, `float32`,
+and `float64`.
 
 ## Common Environment
 
 - `AETHER_PYTHON`: Python executable used by `with-libtorch-env.sh`, default `python3.12`.
 - `TORCH_VERSION`: Torch version installed by helper scripts when needed.
 - `LIBTORCH_USE_PYTORCH`: tells `tch`/`torch-sys` to use the Python Torch installation.
-- `CONTROL_PORT`, `SERVER_PORT`, `WEB_PORT`: dashboard and centralized server ports.
+- `CONTROL_HOST`, `CONTROL_PORT`: dashboard bind host and port; defaults to `127.0.0.1:8080`.
+- `CONTROL_USERNAME`, `CONTROL_PASSWORD`: dashboard Basic-auth credentials. A non-empty explicit password is required for non-loopback binds.
+- `SERVER_PORT`, `WEB_PORT`: centralized server ports.
 - `TRAINING_RUN_CONFIG`: dashboard config path.
 - `HF_TOKEN`, `HUB_REPO`: Hugging Face credentials and destination repo. Seed mode defaults `HUB_REPO` to `aethercompute/llama3.2-1b-think`.

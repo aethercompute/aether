@@ -4,7 +4,7 @@ use aether_centralized_client::app::build_app as build_client_app;
 use aether_centralized_client::app::App as ClientApp;
 use aether_client::RunInitConfig;
 use aether_client::NC;
-use aether_network::allowlist;
+use aether_network::{allowlist, SecretKey};
 use anyhow::{Error, Result};
 use tokio::select;
 use tokio::task::JoinHandle;
@@ -22,10 +22,12 @@ impl Client {
         run_id: &str,
     ) -> (Self, allowlist::AllowDynamic, NC, RunInitConfig) {
         let client_app_params = dummy_client_app_params_with_training_delay(server_port, run_id, 5);
+        let identity_secret_key = SecretKey::generate(&mut rand::rng());
         let (client_app, allowlist, p2p, state_options) = build_client_app(
             client_app_params.cancel,
             client_app_params.server_addr,
             None,
+            identity_secret_key,
             client_app_params.train_args,
         )
         .await
@@ -41,10 +43,12 @@ impl Client {
     ) -> (Self, allowlist::AllowDynamic, NC, RunInitConfig) {
         let client_app_params =
             dummy_client_app_params_with_training_delay(server_port, run_id, training_delay_secs);
+        let identity_secret_key = SecretKey::generate(&mut rand::rng());
         let (client_app, allowlist, p2p, state_options) = build_client_app(
             client_app_params.cancel,
             client_app_params.server_addr,
             None,
+            identity_secret_key,
             client_app_params.train_args,
         )
         .await

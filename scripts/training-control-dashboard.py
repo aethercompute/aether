@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import html
+import ipaddress
 import json
 import os
 import base64
@@ -22,15 +23,52 @@ from urllib.request import Request, urlopen
 
 
 CONFIG_PATH = Path(os.environ.get("TRAINING_RUN_CONFIG", "config/training-run.toml"))
+CONTROL_HOST = os.environ.get("CONTROL_HOST", "127.0.0.1")
 CONTROL_PORT = int(os.environ.get("CONTROL_PORT", "8080"))
 CONTROL_USERNAME = os.environ.get("CONTROL_USERNAME", "admin")
-CONTROL_PASSWORD = os.environ.get("CONTROL_PASSWORD") or secrets.token_urlsafe(24)
-GENERATED_CONTROL_PASSWORD = "CONTROL_PASSWORD" not in os.environ
+_CONFIGURED_CONTROL_PASSWORD = os.environ.get("CONTROL_PASSWORD", "")
+CONTROL_PASSWORD = _CONFIGURED_CONTROL_PASSWORD or secrets.token_urlsafe(24)
+GENERATED_CONTROL_PASSWORD = not bool(_CONFIGURED_CONTROL_PASSWORD)
+CSRF_TOKEN = secrets.token_urlsafe(32)
 MAX_LOG_LINES = 500
+
+DATASET_SCRIPTS = (
+    Path("scripts/prepare-ultra-fineweb-local.py"),
+    Path("scripts/prepare-sft-local.py"),
+)
+MODEL_SCRIPTS = (Path("scripts/push-new-model-hf.py"),)
 
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
+
+
+def is_loopback_host(host: str) -> bool:
+    normalized = host.strip().lower()
+    if normalized == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def validate_control_settings(host: str, password_provided: bool) -> None:
+    if not is_loopback_host(host) and not password_provided:
+        raise RuntimeError(
+            "CONTROL_PASSWORD must be explicitly set when CONTROL_HOST is not loopback"
+        )
+
+
+def known_repo_script(configured: str, default: Path, allowed: tuple[Path, ...]) -> str:
+    raw_path = Path(str(configured).strip() or default)
+    candidate = raw_path if raw_path.is_absolute() else repo_root() / raw_path
+    resolved = candidate.resolve()
+    for script in allowed:
+        if resolved == (repo_root() / script).resolve():
+            return str(script)
+    choices = ", ".join(str(script) for script in allowed)
+    raise RuntimeError(f"script is not allowed: {configured!r}; choose one of: {choices}")
 
 
 def load_config() -> dict:
@@ -618,10 +656,13 @@ def _format_source_arg(src: dict) -> str:
 def prepare_dataset_command(config: dict) -> list[str]:
     dataset = config["dataset"]
     sources = [s for s in dataset.get("sources", []) if isinstance(s, dict) and s.get("dataset")]
+    script = known_repo_script(
+        dataset.get("script", ""), DATASET_SCRIPTS[0], DATASET_SCRIPTS
+    )
 
     command = [
         sys.executable,
-        dataset.get("script", "scripts/prepare-ultra-fineweb-local.py"),
+        script,
     ]
     if is_sft_dataset(dataset):
         command.extend(
@@ -711,9 +752,10 @@ def push_model_command(config: dict) -> list[str]:
     if not model_push_enabled(config):
         raise RuntimeError("init model push is disabled for this run")
     model = config["model"]
+    script = known_repo_script(model.get("script", ""), MODEL_SCRIPTS[0], MODEL_SCRIPTS)
     command = [
         sys.executable,
-        model.get("script", "scripts/push-new-model-hf.py"),
+        script,
         "--config",
         model["config"],
         "--repo",
@@ -941,6 +983,7 @@ def render_actions(config: dict) -> str:
         hint = f"<small>{html.escape(reason or 'disabled')}</small>" if not enabled else ""
         rendered.append(
             f'<form method="post" action="{path}">'
+            f'<input type="hidden" name="_csrf" value="{CSRF_TOKEN}">'
             f'<button type="submit"{disabled}>{label}</button>{hint}</form>'
         )
     return "".join(rendered)
@@ -1053,6 +1096,7 @@ def html_page(message: str | None = None) -> str:
     </section>
     <section data-panel="config" hidden>
       <form method="post" action="/save">
+        <input type="hidden" name="_csrf" value="{CSRF_TOKEN}">
         {render_config_form(config)}
         <button class="primary" type="submit">Save configuration</button>
       </form>
@@ -1150,6 +1194,10 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("content-length", "0"))
         body = self.rfile.read(length).decode("utf-8")
         form = parse_qs(body)
+        csrf_token = form.get("_csrf", [""])[0]
+        if not secrets.compare_digest(csrf_token, CSRF_TOKEN):
+            self.send_error(HTTPStatus.FORBIDDEN, "invalid CSRF token")
+            return
         path = urlparse(self.path).path
         message = None
         try:
@@ -1227,6 +1275,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("content-type", "text/html; charset=utf-8")
         self.send_header("content-length", str(len(data)))
+        self.send_header("cache-control", "no-store")
+        self.send_header("referrer-policy", "same-origin")
         self.end_headers()
         self.wfile.write(data)
 
@@ -1256,8 +1306,15 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     os.chdir(repo_root())
-    server = ThreadingHTTPServer(("0.0.0.0", CONTROL_PORT), Handler)
-    print(f"training control dashboard listening on 0.0.0.0:{CONTROL_PORT}", flush=True)
+    try:
+        validate_control_settings(CONTROL_HOST, not GENERATED_CONTROL_PASSWORD)
+    except RuntimeError as err:
+        raise SystemExit(str(err)) from err
+    server = ThreadingHTTPServer((CONTROL_HOST, CONTROL_PORT), Handler)
+    print(
+        f"training control dashboard listening on {CONTROL_HOST}:{CONTROL_PORT}",
+        flush=True,
+    )
     if GENERATED_CONTROL_PASSWORD:
         print(
             f"generated control dashboard credentials: {CONTROL_USERNAME}:{CONTROL_PASSWORD}",
