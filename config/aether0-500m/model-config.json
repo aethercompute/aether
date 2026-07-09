@@ -23,5 +23,5 @@
   "rope_scaling": null,
   "q_lora_rank": null,
   "torch_dtype": "bfloat16",
-  "tie_word_embeddings": false
+  "tie_word_embeddings": true
 }
