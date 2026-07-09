@@ -1,5 +1,4 @@
 from transformers import (
-    AutoConfig,
     LlamaConfig,
     LlamaForCausalLM,
     AutoTokenizer,
@@ -129,6 +128,8 @@ def initialize_deepseek_weights(model: DeepseekV3ForCausalLM, config: DeepseekV3
 
 
 def main(args):
+    from transformers import AutoConfig
+
     if not args.config:
         raise RuntimeError("No config provided")
     config = AutoConfig.from_pretrained(args.config)
