@@ -81,7 +81,13 @@ fn collect_parquet_files(dir: &std::path::Path, files: &mut Vec<std::path::PathB
 }
 
 pub struct PreprocessedDataProvider {
-    data: Vec<TokenizedData>,
+    dataset: Dataset,
+    sequence_indices: Vec<usize>,
+    num_tokens_per_sequence: usize,
+    inputs_column: usize,
+    labels_column: Option<usize>,
+    position_ids_column: Option<usize>,
+    sequence_lengths_column: Option<usize>,
 }
 
 impl PreprocessedDataProvider {
@@ -110,93 +116,103 @@ impl PreprocessedDataProvider {
         let position_ids_column = dataset.get_column_id("position_ids");
         let sequence_lengths_column = dataset.get_column_id("sequence_lengths");
 
-        let data: Result<Vec<TokenizedData>, _> = dataset
-            .files()
-            .iter()
-            .flat_map(|file| -> Vec<anyhow::Result<TokenizedData>> {
-                match file.get_row_iter(None) {
-                    Ok(rows) => rows
-                        .map(|row| {
-                            if let Ok(row) = row {
-                                let input_ids = list_to_vec(
-                                    &row,
-                                    inputs_column,
-                                    Some(num_tokens_per_sequence),
-                                )?;
-                                let labels = match labels_column {
-                                    Some(column) => {
-                                        let labels = list_to_vec(
-                                            &row,
-                                            column,
-                                            Some(num_tokens_per_sequence),
-                                        )?;
-                                        validate_labels(&labels)?;
-                                        Some(labels)
-                                    }
-                                    None => None,
-                                };
-                                let position_ids = match position_ids_column {
-                                    Some(column) => Some(list_to_vec(
-                                        &row,
-                                        column,
-                                        Some(num_tokens_per_sequence),
-                                    )?),
-                                    None => None,
-                                };
-                                let sequence_lengths = match sequence_lengths_column {
-                                    Some(column) => Some(list_to_vec(&row, column, None)?),
-                                    None => None,
-                                };
-                                Ok(TokenizedData {
-                                    input_ids,
-                                    labels,
-                                    position_ids,
-                                    sequence_lengths,
-                                })
-                            } else {
-                                Err(anyhow::anyhow!("Invalid row"))
-                            }
-                        })
-                        .collect(),
-                    Err(e) => vec![Err(anyhow::anyhow!("Error reading parquet file {e}"))],
-                }
-            })
-            .collect();
-
-        let mut data = data?;
+        let mut sequence_indices: Vec<usize> = (0..dataset.num_rows()).collect();
 
         if let Shuffle::Seeded(random_seed) = shuffle {
-            data.shuffle(&mut ChaCha8Rng::from_seed(random_seed));
+            sequence_indices.shuffle(&mut ChaCha8Rng::from_seed(random_seed));
         }
 
-        Ok(Self { data })
+        Ok(Self {
+            dataset,
+            sequence_indices,
+            num_tokens_per_sequence,
+            inputs_column,
+            labels_column,
+            position_ids_column,
+            sequence_lengths_column,
+        })
+    }
+
+    fn row_at(&self, mut row_index: usize) -> Result<Row> {
+        for file in self.dataset.files() {
+            let rows_in_file = file.metadata().file_metadata().num_rows() as usize;
+            if row_index >= rows_in_file {
+                row_index -= rows_in_file;
+                continue;
+            }
+
+            return Ok(file
+                .get_row_iter(None)?
+                .nth(row_index)
+                .ok_or_else(|| anyhow!("missing parquet row {row_index}"))??);
+        }
+
+        bail!("sample index out of range")
+    }
+
+    fn row_to_tokenized_data(&self, row: Row) -> Result<TokenizedData> {
+        let input_ids = list_to_vec(
+            &row,
+            self.inputs_column,
+            Some(self.num_tokens_per_sequence),
+        )?;
+        let labels = match self.labels_column {
+            Some(column) => {
+                let labels = list_to_vec(&row, column, Some(self.num_tokens_per_sequence))?;
+                validate_labels(&labels)?;
+                Some(labels)
+            }
+            None => None,
+        };
+        let position_ids = match self.position_ids_column {
+            Some(column) => Some(list_to_vec(
+                &row,
+                column,
+                Some(self.num_tokens_per_sequence),
+            )?),
+            None => None,
+        };
+        let sequence_lengths = match self.sequence_lengths_column {
+            Some(column) => Some(list_to_vec(&row, column, None)?),
+            None => None,
+        };
+
+        Ok(TokenizedData {
+            input_ids,
+            labels,
+            position_ids,
+            sequence_lengths,
+        })
     }
 }
 
 impl TokenizedDataProvider for PreprocessedDataProvider {
     async fn get_samples(&mut self, data_ids: BatchId) -> Result<Vec<TokenizedData>> {
-        let len = self.data.len();
+        let len = self.sequence_indices.len();
         if len == 0 {
             bail!("No data available");
         }
         let start = data_ids.0.start as usize % len;
         let end = data_ids.0.end as usize % len;
 
-        let samples = if start <= end {
-            self.data[start..=end].to_vec()
+        let sample_indices: Vec<usize> = if start <= end {
+            self.sequence_indices[start..=end].to_vec()
         } else {
             let mut result = Vec::with_capacity((len - start) + (end + 1));
-            result.extend_from_slice(&self.data[start..]);
-            result.extend_from_slice(&self.data[..=end]);
+            result.extend_from_slice(&self.sequence_indices[start..]);
+            result.extend_from_slice(&self.sequence_indices[..=end]);
             result
         };
 
-        Ok(samples)
+        sample_indices
+            .into_iter()
+            .map(|index| self.row_at(index).and_then(|row| self.row_to_tokenized_data(row)))
+            .collect()
     }
 }
 
 impl LengthKnownDataProvider for PreprocessedDataProvider {
     fn num_sequences(&self) -> usize {
-        self.data.len()
+        self.sequence_indices.len()
     }
 }
