@@ -1,4 +1,5 @@
 from transformers import (
+    AutoConfig,
     LlamaConfig,
     LlamaForCausalLM,
     AutoTokenizer,
@@ -7,11 +8,9 @@ from transformers import (
 )
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from torch import nn
-from huggingface_hub import HfApi
 import argparse
 import torch
 import math
-import json
 
 
 def _init_normal(module, std: float, cutoff_factor: float = 3.0):
@@ -132,19 +131,21 @@ def initialize_deepseek_weights(model: DeepseekV3ForCausalLM, config: DeepseekV3
 def main(args):
     if not args.config:
         raise RuntimeError("No config provided")
-    with open(args.config, "r", encoding="utf-8") as f:
-        raw_config = json.load(f)
-    model_type = raw_config["model_type"]
+    config = AutoConfig.from_pretrained(args.config)
+    raw_config = config.to_dict()
+    model_type = config.model_type
 
     if model_type == "llama":
-        config = LlamaConfig.from_pretrained(args.config)
+        if not isinstance(config, LlamaConfig):
+            config = LlamaConfig.from_pretrained(args.config)
     elif model_type == "deepseek_v3":
         missing_fields = [field for field in ("rope_theta",) if field not in raw_config]
         if missing_fields:
             raise RuntimeError(
                 f"DeepSeek config is missing required fields: {', '.join(missing_fields)}"
             )
-        config = DeepseekV3Config.from_pretrained(args.config)
+        if not isinstance(config, DeepseekV3Config):
+            config = DeepseekV3Config.from_pretrained(args.config)
     else:
         raise ValueError(f"Unsupported model type `{model_type}`")
 
@@ -171,12 +172,6 @@ def main(args):
     print(f"Model has {total_params} parameters")
     if args.repo:
         model.push_to_hub(args.repo, private=args.private)
-        HfApi().upload_file(
-            path_or_fileobj=args.config,
-            path_in_repo="config.json",
-            repo_id=args.repo,
-            repo_type="model",
-        )
         if args.tokenizer:
             AutoTokenizer.from_pretrained(args.tokenizer).push_to_hub(
                 args.repo, private=args.private

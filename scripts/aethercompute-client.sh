@@ -351,7 +351,7 @@ Seed mode environment (required):
   HF_TOKEN     HuggingFace access token with write access
 
 Seed mode environment (optional):
-  HUB_REPO                 target repo (default: aethercompute/llama3.2-1b-pirate)
+  HUB_REPO                 target repo (default: aethercompute/llama3.2-1b-think)
   CHECKPOINT_DIR             local checkpoint storage (default: ~/.aethercompute/checkpoints)
   CHECKPOINT_EPOCH_INTERVAL  push every N epochs (default: 1)
   KEEP_STEPS                 step checkpoints to retain (default: 3)
@@ -429,7 +429,7 @@ do_seed() {
   if [[ -z "${HF_TOKEN:-}" ]]; then
     die "HF_TOKEN is required for seed mode. Get one at https://huggingface.co/settings/tokens"
   fi
-  export HUB_REPO="${HUB_REPO:-aethercompute/llama3.2-1b-pirate}"
+  export HUB_REPO="${HUB_REPO:-aethercompute/llama3.2-1b-think}"
   export CHECKPOINT_EPOCH_INTERVAL="${CHECKPOINT_EPOCH_INTERVAL:-1}"
   export KEEP_STEPS="${KEEP_STEPS:-3}"
   export DELETE_OLD_STEPS="${DELETE_OLD_STEPS:-true}"

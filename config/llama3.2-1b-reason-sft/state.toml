@@ -1,17 +1,17 @@
-run_id = "llama32-1b-pirate-sft-distro"
+run_id = "llama3.2-1b-reason"
 run_state = "WaitingForMembers"
 
 [config]
 warmup_time = 120
 cooldown_time = 5
 epoch_time = 480
-max_round_train_time = 120
+max_round_train_time = 180
 round_witness_time = 14
 min_clients = 1
 init_min_clients = 1
 
-global_batch_size_start = 16
-global_batch_size_end = 16
+global_batch_size_start = 128
+global_batch_size_end = 128
 global_batch_size_warmup_tokens = 0
 
 verification_percent = 0
@@ -22,14 +22,14 @@ waiting_for_members_extra_time = 120
 [model.LLM]
 architecture = "HfAuto"
 data_type = "Finetuning"
-max_seq_len = 1024
+max_seq_len = 8192
 cold_start_warmup_steps = 0
 
 [model.LLM.data_location]
 Server = "train.aethercompute.org:39406"
 
 [model.LLM.checkpoint.Hub]
-repo_id = "meta-llama/Llama-3.2-1B-Instruct"
+repo_id = "aethercompute/llama3.2-1b-reason"
 
 [model.LLM.lr_schedule.Cosine]
 base_lr = 2.0e-5

@@ -1,6 +1,6 @@
 [server]
-state_path = "config/llama3.2-1b-pirate-sft/state.toml"
-data_config = "config/llama3.2-1b-pirate-sft/data.toml"
+state_path = "config/llama3.2-1b-reason/state.toml"
+data_config = "config/llama3.2-1b-reason/data.toml"
 experiment_path = "config/experiment-run.toml"
 experiment_enabled = false
 server_port = 39405
@@ -11,14 +11,14 @@ tui = false
 enabled = true
 objective = "sft"
 script = "scripts/prepare-sft-local.py"
-output_dir = "data/pirate-speak-llama3.2-1b-sft-1024"
-sequence_length = 1024
+output_dir = "data/llama3.2-1b-reason-8192"
+sequence_length = 8192
 num_sequences = 0
 shard_size = 2048
-dataset = "KafeisM/pirate-speak-dataset"
+dataset = "Magpie-Align/Magpie-Reasoning-V2-250K-CoT-Llama3"
 split = "train"
-prompt_field = "english"
-response_field = "pirate"
+prompt_field = "instruction"
+response_field = "response"
 sft_mode = "chat"
 system_prompt = ""
 tokenizer = "meta-llama/Llama-3.2-1B-Instruct"
@@ -27,4 +27,8 @@ buffer_docs = 0
 trust_remote_code = false
 
 [model]
-enabled = false
+enabled = true
+config = "meta-llama/Llama-3.2-1B-Instruct"
+repo = "aethercompute/llama3.2-1b-reason"
+tokenizer = "meta-llama/Llama-3.2-1B-Instruct"
+private = false
