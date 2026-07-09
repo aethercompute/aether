@@ -16,7 +16,9 @@ from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, quote, urlparse
+from urllib.request import Request, urlopen
 
 
 CONFIG_PATH = Path(os.environ.get("TRAINING_RUN_CONFIG", "config/training-run.toml"))
@@ -320,7 +322,28 @@ def experiment_state_paths(config: dict) -> list[Path]:
     return paths
 
 
+def state_hub_checkpoint_repo(state_path: Path) -> str | None:
+    try:
+        with state_path.open("rb") as f:
+            state = tomllib.load(f)
+        hub = (
+            state.get("model", {})
+            .get("LLM", {})
+            .get("checkpoint", {})
+            .get("Hub", {})
+        )
+        repo = str(hub.get("repo_id", "")).strip()
+        if repo:
+            return repo
+    except (OSError, tomllib.TOMLDecodeError, AttributeError):
+        pass
+    return None
+
+
 def state_checkpoint_repo(state_path: Path) -> str:
+    repo = state_hub_checkpoint_repo(state_path)
+    if repo:
+        return repo
     text = state_path.read_text(encoding="utf-8")
     for line in text.splitlines():
         if line.strip().startswith("repo_id"):
@@ -371,11 +394,51 @@ def state_checkpoint(config: dict) -> str:
     state_path = repo_root() / config.get("server", {}).get("state_path", "")
     if not state_path.exists():
         return "state file missing"
-    text = state_path.read_text(encoding="utf-8")
-    for line in text.splitlines():
-        if line.strip().startswith("repo_id"):
-            return line.split("=", 1)[1].strip().strip('"')
-    return "checkpoint repo not found in state file"
+    try:
+        return state_checkpoint_repo(state_path)
+    except RuntimeError:
+        return "checkpoint repo not found in state file"
+
+
+def hf_token() -> str:
+    return os.environ.get("HF_TOKEN", "") or os.environ.get("HUGGING_FACE_HUB_TOKEN", "")
+
+
+def ensure_checkpoint_available(config: dict) -> None:
+    state_path = repo_root() / config.get("server", {}).get("state_path", "")
+    if not state_path.exists():
+        raise RuntimeError(f"state file is missing: {state_path}")
+    repo = state_hub_checkpoint_repo(state_path)
+    if not repo:
+        return
+    if (repo_root() / repo).exists():
+        return
+
+    url = f"https://huggingface.co/api/models/{quote(repo, safe='/')}"
+    token = hf_token()
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    request = Request(url, headers=headers)
+    try:
+        with urlopen(request, timeout=10) as response:
+            if response.status < 400:
+                return
+    except HTTPError as err:
+        body = err.read().decode("utf-8", errors="replace").strip()
+        detail = f": {body[:300]}" if body else ""
+        if err.code in (401, 403):
+            hint = (
+                "set HF_TOKEN or HUGGING_FACE_HUB_TOKEN for the dashboard process"
+                if not token
+                else "check that the HF token can access this repo"
+            )
+            raise RuntimeError(
+                f"checkpoint repo {repo} is not accessible ({err.code} {err.reason}); {hint}{detail}"
+            ) from err
+        raise RuntimeError(
+            f"checkpoint repo {repo} is not accessible ({err.code} {err.reason}){detail}"
+        ) from err
+    except URLError as err:
+        raise RuntimeError(f"could not verify checkpoint repo {repo}: {err.reason}") from err
 
 
 def state_data_server(config: dict) -> str | None:
@@ -764,6 +827,7 @@ def ensure_training_prereqs(config: dict) -> None:
     if config.get("dataset", {}).get("enabled", True) and not data_ready:
         raise RuntimeError(f"dataset is not ready: {data_message}")
     ensure_data_server_config(config)
+    ensure_checkpoint_available(config)
     model_ready, model_message = model_status(config)
     if model_push_enabled(config) and not model_ready:
         raise RuntimeError(f"init model is not ready: {model_message}")
@@ -774,6 +838,7 @@ def ensure_experiment_training_prereqs(config: dict) -> None:
     if config.get("dataset", {}).get("enabled", True) and not data_ready:
         raise RuntimeError(f"dataset is not ready: {data_message}")
     ensure_data_server_config(config)
+    ensure_checkpoint_available(config)
     model_ready, model_message = experiment_model_status(config)
     if model_push_enabled(config) and not model_ready:
         raise RuntimeError(f"experiment init models are not ready: {model_message}")

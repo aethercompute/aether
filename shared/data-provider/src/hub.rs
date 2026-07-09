@@ -4,7 +4,7 @@ use aether_coordinator::model;
 use aether_core::FixedString;
 use hf_hub::{
     api::{
-        tokio::{ApiError, UploadSource},
+        tokio::{ApiError, HfBadResponse, UploadSource},
         Siblings,
     },
     Cache, Repo, RepoType,
@@ -64,7 +64,12 @@ async fn download_repo_async(
         .build()?
         .repo(repo);
     let siblings = api
-        .info()
+        .info_request()
+        .send()
+        .await?
+        .maybe_hf_err()
+        .await?
+        .json::<hf_hub::api::RepoInfo>()
         .await?
         .siblings
         .into_iter()
