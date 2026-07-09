@@ -16,7 +16,7 @@ global_batch_size_warmup_tokens = 0
 
 verification_percent = 0
 witness_nodes = 1
-total_steps = 32
+total_steps = 64
 waiting_for_members_extra_time = 120
 
 [model.LLM]
@@ -33,9 +33,9 @@ repo_id = "aethercompute/llama3.2-1b-reason"
 
 [model.LLM.lr_schedule.Cosine]
 base_lr = 2.0e-5
-warmup_steps = 3
+warmup_steps = 6
 warmup_init_lr = 0.0
-total_steps = 32
+total_steps = 64
 final_lr = 2.0e-6
 
 [model.LLM.optimizer.Distro]
