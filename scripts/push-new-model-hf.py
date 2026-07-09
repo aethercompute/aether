@@ -133,17 +133,20 @@ def main(args):
     if not args.config:
         raise RuntimeError("No config provided")
     config = AutoConfig.from_pretrained(args.config)
-    raw_config = config.to_dict()
     model_type = config.model_type
 
     if model_type == "llama":
         if not isinstance(config, LlamaConfig):
             config = LlamaConfig.from_pretrained(args.config)
     elif model_type == "deepseek_v3":
-        missing_fields = [field for field in ("rope_theta",) if field not in raw_config]
-        if missing_fields:
+        rope_parameters = getattr(config, "rope_parameters", None) or {}
+        has_rope_theta = (
+            getattr(config, "rope_theta", None) is not None
+            or rope_parameters.get("rope_theta") is not None
+        )
+        if not has_rope_theta:
             raise RuntimeError(
-                f"DeepSeek config is missing required fields: {', '.join(missing_fields)}"
+                "DeepSeek config is missing required fields: rope_theta"
             )
         if not isinstance(config, DeepseekV3Config):
             config = DeepseekV3Config.from_pretrained(args.config)
