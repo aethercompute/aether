@@ -151,11 +151,7 @@ impl PreprocessedDataProvider {
     }
 
     fn row_to_tokenized_data(&self, row: Row) -> Result<TokenizedData> {
-        let input_ids = list_to_vec(
-            &row,
-            self.inputs_column,
-            Some(self.num_tokens_per_sequence),
-        )?;
+        let input_ids = list_to_vec(&row, self.inputs_column, Some(self.num_tokens_per_sequence))?;
         let labels = match self.labels_column {
             Some(column) => {
                 let labels = list_to_vec(&row, column, Some(self.num_tokens_per_sequence))?;
@@ -206,7 +202,10 @@ impl TokenizedDataProvider for PreprocessedDataProvider {
 
         sample_indices
             .into_iter()
-            .map(|index| self.row_at(index).and_then(|row| self.row_to_tokenized_data(row)))
+            .map(|index| {
+                self.row_at(index)
+                    .and_then(|row| self.row_to_tokenized_data(row))
+            })
             .collect()
     }
 }
