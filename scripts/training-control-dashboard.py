@@ -479,6 +479,54 @@ def model_push_enabled(config: dict) -> bool:
     return all(str(model.get(key, "")).strip() for key in required)
 
 
+def model_push_disabled_reason(config: dict) -> str | None:
+    model = config.get("model", {})
+    if not model.get("enabled", False):
+        return "model.enabled is false"
+    missing = [
+        key
+        for key in ("config", "repo", "tokenizer")
+        if not str(model.get(key, "")).strip()
+    ]
+    if missing:
+        return f"missing model fields: {', '.join(missing)}"
+    return None
+
+
+def config_for_form(config: dict) -> dict:
+    display = {
+        section: dict(values) if isinstance(values, dict) else values
+        for section, values in config.items()
+    }
+    server = display.get("server", {})
+    dataset = display.get("dataset", {})
+    model = display.setdefault("model", {})
+    if isinstance(model, dict):
+        model.setdefault("enabled", False)
+        model.setdefault("script", "scripts/push-new-model-hf.py")
+        state_raw = str(server.get("state_path", "")) if isinstance(server, dict) else ""
+        if state_raw:
+            model.setdefault("config", str(Path(state_raw).with_name("model-config.json")))
+            state_path = Path(state_raw)
+            if not state_path.is_absolute():
+                state_path = repo_root() / state_path
+            try:
+                model.setdefault("repo", state_checkpoint_repo(state_path))
+            except RuntimeError:
+                model.setdefault("repo", "")
+        else:
+            model.setdefault("config", "")
+            model.setdefault("repo", "")
+        if isinstance(dataset, dict):
+            model.setdefault("tokenizer", str(dataset.get("tokenizer", "")))
+        else:
+            model.setdefault("tokenizer", "")
+        model.setdefault("private", False)
+        model.setdefault("dtype", "bfloat16")
+        model.setdefault("device", "")
+    return display
+
+
 @dataclass
 class Job:
     name: str
@@ -855,26 +903,47 @@ def stop_server_job() -> str:
 
 def render_actions(config: dict) -> str:
     push_enabled = model_push_enabled(config)
+    push_disabled_reason = model_push_disabled_reason(config)
     experiment_enabled = config.get("server", {}).get("experiment_enabled", False)
     actions = [
-        ("/prepare-dataset", "Prepare dataset", config.get("dataset", {}).get("enabled", True)),
-        ("/push-model", "Push init model", push_enabled),
+        (
+            "/prepare-dataset",
+            "Prepare dataset",
+            config.get("dataset", {}).get("enabled", True),
+            "dataset.enabled is false",
+        ),
+        ("/push-model", "Push init model", push_enabled, push_disabled_reason),
         (
             "/push-experiment-models",
             "Push experiment init models",
             push_enabled and experiment_enabled,
+            push_disabled_reason if not push_enabled else "server.experiment_enabled is false",
         ),
-        ("/validate", "Validate state config", True),
-        ("/start-server", "Start training server", True),
-        ("/stop-server", "Stop training server", True),
-        ("/start-experiment-server", "Start experiment server", experiment_enabled),
-        ("/stop-experiment-server", "Stop experiment server", experiment_enabled),
+        ("/validate", "Validate state config", True, None),
+        ("/start-server", "Start training server", True, None),
+        ("/stop-server", "Stop training server", True, None),
+        (
+            "/start-experiment-server",
+            "Start experiment server",
+            experiment_enabled,
+            "server.experiment_enabled is false",
+        ),
+        (
+            "/stop-experiment-server",
+            "Stop experiment server",
+            experiment_enabled,
+            "server.experiment_enabled is false",
+        ),
     ]
-    return "".join(
-        f'<form method="post" action="{path}"><button type="submit">{label}</button></form>'
-        for path, label, enabled in actions
-        if enabled
-    )
+    rendered = []
+    for path, label, enabled, reason in actions:
+        disabled = "" if enabled else " disabled"
+        hint = f"<small>{html.escape(reason or 'disabled')}</small>" if not enabled else ""
+        rendered.append(
+            f'<form method="post" action="{path}">'
+            f'<button type="submit"{disabled}>{label}</button>{hint}</form>'
+        )
+    return "".join(rendered)
 
 
 TAB_SCRIPT = """
@@ -1023,6 +1092,7 @@ def render_job(job: Job | None) -> str:
 
 
 def render_config_form(config: dict) -> str:
+    config = config_for_form(config)
     sections = []
     for section, values in config.items():
         fields = []
