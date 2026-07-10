@@ -910,20 +910,20 @@ impl Coordinator {
         random_seed: u64,
     ) -> std::result::Result<TickResult, CoordinatorError> {
         if self.check_timeout(unix_timestamp, self.config.round_witness_time) {
-            // TODO: Punish idle witnesses
             self.epoch_state.first_round = false.into();
             self.progress.step += 1;
             let current_round = self.current_round_unchecked();
             let height = current_round.height;
             let num_witnesses = current_round.witnesses.len() as u16;
+
+            if let Err(error) = self.eject_missing_witnesses() {
+                warn!(?error, "could not identify missing elected witnesses");
+            }
             self.move_clients_to_exited(height);
 
-            // If there are not witnesses, then we can't distinguish from
-            // the situation where only witness nodes disconnected or everyone
-            // disconnected. We just set everyone to withdrawn state and change
-            // to Cooldown.
+            // A round without witnesses cannot be verified. End the epoch, but
+            // preserve non-witness clients so the next epoch can admit them.
             if num_witnesses == 0 {
-                self.withdraw_all();
                 self.start_cooldown(unix_timestamp);
                 return Ok(TickResult::Ticked);
             }
@@ -1076,6 +1076,31 @@ impl Coordinator {
                 true
             }
         });
+    }
+
+    fn eject_missing_witnesses(&mut self) -> Result<usize, CoordinatorError> {
+        let selection = CommitteeSelection::from_coordinator(self, 0)?;
+        let received: HashSet<u64> = self
+            .current_round_unchecked()
+            .witnesses
+            .iter()
+            .map(|witness| witness.proof.index)
+            .collect();
+        let clients_len = self.current_round_unchecked().clients_len as usize;
+        let mut ejected = 0;
+
+        for index in 0..clients_len.min(self.epoch_state.clients.len()) {
+            let client = &mut self.epoch_state.clients[index];
+            if client.state == ClientState::Healthy
+                && selection.get_witness(index as u64).witness.is_true()
+                && !received.contains(&(index as u64))
+            {
+                client.state = ClientState::Ejected;
+                ejected += 1;
+            }
+        }
+
+        Ok(ejected)
     }
 
     fn move_clients_without_warmup_witness_to_exited(&mut self, height: u32) {
@@ -1255,6 +1280,87 @@ mod tests {
             ClientState::Dropped
         );
         assert_eq!(coordinator.epoch_state.exited_clients[0].exited_height, 7);
+    }
+
+    fn witness_timeout_coordinator(client_count: u8, witness_nodes: u16) -> Coordinator {
+        let mut coordinator = Coordinator::zeroed();
+        coordinator.run_state = RunState::RoundWitness;
+        coordinator.run_state_start_unix_timestamp = 10;
+        coordinator.config.round_witness_time = 14;
+        coordinator.config.witness_nodes = witness_nodes;
+        coordinator.config.min_clients = 1;
+        coordinator.epoch_state.clients =
+            FixedVec::from_iter((0..client_count).map(|n| Client::new(identity(n + 1))));
+
+        let round = coordinator.current_round_mut_unchecked();
+        round.clients_len = client_count as u16;
+        round.height = 7;
+        round.random_seed = 42;
+        coordinator
+    }
+
+    #[test]
+    fn witness_timeout_ejects_only_missing_sole_witness() {
+        let mut coordinator = witness_timeout_coordinator(3, 1);
+        let selection = CommitteeSelection::from_coordinator(&coordinator, 0).unwrap();
+        let elected_index = (0..3)
+            .find(|index| selection.get_witness(*index).witness.is_true())
+            .unwrap() as usize;
+        let elected_id = coordinator.epoch_state.clients[elected_index].id;
+
+        coordinator.tick_round_witness(24, 99).unwrap();
+
+        assert_eq!(coordinator.run_state, RunState::Cooldown);
+        assert_eq!(coordinator.progress.step, 1);
+        assert_eq!(coordinator.epoch_state.clients.len(), 2);
+        assert!(coordinator
+            .epoch_state
+            .clients
+            .iter()
+            .all(|client| client.state == ClientState::Healthy));
+        assert_eq!(coordinator.epoch_state.exited_clients.len(), 1);
+        assert_eq!(coordinator.epoch_state.exited_clients[0].id, elected_id);
+        assert_eq!(
+            coordinator.epoch_state.exited_clients[0].state,
+            ClientState::Ejected
+        );
+    }
+
+    #[test]
+    fn witness_timeout_preserves_clients_that_submitted_or_were_not_elected() {
+        let mut coordinator = witness_timeout_coordinator(4, 2);
+        let selection = CommitteeSelection::from_coordinator(&coordinator, 0).unwrap();
+        let elected: Vec<_> = (0..4)
+            .filter(|index| selection.get_witness(*index).witness.is_true())
+            .collect();
+        assert_eq!(elected.len(), 2);
+
+        let submitted_index = elected[0];
+        coordinator
+            .current_round_mut_unchecked()
+            .witnesses
+            .push(Witness {
+                proof: selection.get_witness(submitted_index),
+                ..Default::default()
+            })
+            .unwrap();
+        let missing_id = coordinator.epoch_state.clients[elected[1] as usize].id;
+
+        coordinator.tick_round_witness(24, 99).unwrap();
+
+        assert_eq!(coordinator.run_state, RunState::Cooldown);
+        assert_eq!(coordinator.epoch_state.exited_clients.len(), 1);
+        assert_eq!(coordinator.epoch_state.exited_clients[0].id, missing_id);
+        assert_eq!(
+            coordinator.epoch_state.exited_clients[0].state,
+            ClientState::Ejected
+        );
+        assert_eq!(coordinator.epoch_state.clients.len(), 3);
+        assert!(coordinator
+            .epoch_state
+            .clients
+            .iter()
+            .all(|client| client.state == ClientState::Healthy));
     }
 
     // ── RunState <-> usize roundtrip ───────────────────────────────────────────

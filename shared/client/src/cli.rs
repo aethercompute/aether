@@ -68,6 +68,16 @@ mod tests {
         std::env::remove_var("RAW_IDENTITY_SECRET_KEY");
         assert!(err.to_string().contains("not both"));
     }
+
+    #[test]
+    fn positive_duration_rejects_zero_and_non_finite_values() {
+        for value in ["0", "-1", "NaN", "inf"] {
+            assert!(
+                parse_positive_duration_from_seconds(value).is_err(),
+                "{value} should not be accepted"
+            );
+        }
+    }
 }
 
 fn parse_trim_quotes(s: &str) -> Result<String, String> {
@@ -183,6 +193,19 @@ pub struct TrainArgs {
 
     #[clap(long, env, default_value_t = 3)]
     pub hub_max_concurrent_downloads: usize,
+
+    /// Maximum duration of each Hugging Face checkpoint upload attempt.
+    #[clap(
+        long,
+        env,
+        default_value = "900",
+        value_parser = parse_positive_duration_from_seconds
+    )]
+    pub hub_upload_timeout: Duration,
+
+    /// Number of retries after the initial Hugging Face upload attempt.
+    #[clap(long, env, default_value_t = 1)]
+    pub hub_upload_max_retries: u32,
 
     #[clap(long, env)]
     pub wandb_project: Option<String>,
@@ -331,6 +354,8 @@ impl TrainArgs {
         Ok(Some(UploadInfo::Hub(HubUploadInfo {
             hub_repo: repo.to_string(),
             hub_token: token.to_string(),
+            upload_timeout: self.hub_upload_timeout,
+            max_retries: self.hub_upload_max_retries,
         })))
     }
 
@@ -396,10 +421,21 @@ fn parse_duration_from_seconds(s: &str) -> Result<Duration, String> {
     s.parse::<f64>()
         .map_err(|e| format!("Invalid number: {e}"))
         .and_then(|secs| {
-            if secs < 0.0 {
+            if !secs.is_finite() {
+                Err("Duration must be finite".to_string())
+            } else if secs < 0.0 {
                 Err("Duration cannot be negative".to_string())
             } else {
                 Ok(Duration::from_secs_f64(secs))
             }
         })
+}
+
+fn parse_positive_duration_from_seconds(s: &str) -> Result<Duration, String> {
+    let duration = parse_duration_from_seconds(s)?;
+    if duration.is_zero() {
+        Err("Duration must be greater than zero".to_string())
+    } else {
+        Ok(duration)
+    }
 }

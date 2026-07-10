@@ -12,6 +12,7 @@ use aether_event_sourcing::event;
 use aether_modeling::{DistroResult, Trainer};
 use aether_network::{BlobTicket, Hash, P2PEndpointInfo, TransmittableDistroResult};
 use aether_watcher::OpportunisticData;
+use futures::FutureExt;
 use iroh_blobs::api::Tag;
 use std::{
     fmt,
@@ -66,7 +67,7 @@ pub struct StepStateMachine {
 
     consecutive_desync_steps: u32,
 
-    // Handles for HuggingFace uploads running in background
+    // Handles for checkpoint writes and uploads running in the background.
     pending_upload_handles:
         Vec<tokio::task::JoinHandle<Result<(), crate::state::cooldown::CheckpointError>>>,
 }
@@ -787,6 +788,7 @@ impl StepStateMachine {
                     }
                 };
                 self.active_step = new_step;
+                self.coordinator_state = state;
 
                 return Ok(());
             }
@@ -974,8 +976,19 @@ impl StepStateMachine {
     }
 
     fn cleanup_completed_uploads(&mut self) {
-        self.pending_upload_handles
-            .retain(|handle| !handle.is_finished());
+        self.pending_upload_handles.retain_mut(|handle| {
+            if !handle.is_finished() {
+                return true;
+            }
+
+            match handle.now_or_never() {
+                Some(Ok(Ok(()))) => {}
+                Some(Ok(Err(error))) => error!(%error, "checkpoint upload task failed"),
+                Some(Err(error)) => error!(%error, "checkpoint upload task crashed"),
+                None => return true,
+            }
+            false
+        });
     }
 }
 
@@ -1224,15 +1237,11 @@ impl RunManager {
         Ok(())
     }
 
-    pub fn doing_checkpoint(&self) -> bool {
-        match &self.stage {
+    pub fn doing_checkpoint(&mut self) -> bool {
+        match &mut self.stage {
             InitStage::Running(step_state_machine) => {
-                let has_pending_uploads = step_state_machine
-                    .pending_upload_handles
-                    .iter()
-                    .any(|handle| !handle.is_finished());
-
-                has_pending_uploads
+                step_state_machine.cleanup_completed_uploads();
+                !step_state_machine.pending_upload_handles.is_empty()
             }
             _ => false,
         }

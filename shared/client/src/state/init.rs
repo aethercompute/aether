@@ -160,6 +160,7 @@ mod tests {
     use crate::state::UploadInfo;
     use crate::WandBInfo;
     use aether_data_provider::HubUploadInfo;
+    use std::time::Duration;
 
     fn base_config() -> RunInitConfig {
         RunInitConfig {
@@ -199,6 +200,8 @@ mod tests {
             upload_info: Some(UploadInfo::Hub(HubUploadInfo {
                 hub_repo: "fixed-repo".into(),
                 hub_token: "t".into(),
+                upload_timeout: Duration::from_secs(900),
+                max_retries: 1,
             })),
             checkpoint_dir: PathBuf::from("/tmp/fixed"),
             delete_old_steps: false,
@@ -230,6 +233,8 @@ mod tests {
             upload_info: Some(UploadInfo::Hub(HubUploadInfo {
                 hub_repo: "repo-{run_id}".into(),
                 hub_token: "t".into(),
+                upload_timeout: Duration::from_secs(900),
+                max_retries: 1,
             })),
             checkpoint_dir: PathBuf::from("/tmp/ck-{run_id}"),
             delete_old_steps: false,

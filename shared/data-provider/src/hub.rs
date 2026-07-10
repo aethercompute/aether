@@ -9,9 +9,13 @@ use hf_hub::{
     },
     Cache, Repo, RepoType,
 };
-use std::{path::PathBuf, time::Instant};
+use std::{
+    future::Future,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 use tokio::sync::mpsc;
-use tracing::{error, info};
+use tracing::{info, warn};
 
 const MODEL_EXTENSIONS: [&str; 3] = [".safetensors", ".json", ".py"];
 const DATASET_EXTENSIONS: [&str; 1] = [".parquet"];
@@ -220,6 +224,49 @@ pub fn download_dataset_repo_sync(
 pub struct HubUploadInfo {
     pub hub_repo: String,
     pub hub_token: String,
+    pub upload_timeout: Duration,
+    pub max_retries: u32,
+}
+
+#[derive(Debug)]
+enum TimedRetryError<E> {
+    Operation(E),
+    Timeout,
+}
+
+async fn retry_with_timeout<T, E, F, Fut>(
+    timeout: Duration,
+    max_retries: u32,
+    mut operation: F,
+) -> Result<T, TimedRetryError<E>>
+where
+    E: std::fmt::Display,
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+{
+    let mut attempt = 1u64;
+    let mut retries_remaining = max_retries;
+    loop {
+        let result = tokio::time::timeout(timeout, operation()).await;
+        match result {
+            Ok(Ok(value)) => return Ok(value),
+            Ok(Err(error)) if retries_remaining > 0 => {
+                warn!(attempt, max_retries, %error, "HF upload attempt failed; retrying");
+            }
+            Ok(Err(error)) => return Err(TimedRetryError::Operation(error)),
+            Err(_) if retries_remaining > 0 => {
+                warn!(
+                    attempt,
+                    max_retries,
+                    ?timeout,
+                    "HF upload attempt timed out; retrying"
+                );
+            }
+            Err(_) => return Err(TimedRetryError::Timeout),
+        }
+        retries_remaining -= 1;
+        attempt += 1;
+    }
 }
 
 pub async fn upload_to_hub(
@@ -231,6 +278,8 @@ pub async fn upload_to_hub(
     let HubUploadInfo {
         hub_repo,
         hub_token,
+        upload_timeout,
+        max_retries,
     } = hub_info;
 
     info!(repo = hub_repo, "Uploading checkpoint to HuggingFace");
@@ -241,7 +290,7 @@ pub async fn upload_to_hub(
     let repo = Repo::model(hub_repo.clone());
     let api_repo = api.repo(repo);
 
-    let files: Result<Vec<(UploadSource, String)>, _> = local
+    let files: Result<Vec<(PathBuf, String)>, _> = local
         .into_iter()
         .map(|path| {
             path.file_name()
@@ -251,23 +300,24 @@ pub async fn upload_to_hub(
                         .ok_or(UploadError::InvalidFilename(path.clone()))
                         .map(|s| s.to_string())
                 })
-                .map(|name| (path.into(), name))
+                .map(|name| (path, name))
         })
         .collect();
 
     let files = files?;
 
-    let commit_info = api_repo
-        .upload_files(files, Some(format!("step {step}")), None, false)
-        .await
-        .map_err(|e| {
-            error!(
-                repo = hub_repo,
-                error = ?e,
-                "Failed to upload files to HuggingFace"
-            );
-            e
-        })?;
+    let commit_info = retry_with_timeout(upload_timeout, max_retries, || {
+        let upload_files = files
+            .iter()
+            .map(|(path, name)| (UploadSource::from(path.clone()), name.clone()))
+            .collect();
+        api_repo.upload_files(upload_files, Some(format!("step {step}")), None, false)
+    })
+    .await
+    .map_err(|error| match error {
+        TimedRetryError::Operation(error) => UploadError::Commit(error),
+        TimedRetryError::Timeout => UploadError::HfUploadTimeout(upload_timeout),
+    })?;
 
     let revision = commit_info.oid;
 
@@ -285,4 +335,36 @@ pub async fn upload_to_hub(
         .map_err(|_| UploadError::SendCheckpoint)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod upload_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[tokio::test]
+    async fn retry_with_timeout_retries_operation_errors() {
+        let attempts = Cell::new(0u32);
+        let result = retry_with_timeout(Duration::from_secs(1), 2, || {
+            attempts.set(attempts.get() + 1);
+            async { Err::<(), _>("failed") }
+        })
+        .await;
+
+        assert!(matches!(result, Err(TimedRetryError::Operation("failed"))));
+        assert_eq!(attempts.get(), 3);
+    }
+
+    #[tokio::test]
+    async fn retry_with_timeout_bounds_pending_operations() {
+        let attempts = Cell::new(0u32);
+        let result = retry_with_timeout(Duration::from_millis(1), 1, || {
+            attempts.set(attempts.get() + 1);
+            std::future::pending::<Result<(), &str>>()
+        })
+        .await;
+
+        assert!(matches!(result, Err(TimedRetryError::Timeout)));
+        assert_eq!(attempts.get(), 2);
+    }
 }

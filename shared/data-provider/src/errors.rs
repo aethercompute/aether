@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -18,6 +18,9 @@ pub enum UploadError {
 
     #[error("failed to commit files: {0}")]
     Commit(#[from] hf_hub::api::tokio::CommitError),
+
+    #[error("HF checkpoint upload timed out after {0:?}")]
+    HfUploadTimeout(Duration),
 
     // GCS-specific errors
     #[error("GCS authentication failed: {0}")]
