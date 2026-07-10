@@ -10,11 +10,9 @@ aether-core.workspace = true
 aether-client.workspace = true
 aether-event-sourcing.workspace = true
 aether-coordinator.workspace = true
-aether-eval.workspace = true
 aether-network.workspace = true
 aether-tui.workspace = true
 aether-watcher.workspace = true
-aether-modeling.workspace = true
 aether-metrics.workspace = true
 rand.workspace = true
 anyhow.workspace = true
@@ -23,17 +21,15 @@ clap.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tokio-util.workspace = true
-hf-hub.workspace = true
 time.workspace = true
 bytemuck.workspace = true
 clap-markdown.workspace = true
-hex = "0.4.3"
 aether-python-extension-impl = { workspace = true, optional = true }
 tikv-jemallocator.workspace = true
 
 [features]
 parallelism = ["aether-client/parallelism"]
-python = ["aether-python-extension-impl", "aether-client/python", "aether-modeling/python"]
+python = ["dep:aether-python-extension-impl", "aether-client/python"]
 
 [lints]
 workspace = true

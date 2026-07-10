@@ -6,7 +6,6 @@ edition = "2021"
 
 [dependencies]
 tch.workspace = true
-torch-sys.workspace = true
 aether-core.workspace = true
 aether-modeling = { workspace = true, features = ["python"] }
 serde_json.workspace = true
@@ -14,7 +13,6 @@ tokio-util.workspace = true
 pyo3.workspace = true
 pyo3-tch.workspace = true
 sysinfo = "0.30"
-take_mut = "0.2.2"
 tracing.workspace = true
 
 [features]

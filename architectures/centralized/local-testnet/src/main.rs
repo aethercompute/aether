@@ -150,10 +150,30 @@ fn run_command(command: &mut Command, description: &str) -> Result<()> {
     Ok(())
 }
 
-fn main() -> Result<()> {
-    #[cfg(feature = "python")]
-    aether_python_extension_impl::init_embedded_python()?;
+fn cargo_features(include_parallelism: bool) -> Option<String> {
+    let mut features = Vec::new();
+    if cfg!(feature = "python") {
+        features.push("python");
+    }
+    if include_parallelism && cfg!(feature = "parallelism") {
+        features.push("parallelism");
+    }
+    (!features.is_empty()).then(|| features.join(","))
+}
 
+fn add_cargo_features(command: &mut Command, include_parallelism: bool) {
+    if let Some(features) = cargo_features(include_parallelism) {
+        command.arg("--features").arg(features);
+    }
+}
+
+fn cargo_feature_fragment(include_parallelism: bool) -> String {
+    cargo_features(include_parallelism)
+        .map(|features| format!(" --features {features}"))
+        .unwrap_or_default()
+}
+
+fn main() -> Result<()> {
     let args = Args::parse();
     let command = args.command;
 
@@ -171,25 +191,21 @@ fn main() -> Result<()> {
             let data_path = start_args.config_path.join("data.toml");
 
             // Pre-build packages
-            run_command(
-                Command::new("cargo").args(["build", "-p", "aether-centralized-server"]),
-                "build server",
-            )?;
+            let mut build_server = Command::new("cargo");
+            build_server.args(["build", "-p", "aether-centralized-server"]);
+            add_cargo_features(&mut build_server, false);
+            run_command(&mut build_server, "build server")?;
 
-            run_command(
-                Command::new("cargo").args(["build", "-p", "aether-centralized-client"]),
-                "build client",
-            )?;
+            let mut build_client = Command::new("cargo");
+            build_client.args(["build", "-p", "aether-centralized-client"]);
+            add_cargo_features(&mut build_client, true);
+            run_command(&mut build_client, "build client")?;
 
             // Validate config
             let mut validate_cmd = Command::new("cargo");
-            validate_cmd.args([
-                "run",
-                "-p",
-                "aether-centralized-server",
-                "validate-config",
-                "--state",
-            ]);
+            validate_cmd.args(["run", "-p", "aether-centralized-server"]);
+            add_cargo_features(&mut validate_cmd, false);
+            validate_cmd.args(["--", "validate-config", "--state"]);
             validate_cmd.arg(&state_path);
             if data_path.exists() {
                 validate_cmd.arg("--data-config").arg(&data_path);
@@ -237,8 +253,9 @@ fn main() -> Result<()> {
 
             // Start server
             let mut server_cmd = format!(
-                "RUST_LOG={} cargo run -p aether-centralized-server run --state {} --server-port {} --tui {}",
+                "RUST_LOG={} cargo run -p aether-centralized-server{} -- run --state {} --server-port {} --tui {}",
                 start_args.log,
+                cargo_feature_fragment(false),
                 state_path.display(),
                 start_args.server_port,
                 start_args.tui
@@ -369,7 +386,7 @@ fn main() -> Result<()> {
 fn start_client(
     args: &StartArgs,
     i: usize,
-    run_id: &String,
+    run_id: &str,
     print: bool,
     start_time: OffsetDateTime,
 ) -> Result<()> {
@@ -390,9 +407,10 @@ fn start_client(
     let metrics_local_port = 6269 + i - 1;
 
     cmd.push(format!(
-        "METRICS_LOCAL_PORT={metrics_local_port} RUST_LOG={} RUST_BACKTRACE=1 RAW_IDENTITY_SECRET_KEY={} cargo run -p aether-centralized-client train --run-id {} --server-addr localhost:{} --logs {}",
+        "METRICS_LOCAL_PORT={metrics_local_port} RUST_LOG={} RUST_BACKTRACE=1 RAW_IDENTITY_SECRET_KEY={} cargo run -p aether-centralized-client{} -- train --run-id {} --server-addr localhost:{} --logs {}",
         args.log,
         raw_key,
+        cargo_feature_fragment(true),
         run_id,
         args.server_port,
         if args.tui {
@@ -458,4 +476,29 @@ fn start_client(
     )?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cargo_feature_forwarding_matches_launcher_features() {
+        let mut server_features = Vec::new();
+        let mut client_features = Vec::new();
+        if cfg!(feature = "python") {
+            server_features.push("python");
+            client_features.push("python");
+        }
+        if cfg!(feature = "parallelism") {
+            client_features.push("parallelism");
+        }
+
+        assert_eq!(cargo_features(false), nonempty_features(server_features));
+        assert_eq!(cargo_features(true), nonempty_features(client_features));
+    }
+
+    fn nonempty_features(features: Vec<&str>) -> Option<String> {
+        (!features.is_empty()).then(|| features.join(","))
+    }
 }

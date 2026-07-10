@@ -24,7 +24,15 @@ postcard.workspace = true
 [dev-dependencies]
 aether-test-support.workspace = true
 # For integration tests
-serial_test = "3.2"
+serial_test.workspace = true
+
+[[test]]
+name = "test_inference_node"
+required-features = ["vllm-tests"]
+
+[[test]]
+name = "test_vllm_integration"
+required-features = ["vllm-tests"]
 
 [lints]
 workspace = true

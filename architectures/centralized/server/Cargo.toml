@@ -6,7 +6,6 @@ edition = "2021"
 
 [dependencies]
 aether-centralized-shared = { path = "../shared" }
-aether-client.workspace = true
 aether-coordinator.workspace = true
 aether-core.workspace = true
 aether-data-provider = { workspace = true, features = ["remote"] }
@@ -15,33 +14,24 @@ aether-tui.workspace = true
 aether-watcher.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
-tokio-stream.workspace = true
 tokio-util.workspace = true
 axum.workspace = true
-tower-http.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 tracing.workspace = true
-bytes.workspace = true
 rand.workspace = true
-# `wandb` currently depends on rand 0.8 APIs; keep this alias until that
-# dependency is updated to the workspace rand 0.9 line.
-rand08 = { package = "rand", version = "0.8.5" }
-sha2.workspace = true
-futures-util.workspace = true
 chrono.workspace = true
 clap.workspace = true
-futures.workspace = true
 bytemuck.workspace = true
 toml.workspace = true
 clap-markdown.workspace = true
 aether-python-extension-impl = { workspace = true, optional = true }
 tikv-jemallocator.workspace = true
-wandb = { git = "https://github.com/NousResearch/wandb-rs.git", rev = "db6118e3bf3526718c1097baecf36f564233a735" }
+wandb.workspace = true
 
 [features]
-python = ["aether-python-extension-impl"]
+python = ["dep:aether-python-extension-impl"]
 
 [lints]
 workspace = true

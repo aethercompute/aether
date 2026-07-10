@@ -19,8 +19,8 @@ let
       inherit cargoArtifacts;
       pname = "aether-python-extension";
       cargoExtraArgs =
-        " --package aether-python-extension"
-        + lib.optionalString (config.cudaSupport) " --features parallelism";
+        " --package aether-python-extension --features python-extension"
+        + lib.optionalString (config.cudaSupport) ",parallelism";
       doCheck = false;
     }
   );
@@ -34,7 +34,7 @@ stdenvNoCC.mkDerivation {
   __structuredAttrs = true;
 
   name = "aether";
-  version = "0.1.0";
+  version = "0.2.0";
 
   src = ./python/aether;
 

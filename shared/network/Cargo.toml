@@ -4,6 +4,9 @@ version.workspace = true
 license.workspace = true
 edition = "2021"
 
+[package.metadata.cargo-machete]
+ignored = ["serde_bytes"]
+
 [dependencies]
 aether-tui.workspace = true
 aether-core.workspace = true
@@ -27,7 +30,7 @@ futures-util.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
 tch.workspace = true
-data-encoding = "2.6.0"
+data-encoding.workspace = true
 ed25519-dalek = "3.0.0-pre.1"
 serde_json.workspace = true
 serde_bytes = "0.11.15"

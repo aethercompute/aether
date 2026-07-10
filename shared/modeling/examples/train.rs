@@ -186,6 +186,7 @@ async fn main() -> Result<()> {
 
     let args = cli_args.run_args;
 
+    #[cfg(feature = "python")]
     let target_device = args.device.device_for_rank(0).unwrap();
 
     let repo_files = if std::fs::exists(args.model.clone()).is_ok_and(|x| x) {
@@ -329,7 +330,7 @@ async fn main() -> Result<()> {
     if python {
         #[cfg(feature = "python")]
         {
-            aether_python_extension_impl::init_embedded_python()?;
+            aether_modeling::init_embedded_python()?;
 
             let source = aether_modeling::PretrainedSource::RepoFiles(repo_files);
             let dp = args.data_parallelism.unwrap_or(1);

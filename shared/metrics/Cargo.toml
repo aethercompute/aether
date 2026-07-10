@@ -5,14 +5,12 @@ license.workspace = true
 edition = "2021"
 
 [dependencies]
-aether-core = { workspace = true, features = ["rand"] }
-anyhow.workspace = true
-opentelemetry = "0.28.0"
+opentelemetry.workspace = true
 sysinfo = "0.32.0"
 tokio.workspace = true
 nvml-wrapper = "0.11.0"
 iroh-metrics = { version = "0.35.0", features = ["metrics"] }
-tracing = "0.1"
+tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

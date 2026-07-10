@@ -30,7 +30,7 @@ aether-metrics.workspace = true
 aether-test-support.workspace = true
 serial_test.workspace = true
 rand.workspace = true
-tempfile = "3"
+tempfile.workspace = true
 tracing-subscriber = { version = "0.3", default-features = false, features = [
   "registry",
   "std",

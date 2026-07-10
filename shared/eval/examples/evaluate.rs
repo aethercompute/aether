@@ -235,7 +235,7 @@ fn run_data_parallel(
             let mut model: Box<dyn CausalLM> = if python {
                 #[cfg(feature = "python")]
                 {
-                    aether_python_extension_impl::init_embedded_python()?;
+                    aether_modeling::init_embedded_python()?;
 
                     Box::new(aether_modeling::PythonDistributedCausalLM::new(
                         python_arch,

@@ -6,15 +6,12 @@ edition = "2021"
 
 [dependencies]
 aether-coordinator.workspace = true
-aether-core.workspace = true
 aether-watcher.workspace = true
 bytemuck.workspace = true
-anyhow.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
 aether-test-support.workspace = true
-postcard.workspace = true
 
 [lints]
 workspace = true

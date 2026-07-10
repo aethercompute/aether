@@ -14,7 +14,6 @@ serde_json.workspace = true
 memmap2.workspace = true
 tokenizers.workspace = true
 tracing.workspace = true
-byteorder = "1.4.3"
 safetensors = "0.3.0"
 itertools = "0.14"
 thiserror.workspace = true
@@ -30,14 +29,13 @@ clap.workspace = true
 clap-markdown.workspace = true
 aether-data-provider.workspace = true
 aether-network.workspace = true
-aether-python-extension-impl.workspace = true
 aether-tui.workspace = true
 tokio.workspace = true
 postcard.workspace = true
 
 [features]
 parallelism = ["tch/nccl", "torch-sys/nccl"]
-python = ["pyo3", "pyo3-tch"]
+python = ["dep:pyo3", "dep:pyo3-tch"]
 
 [lints]
 workspace = true

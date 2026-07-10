@@ -177,7 +177,7 @@ fn inference(
         {
             let tp = args.tensor_parallelism.unwrap_or(1);
 
-            aether_python_extension_impl::init_embedded_python()?;
+            aether_modeling::init_embedded_python()?;
 
             let attn_implementation = args
                 .attn_implementation

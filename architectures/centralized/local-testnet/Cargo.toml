@@ -10,12 +10,12 @@ clap.workspace = true
 rand.workspace = true
 serde = { workspace = true, features = ["derive"] }
 time.workspace = true
-toml = "0.8.19"
+toml.workspace = true
 clap-markdown.workspace = true
-aether-python-extension-impl = { workspace = true, optional = true }
 
 [features]
-python = ["aether-python-extension-impl"]
+python = []
+parallelism = []
 
 [lints]
 workspace = true

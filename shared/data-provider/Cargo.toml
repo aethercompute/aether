@@ -19,21 +19,18 @@ anyhow.workspace = true
 memmap2.workspace = true
 rand_chacha.workspace = true
 rand.workspace = true
-tokio-util.workspace = true
 futures.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-postcard.workspace = true
 bytemuck.workspace = true
 reqwest = "0.12.12"
 google-cloud-storage = "0.24.0"
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { workspace = true, features = ["serde"] }
 serde_json.workspace = true
 ts-rs.workspace = true
-rayon.workspace = true
 
 [features]
-remote = ["aether-network", "aether-tui", "aether-watcher"]
+remote = ["dep:aether-network", "dep:aether-tui", "dep:aether-watcher"]
 
 [dev-dependencies]
 aether-tui.workspace = true
@@ -41,7 +38,7 @@ tokenizers.workspace = true
 pretty_assertions.workspace = true
 test-log.workspace = true
 clap.workspace = true
-tempfile = "3.15.0"
+tempfile.workspace = true
 static-web-server = { git = "https://github.com/arilotter/static-web-server", rev = "c91445427b56c5ddff0365d8ec116e3b567377ac" } # forked to add a channel for getting the port
 
 [[example]]

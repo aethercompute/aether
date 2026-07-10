@@ -6,9 +6,9 @@ edition = "2021"
 
 [dependencies]
 tui-logger = { version = "0.12.0", features = ["tracing-support"] }
-crossterm = { version = "0.28.1", features = ["event-stream"] }
+crossterm = { workspace = true, features = ["event-stream"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
-ratatui = "0.28.1"
+ratatui.workspace = true
 tracing.workspace = true
 aether-event-sourcing.workspace = true
 anyhow.workspace = true
@@ -16,13 +16,11 @@ tokio-util.workspace = true
 tokio.workspace = true
 futures.workspace = true
 clap.workspace = true
-async-trait.workspace = true
 logfire = { git = "https://github.com/NousResearch/logfire-rust", rev = "497574bff53f27db42ee4e581fea2658561c7833" }
 tracing-opentelemetry = "0.29.0"
 opentelemetry_sdk = "0.28.0"
-opentelemetry = "0.28.0"
+opentelemetry.workspace = true
 opentelemetry-otlp = "0.28.0"
-iroh-metrics = "0.35.0"
 opentelemetry-appender-tracing = { version = "0.28.0", default-features = false }
 
 

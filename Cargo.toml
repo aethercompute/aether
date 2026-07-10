@@ -28,10 +28,8 @@ aether-core = { path = "./shared/core" }
 aether-client = { path = "./shared/client" }
 aether-data-provider = { path = "./shared/data-provider" }
 aether-eval = { path = "./shared/eval" }
-aether-inference = { path = "./shared/inference" }
 aether-network = { path = "./shared/network" }
 aether-modeling = { path = "./shared/modeling" }
-aether-python-extension = { path = "./python" }
 aether-python-extension-impl = { path = "./python/extension-impl" }
 aether-tui = { path = "./shared/tui" }
 aether-watcher = { path = "./shared/watcher" }
@@ -70,7 +68,6 @@ iroh-relay = { version = "0.97.0", features = ["metrics"] }
 iroh-blobs = { version = "0.99", features = ["metrics"] }
 iroh-gossip = { version = "0.97.0" }
 axum = "0.7"
-tower = "0.5"
 tower-http = { version = "0.6", features = ["trace"] }
 flume = "0.11.1"
 memmap2 = { version = "0.9.3", features = ["stable_deref_trait"] }
@@ -90,6 +87,7 @@ bytemuck = { version = "1", features = ["derive", "min_const_generics"] }
 thiserror = "2.0.3"
 toml = "0.8.19"
 ratatui = "0.28.1"
+crossterm = "0.28.1"
 indexmap = { version = "2", features = ["serde"] }
 clap-markdown = "0.1.4"
 pyo3 = { version = "0.24" }
@@ -98,11 +96,10 @@ ts-rs = { path = "./vendor/ts-rs", features = [
   "psyche-impl",
 ] }
 rayon = "1.10.0"
-walkdir = "2.5"
-
-# with iroh update need to specify digest and crypto-common versions
-digest = { version = "=0.11.0-rc.10", default-features = false }
-crypto-common = "0.2"
+data-encoding = "2.8.0"
+opentelemetry = "0.28.0"
+tempfile = "3.15.0"
+wandb = { git = "https://github.com/NousResearch/wandb-rs.git", rev = "db6118e3bf3526718c1097baecf36f564233a735" }
 
 tikv-jemallocator = { version = "0.6.1", features = [
   "unprefixed_malloc_on_supported_platforms",

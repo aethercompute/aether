@@ -10,7 +10,6 @@ aether-centralized-server = { path = "../server" }
 aether-centralized-shared = { path = "../shared" }
 aether-client.workspace = true
 aether-coordinator.workspace = true
-aether-data-provider.workspace = true
 aether-network.workspace = true
 aether-core.workspace = true
 tokio-util.workspace = true
@@ -18,7 +17,6 @@ tokio.workspace = true
 bytemuck.workspace = true
 anyhow.workspace = true
 rand.workspace = true
-toml = "0.8.19"
 tracing.workspace = true
 clap.workspace = true
 

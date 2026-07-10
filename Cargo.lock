@@ -51,10 +51,8 @@ dependencies = [
  "aether-client",
  "aether-coordinator",
  "aether-core",
- "aether-eval",
  "aether-event-sourcing",
  "aether-metrics",
- "aether-modeling",
  "aether-network",
  "aether-python-extension-impl",
  "aether-tui",
@@ -64,8 +62,6 @@ dependencies = [
  "bytemuck",
  "clap",
  "clap-markdown",
- "hex",
- "hf-hub",
  "rand 0.9.2",
  "tikv-jemallocator",
  "time",
@@ -78,7 +74,6 @@ dependencies = [
 name = "aether-centralized-local-testnet"
 version = "0.2.0"
 dependencies = [
- "aether-python-extension-impl",
  "anyhow",
  "clap",
  "clap-markdown",
@@ -93,7 +88,6 @@ name = "aether-centralized-server"
 version = "0.2.0"
 dependencies = [
  "aether-centralized-shared",
- "aether-client",
  "aether-coordinator",
  "aether-core",
  "aether-data-provider",
@@ -105,23 +99,16 @@ dependencies = [
  "async-trait",
  "axum",
  "bytemuck",
- "bytes",
  "chrono",
  "clap",
  "clap-markdown",
- "futures",
- "futures-util",
- "rand 0.8.5",
  "rand 0.9.2",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "tikv-jemallocator",
  "tokio",
- "tokio-stream",
  "tokio-util",
  "toml",
- "tower-http",
  "tracing",
  "wandb",
 ]
@@ -131,12 +118,9 @@ name = "aether-centralized-shared"
 version = "0.2.0"
 dependencies = [
  "aether-coordinator",
- "aether-core",
  "aether-test-support",
  "aether-watcher",
- "anyhow",
  "bytemuck",
- "postcard",
  "serde",
 ]
 
@@ -150,7 +134,6 @@ dependencies = [
  "aether-client",
  "aether-coordinator",
  "aether-core",
- "aether-data-provider",
  "aether-network",
  "anyhow",
  "bytemuck",
@@ -159,7 +142,6 @@ dependencies = [
  "test-log",
  "tokio",
  "tokio-util",
- "toml",
  "tracing",
 ]
 
@@ -184,12 +166,10 @@ dependencies = [
  "aether-metrics",
  "aether-modeling",
  "aether-network",
- "aether-python-extension-impl",
  "aether-tui",
  "aether-watcher",
  "anyhow",
  "bytemuck",
- "chrono",
  "clap",
  "futures",
  "hex",
@@ -198,10 +178,8 @@ dependencies = [
  "lazy_static",
  "postcard",
  "rand 0.9.2",
- "rand_chacha 0.9.0",
  "serde",
  "serde_json",
- "sysinfo 0.32.1",
  "tch",
  "thiserror 2.0.18",
  "time",
@@ -218,12 +196,9 @@ version = "0.2.0"
 dependencies = [
  "aether-core",
  "aether-test-support",
- "async-trait",
  "bytemuck",
- "cfg_eval",
  "postcard",
  "serde",
- "serde_with",
  "tracing",
  "ts-rs",
 ]
@@ -243,9 +218,7 @@ dependencies = [
  "postcard",
  "proptest",
  "rand 0.9.2",
- "rstest",
  "serde",
- "serde_arrays",
  "sha2 0.10.9",
  "thiserror 2.0.18",
  "ts-rs",
@@ -270,11 +243,9 @@ dependencies = [
  "hf-hub",
  "memmap2",
  "parquet",
- "postcard",
  "pretty_assertions",
  "rand 0.9.2",
  "rand_chacha 0.9.0",
- "rayon",
  "reqwest",
  "serde",
  "serde_json",
@@ -284,7 +255,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokenizers",
  "tokio",
- "tokio-util",
  "tracing",
  "ts-rs",
 ]
@@ -296,19 +266,15 @@ dependencies = [
  "aether-core",
  "aether-data-provider",
  "aether-modeling",
- "aether-python-extension-impl",
  "anyhow",
  "clap",
  "indicatif",
- "pyo3",
- "pyo3-tch",
  "rand 0.9.2",
  "rand_chacha 0.9.0",
  "regex",
  "tch",
  "tokenizers",
  "tokio-util",
- "torch-sys",
  "tracing",
  "tracing-subscriber",
 ]
@@ -325,7 +291,7 @@ dependencies = [
  "chrono",
  "derive_more",
  "first-class-variants",
- "indexmap 2.13.0",
+ "indexmap",
  "iroh",
  "iroh-blobs",
  "parking_lot",
@@ -360,8 +326,6 @@ dependencies = [
 name = "aether-metrics"
 version = "0.2.0"
 dependencies = [
- "aether-core",
- "anyhow",
  "iroh-metrics 0.35.0",
  "nvml-wrapper",
  "opentelemetry",
@@ -379,10 +343,8 @@ dependencies = [
  "aether-core",
  "aether-data-provider",
  "aether-network",
- "aether-python-extension-impl",
  "aether-tui",
  "anyhow",
- "byteorder",
  "clap",
  "clap-markdown",
  "flume",
@@ -462,10 +424,8 @@ dependencies = [
  "pyo3-tch",
  "serde_json",
  "sysinfo 0.30.13",
- "take_mut",
  "tch",
  "tokio-util",
- "torch-sys",
  "tracing",
 ]
 
@@ -486,11 +446,9 @@ version = "0.2.0"
 dependencies = [
  "aether-event-sourcing",
  "anyhow",
- "async-trait",
  "clap",
  "crossterm",
  "futures",
- "iroh-metrics 0.35.0",
  "logfire",
  "opentelemetry",
  "opentelemetry-appender-tracing",
@@ -1240,7 +1198,7 @@ checksum = "287349e1e617a16a3a3dfbdf42ec5578ef47d4a513a32304b5495aaf1a00c643"
 dependencies = [
  "clap",
  "clap_complete",
- "indexmap 2.13.0",
+ "indexmap",
  "serde",
  "serde_yaml_ng",
 ]
@@ -1301,17 +1259,6 @@ name = "cfg_aliases"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
-
-[[package]]
-name = "cfg_eval"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45565fc9416b9896014f5732ac776f810ee53a66730c17e4020c3ec064a8f88f"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.115",
-]
 
 [[package]]
 name = "chrono"
@@ -1786,16 +1733,6 @@ dependencies = [
 
 [[package]]
 name = "darling"
-version = "0.21.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9cdf337090841a411e2a7f3deb9187445851f91b309c0c0a29e05f74a00a48c0"
-dependencies = [
- "darling_core 0.21.3",
- "darling_macro 0.21.3",
-]
-
-[[package]]
-name = "darling"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25ae13da2f202d56bd7f91c25fba009e7717a1e4a1cc98a76d844b65ae912e9d"
@@ -1809,20 +1746,6 @@ name = "darling_core"
 version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d00b9596d185e565c2207a0b01f8bd1a135483d02d9b7b0a54b11da8d53412e"
-dependencies = [
- "fnv",
- "ident_case",
- "proc-macro2",
- "quote",
- "strsim",
- "syn 2.0.115",
-]
-
-[[package]]
-name = "darling_core"
-version = "0.21.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1247195ecd7e3c85f83c8d2a366e4210d588e802133e1e355180a9870b517ea4"
 dependencies = [
  "fnv",
  "ident_case",
@@ -1852,17 +1775,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc34b93ccb385b40dc71c6fceac4b2ad23662c7eeb248cf10d529b7e055b6ead"
 dependencies = [
  "darling_core 0.20.11",
- "quote",
- "syn 2.0.115",
-]
-
-[[package]]
-name = "darling_macro"
-version = "0.21.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d38308df82d1080de0afee5d069fa14b0326a88c14f15c5ccda35b4a6c414c81"
-dependencies = [
- "darling_core 0.21.3",
  "quote",
  "syn 2.0.115",
 ]
@@ -2081,12 +1993,6 @@ checksum = "d4b8a88685455ed29a21542a33abd9cb6510b6b129abadabdcef0f4c55bc8f61"
 dependencies = [
  "litrs",
 ]
-
-[[package]]
-name = "dyn-clone"
-version = "1.0.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "ed25519"
@@ -2473,12 +2379,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f90f7dce0722e95104fcb095585910c0977252f286e354b5e3bd38902cd99988"
 
 [[package]]
-name = "futures-timer"
-version = "3.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af43fadb8a98512d547e37b4e92e0ced13e205c061b87b4623eff01d918d6968"
-
-[[package]]
 name = "futures-util"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2829,7 +2729,7 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "http 0.2.12",
- "indexmap 2.13.0",
+ "indexmap",
  "slab",
  "tokio",
  "tokio-util",
@@ -2848,7 +2748,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "http 1.4.0",
- "indexmap 2.13.0",
+ "indexmap",
  "slab",
  "tokio",
  "tokio-util",
@@ -2875,12 +2775,6 @@ checksum = "b0c35f58762feb77d74ebe43bdbc3210f09be9fe6742234d573bacc26ed92b67"
 dependencies = [
  "byteorder",
 ]
-
-[[package]]
-name = "hashbrown"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
 
 [[package]]
 name = "hashbrown"
@@ -3445,17 +3339,6 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "1.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd070e393353796e801d209ad339e89596eb4c8d430d18ede6a1cced8fafbd99"
-dependencies = [
- "autocfg",
- "hashbrown 0.12.3",
- "serde",
-]
-
-[[package]]
-name = "indexmap"
 version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7714e70437a7dc3ac8eb7e6f8df75fd8eb422675fc7678aff7364301092b1017"
@@ -3680,7 +3563,7 @@ dependencies = [
  "futures-lite",
  "futures-util",
  "hex",
- "indexmap 2.13.0",
+ "indexmap",
  "iroh",
  "iroh-base",
  "iroh-metrics 0.38.2",
@@ -5425,7 +5308,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "740ebea15c5d1428f910cd1a5f52cebf8d25006245ed8ade92702f4943d91e07"
 dependencies = [
  "base64 0.22.1",
- "indexmap 2.13.0",
+ "indexmap",
  "quick-xml",
  "serde",
  "time",
@@ -6108,12 +5991,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a96887878f22d7bad8a3b6dc5b7440e0ada9a245242924394987b21cf2210a4c"
 
 [[package]]
-name = "relative-path"
-version = "1.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
-
-[[package]]
 name = "reqwest"
 version = "0.12.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6203,36 +6080,6 @@ name = "roff"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "88f8660c1ff60292143c98d08fc6e2f654d722db50410e3f3797d40baaf9d8f3"
-
-[[package]]
-name = "rstest"
-version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fc39292f8613e913f7df8fa892b8944ceb47c247b78e1b1ae2f09e019be789d"
-dependencies = [
- "futures-timer",
- "futures-util",
- "rstest_macros",
- "rustc_version",
-]
-
-[[package]]
-name = "rstest_macros"
-version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f168d99749d307be9de54d23fd226628d99768225ef08f6ffb52e0182a27746"
-dependencies = [
- "cfg-if",
- "glob",
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "regex",
- "relative-path",
- "rustc_version",
- "syn 2.0.115",
- "unicode-ident",
-]
 
 [[package]]
 name = "rustc-hash"
@@ -6430,30 +6277,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "schemars"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cd191f9397d57d581cddd31014772520aa448f65ef991055d7f61582c65165f"
-dependencies = [
- "dyn-clone",
- "ref-cast",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "schemars"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2b42f36aa1cd011945615b92222f6bf73c599a102a300334cd7f8dbeec726cc"
-dependencies = [
- "dyn-clone",
- "ref-cast",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "scoped-tls"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6556,15 +6379,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_arrays"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38636132857f68ec3d5f3eb121166d2af33cb55174c4d5ff645db6165cbef0fd"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "serde_bytes"
 version = "0.11.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6661,43 +6475,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_with"
-version = "3.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fa237f2807440d238e0364a218270b98f767a00d3dada77b1c53ae88940e2e7"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "hex",
- "indexmap 1.9.3",
- "indexmap 2.13.0",
- "schemars 0.9.0",
- "schemars 1.2.1",
- "serde_core",
- "serde_json",
- "serde_with_macros",
- "time",
-]
-
-[[package]]
-name = "serde_with_macros"
-version = "3.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52a8e3ca0ca629121f70ab50f95249e5a6f925cc0f6ffe8256c45b728875706c"
-dependencies = [
- "darling 0.21.3",
- "proc-macro2",
- "quote",
- "syn 2.0.115",
-]
-
-[[package]]
 name = "serde_yaml_ng"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b4db627b98b36d4203a7b458cf3573730f2bb591b28871d916dfa9efabfd41f"
 dependencies = [
- "indexmap 2.13.0",
+ "indexmap",
  "itoa",
  "ryu",
  "serde",
@@ -7260,12 +7043,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 
 [[package]]
-name = "take_mut"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f764005d11ee5f36500a149ace24e00e3da98b0158b3e2d53a7495660d3f4d60"
-
-[[package]]
 name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7648,7 +7425,7 @@ version = "0.22.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
 dependencies = [
- "indexmap 2.13.0",
+ "indexmap",
  "serde",
  "serde_spanned",
  "toml_datetime 0.6.11",
@@ -7662,7 +7439,7 @@ version = "0.23.10+spec-1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "84c8b9f757e028cee9fa244aea147aab2a9ec09d5325a9b01e0a49730c2b5269"
 dependencies = [
- "indexmap 2.13.0",
+ "indexmap",
  "toml_datetime 0.7.5+spec-1.1.0",
  "toml_parser",
  "winnow",
@@ -7747,7 +7524,6 @@ dependencies = [
  "tower",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -8319,7 +8095,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb0e353e6a2fbdc176932bbaab493762eb1255a7900fe0fea1a2f96c296cc909"
 dependencies = [
  "anyhow",
- "indexmap 2.13.0",
+ "indexmap",
  "wasm-encoder",
  "wasmparser",
 ]
@@ -8345,7 +8121,7 @@ checksum = "47b807c72e1bac69382b3a6fb3dbe8ea4c0ed87ff5629b8685ae6b9a611028fe"
 dependencies = [
  "bitflags 2.10.0",
  "hashbrown 0.15.2",
- "indexmap 2.13.0",
+ "indexmap",
  "semver",
 ]
 
@@ -8987,7 +8763,7 @@ checksum = "b7c566e0f4b284dd6561c786d9cb0142da491f46a9fbed79ea69cdad5db17f21"
 dependencies = [
  "anyhow",
  "heck 0.5.0",
- "indexmap 2.13.0",
+ "indexmap",
  "prettyplease",
  "syn 2.0.115",
  "wasm-metadata",
@@ -9018,7 +8794,7 @@ checksum = "9d66ea20e9553b30172b5e831994e35fbde2d165325bec84fc43dbf6f4eb9cb2"
 dependencies = [
  "anyhow",
  "bitflags 2.10.0",
- "indexmap 2.13.0",
+ "indexmap",
  "log",
  "serde",
  "serde_derive",
@@ -9037,7 +8813,7 @@ checksum = "ecc8ac4bc1dc3381b7f59c34f00b67e18f910c2c0f50015669dde7def656a736"
 dependencies = [
  "anyhow",
  "id-arena",
- "indexmap 2.13.0",
+ "indexmap",
  "log",
  "semver",
  "serde",
