@@ -45,6 +45,14 @@ in the editable config are restricted to the dataset preparation and model
 push scripts in this repository. Basic authentication does not encrypt traffic;
 put the dashboard behind a TLS-terminating reverse proxy for any remote access.
 
+The Docker image binds the dashboard to `0.0.0.0:8080`. If
+`CONTROL_PASSWORD` is unset, its entrypoint generates a strong password,
+persists it at `/app/.aether-control/control-password`, and prints the
+credentials to `docker logs`. Mount `/app/.aether-control` persistently to keep
+the generated password across container replacement. An explicit
+`CONTROL_PASSWORD` takes precedence. Publish port `8080` or route it through a
+TLS reverse proxy to access the panel outside the container.
+
 Prepare a local dataset shard set:
 
 ```sh
@@ -92,6 +100,7 @@ and `float64`.
 - `LIBTORCH_USE_PYTORCH`: tells `tch`/`torch-sys` to use the Python Torch installation.
 - `CONTROL_HOST`, `CONTROL_PORT`: dashboard bind host and port; defaults to `127.0.0.1:8080`.
 - `CONTROL_USERNAME`, `CONTROL_PASSWORD`: dashboard Basic-auth credentials. A non-empty explicit password is required for non-loopback binds.
+- `CONTROL_PASSWORD_FILE`: Docker entrypoint password file, default `/app/.aether-control/control-password`.
 - `SERVER_PORT`, `WEB_PORT`: centralized server ports.
 - `TRAINING_RUN_CONFIG`: dashboard config path.
 - `HF_TOKEN`, `HUB_REPO`: Hugging Face credentials and destination repo. Seed mode defaults `HUB_REPO` to `aethercompute/llama3.2-1b-think`.

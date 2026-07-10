@@ -49,7 +49,9 @@ ENV LIBTORCH_USE_PYTORCH=1 \
     PYTHONUNBUFFERED=1 \
     RUST_LOG=info \
     TRAINING_RUN_CONFIG=config/training-run.toml \
+    CONTROL_HOST=0.0.0.0 \
     CONTROL_PORT=8080 \
+    CONTROL_PASSWORD_FILE=/app/.aether-control/control-password \
     SERVER_PORT=39405 \
     WEB_PORT=8081
 
@@ -71,4 +73,4 @@ VOLUME ["/app/data", "/app/.aether-control"]
 
 EXPOSE 39405 39406 8080 8081
 
-CMD ["/bin/sh", "-c", "export LD_LIBRARY_PATH=$(python3 -c \"import os, torch; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))\"):${LD_LIBRARY_PATH}; exec python3 scripts/training-control-dashboard.py"]
+CMD ["/bin/sh", "-c", "export LD_LIBRARY_PATH=$(python3 -c \"import os, torch; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))\"):${LD_LIBRARY_PATH}; exec /bin/sh scripts/docker-entrypoint.sh"]
