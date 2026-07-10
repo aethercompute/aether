@@ -6,10 +6,7 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::{fmt::Debug, sync::atomic::AtomicBool};
-use tch::{
-    nn::{self, Module},
-    Device, Kind, Tensor,
-};
+use tch::{nn, Device, Kind, Tensor};
 
 #[cfg(feature = "parallelism")]
 use tch::CNCCL;
@@ -49,6 +46,9 @@ pub trait CausalLM: Send {
 }
 
 pub trait LanguageModelForward: Send + Debug {
+    /// Returns the input embedding parameter for tied output embeddings.
+    fn word_embedding_weight(&self) -> Tensor;
+
     fn forward(
         &self,
         x: &Tensor,
@@ -80,7 +80,7 @@ pub struct CausalLanguageModel<M: LanguageModelForward, C: LanguageModelConfig> 
     pub config: C,
     pub variables: StableVarStoreIterator,
     pub device: Device,
-    pub lm_head: nn::Linear,
+    pub lm_head: Tensor,
     pub comm: Option<Arc<Communicator>>,
     pub training: AtomicBool,
 }
@@ -108,10 +108,6 @@ impl<M: LanguageModelForward, C: LanguageModelConfig> CausalLanguageModel<M, C> 
         override_max_position_embeddings: Option<usize>,
     ) -> Result<Self, ModelLoadError> {
         let mut config = source.get_config()?;
-
-        if config.tie_word_embeddings() {
-            return Err(ModelLoadError::ModelHasTiedEmbeddings);
-        }
 
         if let Some(override_max_position_embeddings) = override_max_position_embeddings {
             config.set_max_position_embeddings(override_max_position_embeddings);
@@ -152,16 +148,20 @@ impl<M: LanguageModelForward, C: LanguageModelConfig> CausalLanguageModel<M, C> 
         let (model, lm_head) = {
             let _no_grad = tch::no_grad_guard();
             let model = builder(variables.root(), &config, attn_implementation, comm.clone())?;
-            let c = nn::LinearConfig {
-                bias: false,
-                ..Default::default()
+            let lm_head = if config.tie_word_embeddings() {
+                model.word_embedding_weight()
+            } else {
+                nn::linear(
+                    &variables.root() / "lm_head",
+                    config.hidden_size() as i64,
+                    config.vocab_size() as i64,
+                    nn::LinearConfig {
+                        bias: false,
+                        ..Default::default()
+                    },
+                )
+                .ws
             };
-            let lm_head = nn::linear(
-                &variables.root() / "lm_head",
-                config.hidden_size() as i64,
-                config.vocab_size() as i64,
-                c,
-            );
 
             source.load(&mut variables)?;
 
@@ -201,7 +201,7 @@ impl<M: LanguageModelForward, C: LanguageModelConfig> CausalLM for CausalLanguag
             // Only compute necessary logits, and do not upcast them to float if we are not computing the loss
             x = x.slice(1, t - num_logits_to_keep, t, 1);
         }
-        let mut logits = self.lm_head.forward(&x);
+        let mut logits = x.matmul(&self.lm_head.transpose(0, 1));
         let loss = match labels {
             Some(labels) => {
                 // Upcast to float if we need to compute the loss to avoid potential precision issues

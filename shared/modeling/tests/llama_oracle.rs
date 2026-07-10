@@ -33,6 +33,13 @@ fn tiny_llama_config() -> LlamaConfig {
     }
 }
 
+fn tiny_tied_llama_config() -> LlamaConfig {
+    LlamaConfig {
+        tie_word_embeddings: true,
+        ..tiny_llama_config()
+    }
+}
+
 fn tensor_for(name: &str, shape: &[i64]) -> Tensor {
     if name.contains("norm.weight") || name.contains("layernorm.weight") {
         return Tensor::ones(shape, (Kind::Float, Device::Cpu));
@@ -98,6 +105,12 @@ fn tiny_llama_state() -> HashMap<String, Tensor> {
         .into_iter()
         .map(|(name, shape)| (name.to_string(), tensor_for(name, shape)))
         .collect()
+}
+
+fn tiny_tied_llama_state() -> HashMap<String, Tensor> {
+    let mut state = tiny_llama_state();
+    state.remove("lm_head.weight");
+    state
 }
 
 #[allow(clippy::arc_with_non_send_sync)]
@@ -543,6 +556,48 @@ fn tiny_llama_safetensors_checkpoint_reloads_identical_state_and_forward() {
     assert!(
         actual_loss.allclose(&expected_loss, 1e-6, 1e-6, false),
         "reloaded loss differs from original checkpoint"
+    );
+
+    let _ = std::fs::remove_dir_all(checkpoint_dir);
+}
+
+#[test]
+fn tiny_tied_llama_safetensors_checkpoint_loads_and_trains_shared_embeddings() {
+    let checkpoint_dir = temp_checkpoint_dir("tiny-tied-llama-checkpoint");
+    let initial = tiny_tied_llama_state();
+    std::fs::create_dir_all(&checkpoint_dir).expect("create checkpoint dir");
+    let config_path = checkpoint_dir.join("config.json");
+    std::fs::write(
+        &config_path,
+        serde_json::to_string(&tiny_tied_llama_config()).expect("serialize tied tiny llama config"),
+    )
+    .expect("write tied tiny llama config");
+    let mut repo_files =
+        save_tensors_into_safetensors(clone_state(&initial), checkpoint_dir.clone())
+            .expect("save tied tiny llama safetensors");
+    repo_files.push(config_path);
+
+    let model = new_llama_from_repo_files(repo_files);
+    assert_state_close(&snapshot(&model), &initial);
+    assert!(
+        model.lm_head.allclose(
+            &snapshot(&model)["model.embed_tokens.weight"],
+            0.0,
+            0.0,
+            false
+        ),
+        "tied output head must share the input embedding parameter"
+    );
+
+    let mut optimizer = adamw(&model);
+    direct_train_step(&model, &mut optimizer, &batch());
+    let trained = snapshot(&model);
+    assert_state_changed(&initial, &trained);
+    assert!(
+        model
+            .lm_head
+            .allclose(&trained["model.embed_tokens.weight"], 0.0, 0.0, false),
+        "tied output head must track embedding optimizer updates"
     );
 
     let _ = std::fs::remove_dir_all(checkpoint_dir);

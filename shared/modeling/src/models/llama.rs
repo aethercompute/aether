@@ -226,6 +226,10 @@ impl Llama {
 }
 
 impl LanguageModelForward for Llama {
+    fn word_embedding_weight(&self) -> Tensor {
+        self.wte.ws.shallow_clone()
+    }
+
     #[allow(unused_variables)]
     fn forward(
         &self,

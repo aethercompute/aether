@@ -979,6 +979,10 @@ impl Deepseek {
 }
 
 impl LanguageModelForward for Deepseek {
+    fn word_embedding_weight(&self) -> Tensor {
+        self.embed_tokens.ws.shallow_clone()
+    }
+
     #[allow(unused_variables)]
     fn forward(
         &self,

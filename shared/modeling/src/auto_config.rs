@@ -25,9 +25,6 @@ pub enum ModelLoadError {
     #[error("could not parse config.json: {0}")]
     FailedToParseConfig(#[from] serde_json::Error),
 
-    #[error("this model uses tied embeddings, which aren't supported.")]
-    ModelHasTiedEmbeddings,
-
     #[error(
         "Directly setting attention implementation to FlashAttention-2 is unsupported for now"
     )]
