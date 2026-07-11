@@ -1,7 +1,9 @@
 use aether_core::BatchId;
 use aether_network::{SecretKey, TcpClient};
-use anyhow::{bail, Result};
-use tracing::trace;
+use anyhow::{bail, Context, Result};
+use std::time::{Duration, Instant};
+use tokio::time::sleep;
+use tracing::{trace, warn};
 
 use crate::{TokenizedData, TokenizedDataProvider};
 
@@ -14,9 +16,38 @@ pub struct DataProviderTcpClient {
 
 impl DataProviderTcpClient {
     pub async fn connect(addr: String, secret_key: SecretKey) -> Result<Self> {
-        let tcp_client =
-            TcpClient::<ClientToServerMessage, ServerToClientMessage>::connect(&addr, secret_key)
-                .await?;
+        const RETRY_INTERVAL: Duration = Duration::from_secs(2);
+        const RETRY_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+
+        let started = Instant::now();
+        let mut attempt = 1u32;
+        let tcp_client = loop {
+            match TcpClient::<ClientToServerMessage, ServerToClientMessage>::connect(
+                &addr,
+                secret_key.clone(),
+            )
+            .await
+            {
+                Ok(tcp_client) => break tcp_client,
+                Err(err) if started.elapsed() >= RETRY_TIMEOUT => {
+                    return Err(err).with_context(|| {
+                        format!("timed out connecting to data provider at {addr}")
+                    });
+                }
+                Err(err) => {
+                    if attempt == 1 || attempt % 15 == 0 {
+                        warn!(
+                            address = %addr,
+                            attempt,
+                            error = %err,
+                            "data provider unavailable; retrying"
+                        );
+                    }
+                    attempt += 1;
+                    sleep(RETRY_INTERVAL).await;
+                }
+            }
+        };
         Ok(Self {
             tcp_client,
             address: addr.to_owned(),
