@@ -333,7 +333,7 @@ ensure_torch() {
 ensure_python_model_deps() {
   ensure_torch || return 1
 
-  if PYTHONPATH="$REPO_ROOT/python/python${PYTHONPATH:+:$PYTHONPATH}" "$VENV/bin/python" -c "import aether, transformers, safetensors, liger_kernel" >/dev/null 2>&1; then
+  if PYTHONPATH="$REPO_ROOT/python/python${PYTHONPATH:+:$PYTHONPATH}" "$VENV/bin/python" -c "import aether, transformers, safetensors, liger_kernel, peft" >/dev/null 2>&1; then
     ok "using sandbox Python model dependencies"
     return 0
   fi
@@ -342,6 +342,7 @@ ensure_python_model_deps() {
   run_step "installing Python model deps" \
     "$VENV/bin/pip" install --upgrade \
       "transformers==4.57.3" \
+      "peft==0.18.0" \
       "safetensors" \
       "liger-kernel" \
     || die "Python model dependency install failed. See $INSTALL_LOG"
