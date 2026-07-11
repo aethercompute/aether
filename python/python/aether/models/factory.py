@@ -1,6 +1,11 @@
 import torch
 
-from .causal_lm import PretrainedSourceRepoFiles, PretrainedSourceStateDict, CausalLM
+from .causal_lm import (
+    CausalLM,
+    LoraConfig,
+    PretrainedSourceRepoFiles,
+    PretrainedSourceStateDict,
+)
 from typing import Optional, Iterable
 
 
@@ -15,6 +20,10 @@ def make_causal_lm(
     param_dtype: torch.dtype = torch.bfloat16,
     reduce_dtype: torch.dtype = torch.float32,
     fsdp_modules: Optional[Iterable[str]] = None,
+    lora_config: Optional[LoraConfig] = None,
+    adapter_source: Optional[
+        PretrainedSourceRepoFiles | PretrainedSourceStateDict
+    ] = None,
 ) -> CausalLM:
     if not isinstance(device, torch.device):
         device = torch.device(device if isinstance(device, str) else f"cuda:{device}")
@@ -31,8 +40,12 @@ def make_causal_lm(
             param_dtype=param_dtype,
             reduce_dtype=reduce_dtype,
             fsdp_modules=fsdp_modules,
+            lora_config=lora_config,
+            adapter_source=adapter_source,
         )
     elif architecture == "Torchtitan":
+        if lora_config is not None or adapter_source is not None:
+            raise ValueError("LoRA is supported only for the HfAuto architecture")
         from .ttitan import TorchtitanAuto
 
         return TorchtitanAuto.from_pretrained(

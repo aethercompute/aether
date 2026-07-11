@@ -218,7 +218,7 @@ fn split_batch_for_workers(batch: &Batch, worker_count: usize) -> Vec<Batch> {
 
 fn snapshot(model: &dyn CausalLM) -> HashMap<String, Tensor> {
     model
-        .variables()
+        .state_variables()
         .map(|variable| {
             (
                 variable.name().to_string(),
@@ -280,7 +280,7 @@ fn assert_state_changed(initial: &HashMap<String, Tensor>, final_state: &HashMap
 fn adamw(model: &dyn CausalLM) -> COptimizer {
     let mut optimizer =
         COptimizer::adamw(0.1, 0.9, 0.95, 0.01, 1e-8, false).expect("adamw optimizer initializes");
-    for variable in model.variables() {
+    for variable in model.trainable_variables() {
         optimizer
             .add_parameters(&variable.logical_tensor(), 0)
             .expect("parameter can be added to adamw");
@@ -289,7 +289,7 @@ fn adamw(model: &dyn CausalLM) -> COptimizer {
 }
 
 fn direct_train_step(model: &LlamaForCausalLM, optimizer: &mut COptimizer, batch: &Batch) -> f32 {
-    for variable in model.variables() {
+    for variable in model.trainable_variables() {
         variable.zero_grad();
     }
     let batch = batch.clone().gpu(Device::Cpu);
@@ -317,7 +317,7 @@ fn direct_train_step(model: &LlamaForCausalLM, optimizer: &mut COptimizer, batch
 
 fn gradients_from_state(state: &HashMap<String, Tensor>, batch: &Batch) -> HashMap<String, Tensor> {
     let model = new_llama_from_state(state);
-    for variable in model.variables() {
+    for variable in model.trainable_variables() {
         variable.zero_grad();
     }
     let batch = batch.clone().gpu(Device::Cpu);
@@ -335,7 +335,7 @@ fn gradients_from_state(state: &HashMap<String, Tensor>, batch: &Batch) -> HashM
     loss.expect("tiny llama returns a loss").backward();
 
     model
-        .variables()
+        .trainable_variables()
         .map(|variable| {
             (
                 variable.name().to_string(),
@@ -350,7 +350,7 @@ fn gradients_from_state(state: &HashMap<String, Tensor>, batch: &Batch) -> HashM
 }
 
 fn materialize_zero_grads(model: &dyn CausalLM, batch: &Batch) {
-    for variable in model.variables() {
+    for variable in model.trainable_variables() {
         variable.zero_grad();
     }
     let batch = batch.clone().gpu(Device::Cpu);
@@ -366,7 +366,7 @@ fn materialize_zero_grads(model: &dyn CausalLM, batch: &Batch) {
         Some(1.0),
     );
     (loss.expect("tiny llama returns a loss") * 0.0).backward();
-    for variable in model.variables() {
+    for variable in model.trainable_variables() {
         variable.zero_grad();
     }
 }
@@ -385,7 +385,7 @@ fn simulated_data_parallel_train_step(
         .collect::<Vec<_>>();
 
     materialize_zero_grads(model, worker_batches.first().expect("worker batch present"));
-    for variable in model.variables() {
+    for variable in model.trainable_variables() {
         let mut mean_grad = Tensor::zeros_like(
             worker_grads[0]
                 .get(variable.name())

@@ -18,6 +18,28 @@ pub struct PythonModelConfig {
     config: serde_json::Value,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PythonLoraConfig {
+    pub rank: u32,
+    pub alpha: f32,
+    pub dropout: f32,
+    pub init_seed: u64,
+}
+
+impl PythonLoraConfig {
+    fn to_python<'py>(self, py: Python<'py>, aether: &Bound<'py, PyModule>) -> PyResult<PyObject> {
+        let kwargs = PyDict::new(py);
+        kwargs.set_item("rank", self.rank)?;
+        kwargs.set_item("alpha", self.alpha)?;
+        kwargs.set_item("dropout", self.dropout)?;
+        kwargs.set_item("init_seed", self.init_seed)?;
+        Ok(aether
+            .getattr("LoraConfig")?
+            .call((), Some(&kwargs))?
+            .unbind())
+    }
+}
+
 impl serde::Serialize for PythonModelConfig {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -132,7 +154,8 @@ pub enum PythonCausalLMError {
 pub struct PythonCausalLM {
     causal_lm: PyObject,
     device: Device,
-    order: StablePythonParametersIterator,
+    trainable_order: StablePythonParametersIterator,
+    state_order: StablePythonParametersIterator,
     bos_token_id: Option<i64>,
     eos_token_id: Option<EosToks>,
     max_context_length: usize,
@@ -146,6 +169,7 @@ unsafe impl Send for PythonCausalLM {}
 unsafe impl Sync for PythonCausalLM {}
 
 impl PythonCausalLM {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         architecture: &str,
         source: &PretrainedSource<PythonModelConfig>,
@@ -153,41 +177,14 @@ impl PythonCausalLM {
         attn_implementation: AttentionImplementation,
         parallelism: Option<ParallelismConfig>,
         override_max_position_embeddings: Option<usize>,
+        lora_config: Option<PythonLoraConfig>,
+        adapter_source: Option<&PretrainedSource<PythonModelConfig>>,
     ) -> Result<PythonCausalLM, PythonCausalLMError> {
         let config = source.get_config()?;
         let result: PyResult<PyObject> = Python::with_gil(|py| {
             let aether = Python::import(py, "aether")?;
             let make_causal_lm = aether.getattr("make_causal_lm")?;
-            let source: PyObject = match source {
-                PretrainedSource::RepoFiles(path_bufs) => {
-                    let files = PyList::new(
-                        py,
-                        path_bufs
-                            .iter()
-                            .map(|x| x.to_string_lossy().into_owned())
-                            .collect::<Vec<_>>(),
-                    )?;
-                    let class = aether.getattr("PretrainedSourceRepoFiles")?;
-                    let args = (files,);
-                    class.call1(args)?.into()
-                }
-                PretrainedSource::ConfigAndTensors(config, state_dict) => {
-                    let config_json = serde_json::to_string_pretty(&config)
-                        .map_err(|err| pyo3::exceptions::PyValueError::new_err(err.to_string()))?;
-                    let state_dict = state_dict
-                        .iter()
-                        .map(|(k, v)| {
-                            PyTensor(v.shallow_clone())
-                                .into_pyobject(py)
-                                .map(|pyobject| (k.clone(), pyobject))
-                        })
-                        .collect::<Result<Vec<_>, _>>()?
-                        .into_py_dict(py)?;
-                    let class = aether.getattr("PretrainedSourceStateDict")?;
-                    let args = (config_json, state_dict);
-                    class.call1(args)?.into()
-                }
-            };
+            let source = pretrained_source_to_python(py, &aether, source)?;
             let args = (
                 architecture,
                 source,
@@ -197,11 +194,24 @@ impl PythonCausalLM {
                 parallelism.as_ref().map(|x| x.tp).unwrap_or(1),
                 override_max_position_embeddings,
             );
-            let causal_lm = make_causal_lm.call1(args)?;
+            let kwargs = PyDict::new(py);
+            if let Some(lora_config) = lora_config {
+                kwargs.set_item("lora_config", lora_config.to_python(py, &aether)?)?;
+            }
+            if let Some(adapter_source) = adapter_source {
+                kwargs.set_item(
+                    "adapter_source",
+                    pretrained_source_to_python(py, &aether, adapter_source)?,
+                )?;
+            }
+            let causal_lm = make_causal_lm.call(args, Some(&kwargs))?;
             Ok(causal_lm.unbind())
         });
         let causal_lm = result?;
-        let order = StablePythonParametersIterator::new(&causal_lm)?;
+        let trainable_order =
+            StablePythonParametersIterator::new(&causal_lm, "named_trainable_parameters")?;
+        let state_order =
+            StablePythonParametersIterator::new(&causal_lm, "named_state_parameters")?;
         let max_context_length = override_max_position_embeddings
             .or(config.max_position_embeddings())
             .unwrap_or(2048); // Default fallback
@@ -209,7 +219,8 @@ impl PythonCausalLM {
         Ok(Self {
             causal_lm,
             device,
-            order,
+            trainable_order,
+            state_order,
             bos_token_id: config.bos_token_id(),
             eos_token_id: config.eos_token_ids(),
             max_context_length,
@@ -229,7 +240,11 @@ impl PythonCausalLM {
     ) -> Result<Self, PythonCausalLMError> {
         let config = PythonModelConfig { config };
         Ok(Self {
-            order: StablePythonParametersIterator::new(&causal_lm)?,
+            trainable_order: StablePythonParametersIterator::new(
+                &causal_lm,
+                "named_trainable_parameters",
+            )?,
+            state_order: StablePythonParametersIterator::new(&causal_lm, "named_state_parameters")?,
             causal_lm,
             device,
             bos_token_id: config.bos_token_id(),
@@ -241,6 +256,45 @@ impl PythonCausalLM {
 
     pub fn device(&self) -> Device {
         self.device
+    }
+}
+
+fn pretrained_source_to_python(
+    py: Python<'_>,
+    aether: &Bound<'_, PyModule>,
+    source: &PretrainedSource<PythonModelConfig>,
+) -> PyResult<PyObject> {
+    match source {
+        PretrainedSource::RepoFiles(path_bufs) => {
+            let files = PyList::new(
+                py,
+                path_bufs
+                    .iter()
+                    .map(|x| x.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>(),
+            )?;
+            Ok(aether
+                .getattr("PretrainedSourceRepoFiles")?
+                .call1((files,))?
+                .unbind())
+        }
+        PretrainedSource::ConfigAndTensors(config, state_dict) => {
+            let config_json = serde_json::to_string_pretty(config)
+                .map_err(|err| pyo3::exceptions::PyValueError::new_err(err.to_string()))?;
+            let state_dict = state_dict
+                .iter()
+                .map(|(key, tensor)| {
+                    PyTensor(tensor.shallow_clone())
+                        .into_pyobject(py)
+                        .map(|pyobject| (key.clone(), pyobject))
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_py_dict(py)?;
+            Ok(aether
+                .getattr("PretrainedSourceStateDict")?
+                .call1((config_json, state_dict))?
+                .unbind())
+        }
     }
 }
 
@@ -311,8 +365,12 @@ impl CausalLM for PythonCausalLM {
         result.unwrap();
     }
 
-    fn variables(&self) -> StableVariableIterator {
-        Box::new(self.order.clone())
+    fn trainable_variables(&self) -> StableVariableIterator {
+        Box::new(self.trainable_order.clone())
+    }
+
+    fn state_variables(&self) -> StableVariableIterator {
+        Box::new(self.state_order.clone())
     }
 
     fn clip_grad_norm(&self, max_grad_norm: f64) {
@@ -324,7 +382,7 @@ impl CausalLM for PythonCausalLM {
             let module = py.import("torch.nn.utils")?;
             let clip_grad_norm = module.getattr("clip_grad_norm_")?;
             let tensors: Vec<_> = self
-                .order
+                .trainable_order
                 .entries
                 .iter()
                 .map(|x| x.python.clone_ref(py))
@@ -421,7 +479,7 @@ pub struct StablePythonParametersIterator {
 }
 
 impl StablePythonParametersIterator {
-    pub fn new(causal_lm: &PyObject) -> PyResult<Self> {
+    pub fn new(causal_lm: &PyObject, method: &str) -> PyResult<Self> {
         let entries: PyResult<Vec<PythonCausalLMVariable>> = Python::with_gil(|py| {
             let aether = py.import("aether.dtensor_helpers")?;
             let full_tensor_shape = aether.getattr("full_tensor_shape")?;
@@ -441,7 +499,7 @@ impl StablePythonParametersIterator {
                 zero_grad,
             });
             let causal_lm = causal_lm.bind(py);
-            let named_parameters = causal_lm.getattr("named_parameters")?;
+            let named_parameters = causal_lm.getattr(method)?;
             let named_parameters = named_parameters.call0()?.downcast_into::<PyDict>()?;
             let distributed_tensor = Python::import(py, "torch.distributed.tensor")?;
             let dtensor = distributed_tensor.getattr("DTensor")?;
@@ -670,8 +728,12 @@ impl CausalLM for WrappedPythonCausalLM {
         self.local.max_context_length()
     }
 
-    fn variables(&self) -> StableVariableIterator {
-        self.local.variables()
+    fn trainable_variables(&self) -> StableVariableIterator {
+        self.local.trainable_variables()
+    }
+
+    fn state_variables(&self) -> StableVariableIterator {
+        self.local.state_variables()
     }
 
     fn communicator(&self) -> Option<Arc<Communicator>> {

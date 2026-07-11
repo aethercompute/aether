@@ -1,4 +1,5 @@
 use safetensors::{slice::TensorIndexer, SafeTensors};
+use serde::Serialize;
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
@@ -152,6 +153,117 @@ pub enum SaveSafetensorsError {
 
     #[error("Failed to write: {0}")]
     Write(#[from] io::Error),
+
+    #[error("LoRA tensor names {first} and {second} both convert to {converted}")]
+    DuplicateConvertedTensorName {
+        first: String,
+        second: String,
+        converted: String,
+    },
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct LoraAdapterConfig {
+    pub base_model_name_or_path: String,
+    pub r: u32,
+    pub lora_alpha: f32,
+    pub lora_dropout: f32,
+    pub target_modules: String,
+    pub bias: String,
+    pub task_type: String,
+    pub peft_type: String,
+    pub inference_mode: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct AetherAdapterMetadata {
+    pub artifact_type: String,
+    pub format_version: u32,
+    pub run_id: String,
+    pub epoch: u32,
+    pub step: u32,
+    pub trainable_manifest_digest: String,
+}
+
+impl LoraAdapterConfig {
+    pub fn new(base_model_name_or_path: String, rank: u32, alpha: f32, dropout: f32) -> Self {
+        Self {
+            base_model_name_or_path,
+            r: rank,
+            lora_alpha: alpha,
+            lora_dropout: dropout,
+            target_modules: "all-linear".to_string(),
+            bias: "none".to_string(),
+            task_type: "CAUSAL_LM".to_string(),
+            peft_type: "LORA".to_string(),
+            inference_mode: true,
+        }
+    }
+}
+
+/// Converts PEFT's internal named-parameter form to its serialized adapter form.
+pub fn peft_lora_tensor_name(name: &str) -> String {
+    name.replace(".lora_A.default.", ".lora_A.")
+        .replace(".lora_B.default.", ".lora_B.")
+}
+
+pub fn save_lora_adapter_into_safetensors(
+    tensors: HashMap<String, Tensor>,
+    dir: PathBuf,
+    config: &LoraAdapterConfig,
+    metadata: &AetherAdapterMetadata,
+) -> Result<Vec<PathBuf>, SaveSafetensorsError> {
+    if tensors.is_empty() {
+        return Err(SaveSafetensorsError::NoTensors);
+    }
+    std::fs::create_dir_all(dir.clone())
+        .map_err(|e| SaveSafetensorsError::CreateDir(dir.clone(), e))?;
+
+    let mut converted = HashMap::with_capacity(tensors.len());
+    let mut original_names = HashMap::with_capacity(tensors.len());
+    for (name, tensor) in tensors {
+        let converted_name = peft_lora_tensor_name(&name);
+        if let Some(first) = original_names.insert(converted_name.clone(), name.clone()) {
+            return Err(SaveSafetensorsError::DuplicateConvertedTensorName {
+                first,
+                second: name,
+                converted: converted_name,
+            });
+        }
+        converted.insert(converted_name, tensor);
+    }
+
+    let mut tensors = converted.into_iter().collect::<Vec<_>>();
+    tensors.sort_by(|a, b| a.0.cmp(&b.0));
+    for (name, tensor) in &tensors {
+        let size = tensor.numel() * tensor.kind().elt_size_in_bytes();
+        if size > MAX_SAFETENSOR_PART_SIZE {
+            return Err(SaveSafetensorsError::TensorTooBig {
+                name: name.clone(),
+                size,
+            });
+        }
+    }
+
+    let tensor_path = dir.join("adapter_model.safetensors");
+    let safetensor_metadata = HashMap::from([
+        ("format".to_string(), "pt".to_string()),
+        (
+            "aether_artifact_type".to_string(),
+            "lora_adapter".to_string(),
+        ),
+    ]);
+    Tensor::write_safetensors(&tensors, tensor_path.clone(), &Some(safetensor_metadata))?;
+
+    let config_path = dir.join("adapter_config.json");
+    let config_json = serde_json::to_string_pretty(config)
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    std::fs::write(&config_path, config_json)?;
+    let metadata_path = dir.join("aether_adapter.json");
+    let metadata_json = serde_json::to_string_pretty(metadata)
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    std::fs::write(&metadata_path, metadata_json)?;
+    Ok(vec![tensor_path, config_path, metadata_path])
 }
 
 pub fn save_tensors_into_safetensors(
@@ -218,5 +330,77 @@ pub fn save_tensors_into_safetensors(
         paths.push(safetensors_index_path.clone());
         std::fs::write(safetensors_index_path, safetensors_index.to_string())?;
         Ok(paths)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn converts_internal_lora_names_to_peft_names() {
+        assert_eq!(
+            peft_lora_tensor_name(
+                "base_model.model.model.layers.0.self_attn.q_proj.lora_A.default.weight"
+            ),
+            "base_model.model.model.layers.0.self_attn.q_proj.lora_A.weight"
+        );
+        assert_eq!(
+            peft_lora_tensor_name(
+                "base_model.model.model.layers.0.self_attn.q_proj.lora_B.default.weight"
+            ),
+            "base_model.model.model.layers.0.self_attn.q_proj.lora_B.weight"
+        );
+    }
+
+    #[test]
+    fn adapter_config_contains_only_peft_fields() {
+        let config = LoraAdapterConfig::new("org/base".to_string(), 8, 16.0, 0.1);
+        let value = serde_json::to_value(config).unwrap();
+        assert_eq!(value["base_model_name_or_path"], "org/base");
+        assert_eq!(value["target_modules"], "all-linear");
+        assert_eq!(value["peft_type"], "LORA");
+        assert!(value.get("aether").is_none());
+    }
+
+    #[test]
+    fn writes_peft_adapter_artifact() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("aether-lora-artifact-{unique}"));
+        let tensors = HashMap::from([(
+            "base_model.model.layer.lora_A.default.weight".to_string(),
+            Tensor::ones([2, 2], (Kind::Float, Device::Cpu)),
+        )]);
+        let config = LoraAdapterConfig::new("org/base".to_string(), 2, 4.0, 0.0);
+        let metadata = AetherAdapterMetadata {
+            artifact_type: "lora_adapter".to_string(),
+            format_version: 1,
+            run_id: "run".to_string(),
+            epoch: 1,
+            step: 3,
+            trainable_manifest_digest: "00".repeat(32),
+        };
+
+        let paths =
+            save_lora_adapter_into_safetensors(tensors, dir.clone(), &config, &metadata).unwrap();
+        assert_eq!(paths.len(), 3);
+        let bytes = std::fs::read(dir.join("adapter_model.safetensors")).unwrap();
+        let saved = SafeTensors::deserialize(&bytes).unwrap();
+        assert!(saved.tensor("base_model.model.layer.lora_A.weight").is_ok());
+        let config: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.join("adapter_config.json")).unwrap())
+                .unwrap();
+        assert_eq!(config["r"], 2);
+        assert!(config.get("aether").is_none());
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.join("aether_adapter.json")).unwrap())
+                .unwrap();
+        assert_eq!(metadata["run_id"], "run");
+
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

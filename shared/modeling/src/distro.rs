@@ -1,4 +1,4 @@
-use crate::{CausalLM, StableVariableIterator, Variable};
+use crate::{CausalLM, StableVariableIterator, Variable, VariableManifestEntry};
 
 use std::{cmp::Ordering, collections::HashMap, f64::consts::PI};
 use tch::{COptimizer, Device, Kind, Tensor};
@@ -371,6 +371,79 @@ impl TransformDCT {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct DistroResultMetadata {
+    pub xshape: Vec<i64>,
+    pub totalk: i64,
+    pub sparse_idx_shape: Vec<i64>,
+    pub sparse_idx_dtype: String,
+    pub sparse_val_shape: Vec<i64>,
+    pub sparse_val_dtype: String,
+}
+
+pub fn distro_result_manifest(
+    variables: &[VariableManifestEntry],
+    compression_chunk: i64,
+    compression_topk: i64,
+    quantize_1bit: bool,
+) -> Vec<DistroResultMetadata> {
+    variables
+        .iter()
+        .map(|variable| {
+            let shape = &variable.shape;
+            let xshape = if shape.len() > 1 {
+                let ndim = shape.len();
+                let n1 = TransformDCT::get_smaller_split(shape[ndim - 2], compression_chunk);
+                let n2 = TransformDCT::get_smaller_split(shape[ndim - 1], compression_chunk);
+                let mut transformed = shape[..ndim - 2].to_vec();
+                transformed.extend([shape[ndim - 2] / n1, shape[ndim - 1] / n2, n1, n2]);
+                transformed
+            } else {
+                let n1 = TransformDCT::get_smaller_split(shape[0], compression_chunk);
+                vec![shape[0] / n1, n1]
+            };
+            let totalk = if xshape.len() > 2 {
+                xshape[xshape.len() - 2] * xshape[xshape.len() - 1]
+            } else {
+                *xshape.last().expect("trainable tensor has dimensions")
+            };
+            let topk = compression_topk.clamp(1, totalk);
+            let mut sparse_val_shape = if xshape.len() > 2 {
+                xshape[..xshape.len() - 2].to_vec()
+            } else {
+                xshape[..xshape.len() - 1].to_vec()
+            };
+            sparse_val_shape.push(topk);
+            let (index_width, sparse_idx_dtype) = if totalk <= 256 {
+                (1, "Uint8")
+            } else if totalk <= 65_536 {
+                (2, "Uint8")
+            } else if totalk <= 4_294_967_296 {
+                (4, "Uint8")
+            } else {
+                (1, "Int64")
+            };
+            let mut sparse_idx_shape = sparse_val_shape.clone();
+            *sparse_idx_shape
+                .last_mut()
+                .expect("sparse shape is non-empty") *= index_width;
+
+            DistroResultMetadata {
+                xshape,
+                totalk,
+                sparse_idx_shape,
+                sparse_idx_dtype: sparse_idx_dtype.to_owned(),
+                sparse_val_shape,
+                sparse_val_dtype: if quantize_1bit {
+                    "Bool".to_owned()
+                } else {
+                    variable.dtype.clone()
+                },
+            }
+        })
+        .collect()
+}
+
 pub struct CompressDCT;
 
 impl CompressDCT {
@@ -527,7 +600,7 @@ impl Distro {
         let mut sgd = COptimizer::sgd(0.1, 0.0, 0.0, 0.0, false).expect("SGD with valid params");
 
         let mut state = Vec::new();
-        for variable in vs.variables() {
+        for variable in vs.trainable_variables() {
             state.push(State {
                 delta: variable.zeros_like(format!("{}.delta", variable.name())),
             });
@@ -538,7 +611,7 @@ impl Distro {
             variable.zero_grad();
         }
 
-        let transform = TransformDCT::new(vs.variables(), compression_chunk);
+        let transform = TransformDCT::new(vs.trainable_variables(), compression_chunk);
 
         Self {
             sgd,
@@ -561,7 +634,7 @@ impl Distro {
         let _no_grad = tch::no_grad_guard();
 
         let mut ret = Vec::new();
-        for (index, var) in variables.variables().enumerate() {
+        for (index, var) in variables.trainable_variables().enumerate() {
             let mut variable = var.logical_tensor();
 
             let grad_energy: Option<f64> = match stats {
@@ -679,7 +752,7 @@ impl Distro {
             return;
         }
 
-        for (index, var) in vars.variables().enumerate() {
+        for (index, var) in vars.trainable_variables().enumerate() {
             let variable = var.logical_tensor();
             let device = variable.device();
             let indicies = results
@@ -721,14 +794,14 @@ impl Distro {
             .set_learning_rate(lr)
             .expect("set_learning_rate with valid lr");
         let _ = self.sgd.step();
-        for var in vars.variables() {
+        for var in vars.trainable_variables() {
             var.zero_grad();
         }
     }
 
     pub fn error_correction(&mut self, vars: &dyn CausalLM, prev_lr: f64) {
         let _no_grad = tch::no_grad_guard();
-        for (index, var) in vars.variables().enumerate() {
+        for (index, var) in vars.trainable_variables().enumerate() {
             let mut variable = var.logical_tensor();
 
             let state = self

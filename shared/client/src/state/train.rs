@@ -15,7 +15,7 @@ use aether_modeling::{
 };
 use aether_network::{
     distro_results_to_bytes, Hash, SerializeDistroResultError, SerializedDistroResult,
-    TransmittableDistroResult,
+    TransmittableDistroResult, DISTRO_RESULT_FORMAT_VERSION,
 };
 use futures::{future::try_join_all, stream::FuturesUnordered, StreamExt};
 use std::{
@@ -81,6 +81,9 @@ pub enum TrainError {
 
     #[error("Failed to send distro result, channel must be closed")]
     SendDistroResult,
+
+    #[error("Generated an invalid distro result: {0}")]
+    InvalidLocalDistroResult(aether_network::ValidateDistroResultError),
 
     #[error("Failed to send health checks, channel must be closed")]
     SendHealthChecks,
@@ -395,6 +398,8 @@ impl TrainingStepMetadata {
                                 distro_results,
                                 cancelled,
                                 nonce,
+                                manifest_digest,
+                                result_metadata,
                             } = completed_trainer.map_err(|_| TrainError::TrainCrashed)??;
 
                             event!(train::TrainingFinished {
@@ -433,6 +438,8 @@ impl TrainingStepMetadata {
                                     let to_transmit = if quantize { Trainer::quantize_results(&distro_results) } else { distro_results.clone()};
 
                                     let transmittable_distro_result = TransmittableDistroResult {
+                                        format_version: DISTRO_RESULT_FORMAT_VERSION,
+                                        manifest_digest,
                                         step,
                                         batch_id,
                                         distro_results: to_transmit
@@ -442,6 +449,10 @@ impl TrainingStepMetadata {
                                             .map_err(TrainError::SerializeDistroResult)?,
                                         trainer_nonce: nonce,
                                     };
+
+                                    transmittable_distro_result
+                                        .validate(manifest_digest, &result_metadata.unwrap_or_default())
+                                        .map_err(TrainError::InvalidLocalDistroResult)?;
 
                                     if let Some(dir) = write_gradients_dir {
                                         let transmittable_distro_result = transmittable_distro_result.clone();
@@ -455,7 +466,7 @@ impl TrainingStepMetadata {
                                         });
                                     }
 
-                                    let commitment_data_hash = transmittable_distro_result.comptue_hash();
+                                    let commitment_data_hash = transmittable_distro_result.compute_hash();
 
                                     trace!("trying to queue tx distro result...");
                                     tx_distro_result

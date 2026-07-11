@@ -55,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trust-remote-code", action="store_true")
     parser.add_argument(
         "--mode",
-        choices=("chat", "prompt-response"),
+        choices=("chat", "prompt-response", "messages"),
         default="chat",
         help="chat uses tokenizer.apply_chat_template; prompt-response concatenates raw fields.",
     )
@@ -73,6 +73,11 @@ def parse_args() -> argparse.Namespace:
         "--system-prompt",
         default=None,
         help="Optional system message prepended in chat mode.",
+    )
+    parser.add_argument(
+        "--messages-field",
+        default="messages",
+        help="Conversation column for --mode messages.",
     )
     return parser.parse_args()
 
@@ -134,6 +139,52 @@ def prompt_response_tokens(tokenizer, prompt: str, response: str) -> tuple[list[
     return prompt_ids, full_ids
 
 
+def normalized_messages(sample: dict[str, Any], field: str) -> list[dict[str, str]] | None:
+    messages = sample.get(field)
+    if not isinstance(messages, list):
+        return None
+    normalized = []
+    for message in messages:
+        if not isinstance(message, Mapping):
+            return None
+        role = message.get("role")
+        content = message.get("content")
+        if not isinstance(role, str) or not isinstance(content, str):
+            return None
+        content = content.strip()
+        if content:
+            normalized.append({"role": role, "content": content})
+    return normalized or None
+
+
+def message_tokens(tokenizer, messages: list[dict[str, str]]) -> tuple[list[int], list[int]] | None:
+    assistant_indices = [
+        index for index, message in enumerate(messages) if message["role"] == "assistant"
+    ]
+    if not assistant_indices:
+        return None
+    assistant_index = assistant_indices[-1]
+    if assistant_index == 0:
+        return None
+    prompt_messages = messages[:assistant_index]
+    full_messages = messages[: assistant_index + 1]
+    prompt_ids = token_ids(
+        tokenizer.apply_chat_template(
+            prompt_messages,
+            tokenize=True,
+            add_generation_prompt=True,
+        )
+    )
+    full_ids = token_ids(
+        tokenizer.apply_chat_template(
+            full_messages,
+            tokenize=True,
+            add_generation_prompt=False,
+        )
+    )
+    return prompt_ids, full_ids
+
+
 def build_example(
     tokenizer,
     prompt: str,
@@ -147,6 +198,31 @@ def build_example(
     else:
         prompt_ids, input_ids = prompt_response_tokens(tokenizer, prompt, response)
 
+    prefix_len = common_prefix_len(prompt_ids, input_ids)
+    labels = [IGNORE_INDEX] * prefix_len + input_ids[prefix_len:]
+
+    input_ids = input_ids[: args.sequence_length]
+    labels = labels[: args.sequence_length]
+
+    if len(input_ids) < args.sequence_length:
+        pad = args.sequence_length - len(input_ids)
+        input_ids.extend([tokenizer.pad_token_id] * pad)
+        labels.extend([IGNORE_INDEX] * pad)
+
+    if all(label == IGNORE_INDEX for label in labels):
+        return None
+    return input_ids, labels
+
+
+def build_messages_example(
+    tokenizer,
+    messages: list[dict[str, str]],
+    args: argparse.Namespace,
+) -> tuple[list[int], list[int]] | None:
+    tokens = message_tokens(tokenizer, messages)
+    if tokens is None:
+        return None
+    prompt_ids, input_ids = tokens
     prefix_len = common_prefix_len(prompt_ids, input_ids)
     labels = [IGNORE_INDEX] * prefix_len + input_ids[prefix_len:]
 
@@ -208,7 +284,7 @@ def main() -> None:
             raise RuntimeError(f"Tokenizer {args.tokenizer} has no pad or eos token")
         tokenizer.pad_token = tokenizer.eos_token
 
-    if args.mode == "chat" and tokenizer.chat_template is None:
+    if args.mode in {"chat", "messages"} and tokenizer.chat_template is None:
         raise RuntimeError(
             f"Tokenizer {args.tokenizer} does not define a chat template; use --mode prompt-response"
         )
@@ -224,14 +300,21 @@ def main() -> None:
     written_files: list[str] = []
 
     for sample in iter_samples(args):
-        prompt = nonempty_text(sample, args.prompt_field)
-        response = nonempty_text(sample, args.response_field)
-        if prompt is None or response is None:
-            skipped += 1
-            missing_text += 1
-            continue
-
-        example = build_example(tokenizer, prompt, response, args)
+        if args.mode == "messages":
+            messages = normalized_messages(sample, args.messages_field)
+            if messages is None:
+                skipped += 1
+                missing_text += 1
+                continue
+            example = build_messages_example(tokenizer, messages, args)
+        else:
+            prompt = nonempty_text(sample, args.prompt_field)
+            response = nonempty_text(sample, args.response_field)
+            if prompt is None or response is None:
+                skipped += 1
+                missing_text += 1
+                continue
+            example = build_example(tokenizer, prompt, response, args)
         if example is None:
             skipped += 1
             no_supervised_tokens += 1
@@ -282,6 +365,7 @@ def main() -> None:
         "mode": args.mode,
         "prompt_field": args.prompt_field,
         "response_field": args.response_field,
+        "messages_field": args.messages_field,
         "system_prompt": args.system_prompt,
         "label_ignore_index": IGNORE_INDEX,
         "files": written_files,

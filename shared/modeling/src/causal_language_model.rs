@@ -18,6 +18,12 @@ pub enum EosToks {
     Multiple(Vec<i64>),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VariableRole {
+    Trainable,
+    State,
+}
+
 /// This trait is for any Causal Language Model that can be inferred,
 /// and thus can have backprop run on it.
 /// Its internal implementation is completely hidden, so this can be impl'd
@@ -37,7 +43,16 @@ pub trait CausalLM: Send {
     fn eos_token_ids(&self) -> Option<EosToks>;
     fn device(&self) -> Device;
     fn max_context_length(&self) -> usize;
-    fn variables(&self) -> StableVariableIterator;
+    /// Parameters updated by optimizers and gradient operations.
+    fn trainable_variables(&self) -> StableVariableIterator;
+    /// Complete model state used for checkpoints and extraction.
+    fn state_variables(&self) -> StableVariableIterator;
+    fn variables_for_role(&self, role: VariableRole) -> StableVariableIterator {
+        match role {
+            VariableRole::Trainable => self.trainable_variables(),
+            VariableRole::State => self.state_variables(),
+        }
+    }
     fn communicator(&self) -> Option<Arc<Communicator>>;
     fn prepare_for_training(&self);
     fn clip_grad_norm(&self, max_grad_norm: f64);
@@ -244,7 +259,11 @@ impl<M: LanguageModelForward, C: LanguageModelConfig> CausalLM for CausalLanguag
         self.config.max_position_embeddings()
     }
 
-    fn variables(&self) -> StableVariableIterator {
+    fn trainable_variables(&self) -> StableVariableIterator {
+        Box::new(self.variables.clone())
+    }
+
+    fn state_variables(&self) -> StableVariableIterator {
         Box::new(self.variables.clone())
     }
 
@@ -277,7 +296,7 @@ impl<M: LanguageModelForward, C: LanguageModelConfig> CausalLM for CausalLanguag
         let mut sharded_norm_sq = Tensor::zeros([], (Kind::Float, self.device));
         let mut replicated_norm_sq = Tensor::zeros([], (Kind::Float, self.device));
 
-        for var in self.variables() {
+        for var in self.trainable_variables() {
             let grad = var.logical_tensor().grad();
             if grad.defined() {
                 let local_norm = grad.norm();
@@ -300,7 +319,7 @@ impl<M: LanguageModelForward, C: LanguageModelConfig> CausalLM for CausalLanguag
 
         if total_norm > max_norm {
             let scale = max_norm / (total_norm + 1e-6);
-            for var in self.variables() {
+            for var in self.trainable_variables() {
                 let mut grad = var.logical_tensor().grad();
                 if grad.defined() {
                     let _t = grad.g_mul_scalar_(scale);
@@ -311,7 +330,7 @@ impl<M: LanguageModelForward, C: LanguageModelConfig> CausalLM for CausalLanguag
 
     fn convert(&self, state_dict: Option<HashMap<String, Tensor>>) -> HashMap<String, Tensor> {
         state_dict.unwrap_or_else(|| {
-            self.variables()
+            self.state_variables()
                 .map(|x| (x.name().to_string(), x.logical_tensor()))
                 .collect()
         })

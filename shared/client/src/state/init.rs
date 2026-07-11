@@ -154,6 +154,46 @@ fn validate_parallelism(
     Ok(())
 }
 
+fn validate_lora_runtime(
+    llm: &model::LLM,
+    init_config: &RunInitConfig,
+) -> Result<(), InitRunError> {
+    if !matches!(llm.training_method, model::LLMTrainingMethod::Lora(_)) {
+        return Ok(());
+    }
+    if llm.architecture != model::LLMArchitecture::HfAuto {
+        return Err(InitRunError::InvalidLoraRuntime(
+            "LoRA requires the HfAuto architecture",
+        ));
+    }
+    if init_config.data_parallelism != 1
+        || init_config.tensor_parallelism != 1
+        || init_config.device.size() != 1
+    {
+        return Err(InitRunError::InvalidLoraRuntime(
+            "LoRA requires one device with data_parallelism=1 and tensor_parallelism=1",
+        ));
+    }
+    if !matches!(
+        llm.optimizer,
+        aether_core::OptimizerDefinition::AdamW { .. }
+            | aether_core::OptimizerDefinition::Distro { .. }
+    ) {
+        return Err(InitRunError::InvalidLoraRuntime(
+            "LoRA requires AdamW or DisTrO",
+        ));
+    }
+    if matches!(
+        llm.checkpoint,
+        model::Checkpoint::P2P(_) | model::Checkpoint::P2PGcs(_)
+    ) {
+        return Err(InitRunError::InvalidLoraRuntime(
+            "LoRA requires a directly loadable base checkpoint; P2P is reserved for adapter state",
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,6 +361,46 @@ mod tests {
     fn native_parallelism_is_accepted_when_enabled() {
         assert!(validate_parallelism(2, 2, true).is_ok());
     }
+
+    #[test]
+    fn full_training_does_not_apply_lora_runtime_constraints() {
+        let llm = model::LLM::dummy();
+        let mut config = base_config();
+        config.data_parallelism = 2;
+        config.tensor_parallelism = 2;
+        assert!(validate_lora_runtime(&llm, &config).is_ok());
+    }
+
+    #[test]
+    fn lora_runtime_requires_hf_auto_single_device_and_supported_optimizer() {
+        let mut llm = model::LLM::dummy();
+        llm.training_method = model::LLMTrainingMethod::Lora(model::LoraConfig {
+            rank: 8,
+            alpha: 16.0,
+            dropout: 0.0,
+            init_seed: 7,
+            adapter_checkpoint: model::AdapterCheckpoint::Fresh,
+        });
+        let mut config = base_config();
+
+        assert!(validate_lora_runtime(&llm, &config).is_err());
+        llm.architecture = model::LLMArchitecture::HfAuto;
+        assert!(validate_lora_runtime(&llm, &config).is_err());
+        llm.optimizer = aether_core::OptimizerDefinition::AdamW {
+            betas: [0.9, 0.95],
+            weight_decay: 0.1,
+            eps: 1e-8,
+            clip_grad_norm: None,
+        };
+        assert!(validate_lora_runtime(&llm, &config).is_ok());
+
+        config.data_parallelism = 2;
+        assert!(validate_lora_runtime(&llm, &config).is_err());
+
+        config.data_parallelism = 1;
+        llm.checkpoint = model::Checkpoint::P2P(model::HubRepo::dummy());
+        assert!(validate_lora_runtime(&llm, &config).is_err());
+    }
 }
 
 #[derive(Debug, Error)]
@@ -378,6 +458,9 @@ pub enum InitRunError {
         tensor_parallelism: usize,
     },
 
+    #[error("invalid LoRA runtime configuration: {0}")]
+    InvalidLoraRuntime(&'static str),
+
     #[error(
         "native data/tensor parallelism requires the `parallelism` feature (got data_parallelism={data_parallelism}, tensor_parallelism={tensor_parallelism})"
     )]
@@ -416,6 +499,84 @@ struct RawLoadedModel {
 
 type OneshotModelParameterSender = oneshot::Sender<HashMap<String, Tensor>>;
 type OneShotModelConfigSender = oneshot::Sender<(String, Tokenizer, Vec<String>)>;
+
+#[cfg(feature = "python")]
+async fn load_adapter_source(
+    checkpoint: model::AdapterCheckpoint,
+    hub_read_token: Option<String>,
+    hub_max_concurrent_downloads: usize,
+    tx_request_model_config: &UnboundedSender<OneShotModelConfigSender>,
+    tx_parameters_req: &UnboundedSender<(Vec<String>, OneshotModelParameterSender)>,
+) -> Result<Option<PretrainedSource<AutoConfig>>, InitRunError> {
+    let source = match checkpoint {
+        model::AdapterCheckpoint::Fresh => return Ok(None),
+        model::AdapterCheckpoint::Hub(hub_repo) => {
+            let repo_id: String = (&hub_repo.repo_id).into();
+            let local_path = PathBuf::from(&repo_id);
+            let revision = hub_repo.revision.map(|revision| (&revision).into());
+            let files = if revision.is_none()
+                && tokio::fs::try_exists(&local_path).await.unwrap_or_default()
+            {
+                let mut files = Vec::new();
+                let mut directory = tokio::fs::read_dir(local_path).await?;
+                while let Some(entry) = directory.next_entry().await? {
+                    files.push(entry.path());
+                }
+                files
+            } else {
+                info!(%repo_id, ?revision, "Downloading LoRA adapter from Hub");
+                download_model_repo_async(
+                    &repo_id,
+                    revision,
+                    None,
+                    hub_read_token,
+                    Some(hub_max_concurrent_downloads),
+                    false,
+                )
+                .await?
+            };
+            PretrainedSource::RepoFiles(files)
+        }
+        model::AdapterCheckpoint::Gcs(gcs_repo) => {
+            let bucket: String = (&gcs_repo.bucket).into();
+            let prefix: Option<String> = gcs_repo.prefix.map(|prefix| (&prefix).into());
+            info!(%bucket, ?prefix, "Downloading LoRA adapter from GCS");
+            PretrainedSource::RepoFiles(
+                download_model_from_gcs_async(&bucket, prefix.as_deref()).await?,
+            )
+        }
+        model::AdapterCheckpoint::P2P(_) | model::AdapterCheckpoint::P2PGcs(_) => {
+            let (tx_config, rx_config) = oneshot::channel();
+            info!("Requesting LoRA adapter config over p2p network");
+            tx_request_model_config
+                .send(tx_config)
+                .map_err(|_| InitRunError::P2PModelLoad)?;
+            let (model_config, _tokenizer, parameter_names) =
+                rx_config.await.map_err(|_| InitRunError::P2PModelLoad)?;
+
+            info!(
+                count = parameter_names.len(),
+                "Requesting LoRA adapter parameters over p2p network"
+            );
+            let (tx_parameters, rx_parameters) = oneshot::channel();
+            tx_parameters_req
+                .send((parameter_names, tx_parameters))
+                .map_err(|_| InitRunError::P2PModelLoad)?;
+            // SAFETY: tensors are loaded sequentially before model initialization.
+            #[allow(clippy::arc_with_non_send_sync)]
+            let parameters = Arc::new(
+                rx_parameters
+                    .await
+                    .map_err(|_| InitRunError::P2PModelLoad)?,
+            );
+            PretrainedSource::ConfigAndTensors(
+                AutoConfig::Auto(serde_json::from_str(&model_config)?),
+                parameters,
+            )
+        }
+    };
+    Ok(Some(source))
+}
 
 #[derive(Clone)]
 pub struct RunInitConfigAndIO {
@@ -463,6 +624,8 @@ impl RunInitConfigAndIO {
         init_config.apply_run_templates(&run_id);
 
         let model::Model::LLM(llm) = state.model;
+
+        validate_lora_runtime(&llm, &init_config)?;
 
         let requires_native_parallelism = !cfg!(feature = "python")
             || matches!(
@@ -643,7 +806,7 @@ impl RunInitConfigAndIO {
                                         &repo_id,
                                         revision,
                                         None,
-                                        init_config.hub_read_token,
+                                        init_config.hub_read_token.clone(),
                                         Some(init_config.hub_max_concurrent_downloads),
                                         false,
                                     )
@@ -798,6 +961,30 @@ impl RunInitConfigAndIO {
                             _ => unreachable!(),
                         };
 
+                        #[cfg(feature = "python")]
+                        let (lora_config, adapter_source) = match llm.training_method {
+                            model::LLMTrainingMethod::Full => (None, None),
+                            model::LLMTrainingMethod::Lora(config) => {
+                                let adapter_source = load_adapter_source(
+                                    config.adapter_checkpoint,
+                                    init_config.hub_read_token.clone(),
+                                    init_config.hub_max_concurrent_downloads,
+                                    &tx_request_model_config,
+                                    &tx_parameters_req,
+                                )
+                                .await?;
+                                (
+                                    Some(aether_modeling::PythonLoraConfig {
+                                        rank: config.rank,
+                                        alpha: config.alpha,
+                                        dropout: config.dropout,
+                                        init_seed: config.init_seed,
+                                    }),
+                                    adapter_source,
+                                )
+                            }
+                        };
+
                         info!("Loading model...");
                         event!(warmup::ModelLoadStarted);
 
@@ -864,13 +1051,19 @@ impl RunInitConfigAndIO {
                                                         init_config.device,
                                                     )
                                                 })?;
+                                            let source = source.try_into()?;
+                                            let adapter_source = adapter_source
+                                                .map(TryInto::try_into)
+                                                .transpose()?;
                                             aether_modeling::PythonCausalLM::new(
                                                 &llm.architecture.to_string(),
-                                                &source.try_into()?,
+                                                &source,
                                                 device,
                                                 attn_implementation.unwrap_or_default(),
                                                 None,
                                                 Some(llm.max_seq_len as usize),
+                                                lora_config,
+                                                adapter_source.as_ref(),
                                             )
                                             .map(RawLoadedModelType::Python)
                                             .map_err(InitRunError::PythonModelError)

@@ -1,6 +1,6 @@
 use crate::UploadInfo;
 use aether_coordinator::{
-    model::{self},
+    model::{self, LLMTrainingMethod},
     Coordinator,
 };
 use aether_data_provider::{upload_to_gcs, upload_to_hub, GcsManifestMetadata, UploadError};
@@ -8,13 +8,14 @@ use aether_event_sourcing::event;
 #[cfg(feature = "python")]
 use aether_modeling::CausalLM;
 use aether_modeling::{
-    save_tensors_into_safetensors, SaveSafetensorsError, Trainer, TrainerThreadCommunicationError,
+    save_lora_adapter_into_safetensors, save_tensors_into_safetensors, AetherAdapterMetadata,
+    LoraAdapterConfig, SaveSafetensorsError, Trainer, TrainerThreadCommunicationError,
 };
 use std::{
     cmp::Reverse,
     collections::{BinaryHeap, HashMap},
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, Mutex as StdMutex},
 };
 use tch::Tensor;
 use thiserror::Error;
@@ -48,6 +49,7 @@ pub struct CooldownStepMetadata {
     checkpoint_extra_files: Vec<PathBuf>,
 
     model_task_runner: ModelTaskRunner,
+    base_model_identity: Arc<StdMutex<Option<String>>>,
     // use a heap here as a best-effort attempt to ensure we get rid of the lowest step number dir even if we spawn multiple tasks
     // which may not finish writing their dirs in order. We note that even if we were to take the more complicated
     // route of actually enumerating the checkpoint_dir there would still be a race condition, unless we took a lockfile
@@ -71,6 +73,7 @@ impl CooldownStepMetadata {
             checkpoint_info,
             checkpoint_extra_files,
             model_task_runner,
+            base_model_identity: Arc::new(StdMutex::new(None)),
             delete_queue: Arc::new(Mutex::new(BinaryHeap::new())),
         }
     }
@@ -144,31 +147,54 @@ impl CooldownStepMetadata {
         let tx_model = self.tx_model.clone();
         let model_task_runner = self.model_task_runner.clone();
         let delete_queue = self.delete_queue.clone();
+        let model::Model::LLM(llm) = state.model;
+        let training_method = llm.training_method;
+        let trainable_manifest_digest = trainer.manifest_digest();
+        let base_model_identity = {
+            let mut identity = self.base_model_identity.lock().unwrap();
+            identity
+                .get_or_insert_with(|| llm.checkpoint.to_string())
+                .clone()
+        };
 
         let checkpointing_and_evals: CheckpointAndEvalsHandle = tokio::task::spawn(
             async move {
-                info!("Extracting full model...");
+                info!(
+                    "Extracting {} model state...",
+                    if matches!(training_method, LLMTrainingMethod::Lora(_)) {
+                        "LoRA adapter"
+                    } else {
+                        "full"
+                    }
+                );
                 event!(cooldown::ModelSerializationStarted);
-                let (variables, trainer) =
-                    tokio::task::spawn_blocking::<_, Result<_, CheckpointError>>(|| {
-                        let mut trainer = trainer;
-                        trainer.truncate_bf16()?;
-                        let variables: HashMap<String, Tensor> = trainer
-                            .extract()?
-                            .into_iter()
-                            .map(|(name, tensor)| (name, tensor.to_kind(tch::Kind::BFloat16)))
-                            .collect();
-                        info!("Model extracted; {} parameters", variables.len());
-                        Ok((variables, trainer))
-                    })
-                    .await
-                    .map_err(|_| {
-                        event!(cooldown::ModelSerializationFinished {
-                            success: false,
-                            error_string: Some("extract thread crashed".to_string())
-                        });
-                        CheckpointError::ExtractThreadCrashed
-                    })??;
+                let (variables, trainer) = tokio::task::spawn_blocking::<
+                    _,
+                    Result<_, CheckpointError>,
+                >(move || {
+                    let mut trainer = trainer;
+                    let variables: HashMap<String, Tensor> = match training_method {
+                        LLMTrainingMethod::Full => {
+                            trainer.truncate_bf16()?;
+                            trainer
+                                .extract()?
+                                .into_iter()
+                                .map(|(name, tensor)| (name, tensor.to_kind(tch::Kind::BFloat16)))
+                                .collect()
+                        }
+                        LLMTrainingMethod::Lora(_) => trainer.extract_trainable()?,
+                    };
+                    info!("Model extracted; {} parameters", variables.len());
+                    Ok((variables, trainer))
+                })
+                .await
+                .map_err(|_| {
+                    event!(cooldown::ModelSerializationFinished {
+                        success: false,
+                        error_string: Some("extract thread crashed".to_string())
+                    });
+                    CheckpointError::ExtractThreadCrashed
+                })??;
                 event!(cooldown::ModelSerializationFinished {
                     success: true,
                     error_string: None
@@ -185,15 +211,15 @@ impl CooldownStepMetadata {
                     .map_err(|_| CheckpointError::SendCheckpoint)?;
 
                 // convert from internal shape to serialized shape (e.g. torchtitan to hf)
-                let (variables, trainer) = match trainer {
+                let (variables, trainer) = match (training_method, trainer) {
                     #[cfg(feature = "python")]
-                    Trainer::PythonDistributed(_) => {
+                    (LLMTrainingMethod::Full, trainer @ Trainer::PythonDistributed(_)) => {
                         info!("Converting distributed trainer variables for checkpointing...");
                         tokio::task::spawn_blocking(|| (trainer.convert(Some(variables)), trainer))
                             .await
                             .map_err(|_| CheckpointError::ExtractThreadCrashed)?
                     }
-                    _ => (variables, trainer),
+                    (_, trainer) => (variables, trainer),
                 };
 
                 trainers.push(trainer);
@@ -219,8 +245,20 @@ impl CooldownStepMetadata {
 
                 let upload_handle = tokio::task::spawn(async move {
                     let path = checkpoint_dir.join(format!("{run_id}-step{step}"));
-                    let local =
-                        save_checkpoint_locally(path, variables, checkpoint_extra_files).await?;
+                    let local = save_checkpoint_locally(
+                        path,
+                        variables,
+                        checkpoint_extra_files,
+                        CheckpointSaveContext {
+                            training_method,
+                            base_model_identity,
+                            run_id: run_id.clone(),
+                            epoch,
+                            step,
+                            trainable_manifest_digest,
+                        },
+                    )
+                    .await?;
 
                     if let Some(upload_info) = upload_info {
                         let manifest_metadata = GcsManifestMetadata {
@@ -261,16 +299,57 @@ impl CooldownStepMetadata {
     }
 }
 
+struct CheckpointSaveContext {
+    training_method: LLMTrainingMethod,
+    base_model_identity: String,
+    run_id: String,
+    epoch: u32,
+    step: u32,
+    trainable_manifest_digest: [u8; 32],
+}
+
 async fn save_checkpoint_locally(
     path: PathBuf,
     variables: HashMap<String, Tensor>,
     checkpoint_extra_files: Vec<PathBuf>,
+    context: CheckpointSaveContext,
 ) -> Result<Vec<PathBuf>, CheckpointError> {
+    let CheckpointSaveContext {
+        training_method,
+        base_model_identity,
+        run_id,
+        epoch,
+        step,
+        trainable_manifest_digest,
+    } = context;
     info!("Saving to {}", path.display());
     event!(cooldown::CheckpointWriteStarted);
     let mut local = tokio::task::spawn_blocking({
         let path = path.clone();
-        move || save_tensors_into_safetensors(variables, path)
+        move || match training_method {
+            LLMTrainingMethod::Full => save_tensors_into_safetensors(variables, path),
+            LLMTrainingMethod::Lora(config) => save_lora_adapter_into_safetensors(
+                variables,
+                path,
+                &LoraAdapterConfig::new(
+                    base_model_identity,
+                    config.rank,
+                    config.alpha,
+                    config.dropout,
+                ),
+                &AetherAdapterMetadata {
+                    artifact_type: "lora_adapter".to_string(),
+                    format_version: 1,
+                    run_id,
+                    epoch,
+                    step,
+                    trainable_manifest_digest: trainable_manifest_digest
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect(),
+                },
+            ),
+        }
     })
     .await
     .map_err(|_| {
@@ -282,6 +361,15 @@ async fn save_checkpoint_locally(
     })??;
 
     for extra in checkpoint_extra_files {
+        if matches!(training_method, LLMTrainingMethod::Lora(_))
+            && extra.file_name().is_some_and(|name| {
+                name == "adapter_config.json"
+                    || name == "adapter_model.safetensors"
+                    || name == "aether_adapter.json"
+            })
+        {
+            continue;
+        }
         let to = path.join(extra.file_name().unwrap());
         tokio::fs::copy(extra.clone(), to.clone())
             .await

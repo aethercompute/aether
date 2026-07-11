@@ -33,21 +33,26 @@ pub use auto_tokenizer::{auto_tokenizer, AutoTokenizerError};
 pub use batcher::Batcher;
 pub use causal_language_model::{
     CausalLM, CausalLanguageModel, EosToks, LanguageModelBuilder, LanguageModelConfig,
-    LanguageModelForward,
+    LanguageModelForward, VariableRole,
 };
 pub use device_utils::{get_optimal_devices, Devices};
-pub use distro::{CompressDCT, Distro, DistroResult, TransformDCT};
+pub use distro::{
+    distro_result_manifest, CompressDCT, Distro, DistroResult, DistroResultMetadata, TransformDCT,
+};
 pub use dummy::{get_dummy_parameters, DummyModel};
 pub use fp32_gradient_accumulator::Fp32GradientAccumulator;
 pub use models::*;
 pub use muon::MuonOptimizer;
 pub use optimizer::Optimizer;
 pub use parallelism::{
-    unsharded_cpu_variables, AllReduce, ColumnParallelLinear, Communicator, CommunicatorId,
-    CudaSynchronize, ParallelExpandHeads, ParallelismConfig, ReduceType, RowParallelLinear,
+    unsharded_cpu_trainable_variables, unsharded_cpu_variables, AllReduce, ColumnParallelLinear,
+    Communicator, CommunicatorId, CudaSynchronize, ParallelExpandHeads, ParallelismConfig,
+    ReduceType, RowParallelLinear,
 };
 #[cfg(feature = "python")]
-pub use python_causal_lm::{PythonCausalLM, PythonCausalLMError, PythonModelConfig};
+pub use python_causal_lm::{
+    PythonCausalLM, PythonCausalLMError, PythonLoraConfig, PythonModelConfig,
+};
 #[cfg(feature = "python")]
 pub use python_distributed_causal_lm::{
     PythonDistributedCausalLM, PythonDistributedCausalLMError, TorchDistributedCommunicator,
@@ -59,7 +64,8 @@ pub use python_distributed_trainer::{
 pub use rms_norm::RMSNorm;
 pub use rope::{default_rope, rotate_half, yarn_get_mscale, RoPECache, RoPEConfig, RoPEType};
 pub use safetensor_utils::{
-    load_safetensors_into_variables, save_tensors_into_safetensors, LoadSafetensorsError,
+    load_safetensors_into_variables, peft_lora_tensor_name, save_lora_adapter_into_safetensors,
+    save_tensors_into_safetensors, AetherAdapterMetadata, LoadSafetensorsError, LoraAdapterConfig,
     SaveSafetensorsError,
 };
 pub use sampling::{LogitsProcessor, Sampling};
@@ -68,7 +74,10 @@ pub use trainer::{
     ApplyDistroResultError, Batch, BatchData, BatchDataCPU, BatchDataGPU, DataParallel,
     LocalTrainer, ParallelModels, TrainOutput, Trainer, TrainerThreadCommunicationError,
 };
-pub use variable::{StableVarStoreIterator, StableVariableIterator, Variable};
+pub use variable::{
+    variable_manifest, variable_manifest_digest, StableVarStoreIterator, StableVariableIterator,
+    Variable, VariableManifestEntry,
+};
 
 #[allow(unused)]
 pub fn set_torch_rng_seed() {

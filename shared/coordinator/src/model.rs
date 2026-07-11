@@ -44,6 +44,37 @@ pub enum LLMTrainingDataType {
     Finetuning,
 }
 
+#[derive(Clone, Debug, Copy, Default, Zeroable, Serialize, Deserialize, PartialEq, TS)]
+#[repr(C)]
+pub enum AdapterCheckpoint {
+    #[default]
+    Fresh,
+    Hub(HubRepo),
+    P2P(HubRepo),
+    Gcs(GcsRepo),
+    P2PGcs(GcsRepo),
+}
+
+/// LoRA targets all linear layers; target-module lists are intentionally implicit.
+#[derive(Clone, Debug, Copy, Default, Zeroable, Serialize, Deserialize, PartialEq, TS)]
+#[repr(C)]
+pub struct LoraConfig {
+    pub rank: u32,
+    pub alpha: f32,
+    pub dropout: f32,
+    pub init_seed: u64,
+    #[serde(default)]
+    pub adapter_checkpoint: AdapterCheckpoint,
+}
+
+#[derive(Clone, Debug, Copy, Default, Zeroable, Serialize, Deserialize, PartialEq, TS)]
+#[repr(C)]
+pub enum LLMTrainingMethod {
+    #[default]
+    Full,
+    Lora(LoraConfig),
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS)]
 #[repr(C)]
 #[allow(clippy::large_enum_variant)]
@@ -151,6 +182,8 @@ pub struct LLM {
     pub data_location: LLMTrainingDataLocation,
     pub lr_schedule: LearningRateSchedule,
     pub optimizer: OptimizerDefinition,
+    #[serde(default)]
+    pub training_method: LLMTrainingMethod,
 }
 
 impl LLM {
@@ -164,6 +197,7 @@ impl LLM {
             max_seq_len: 2048,
             optimizer: OptimizerDefinition::Dummy,
             cold_start_warmup_steps: 0,
+            training_method: LLMTrainingMethod::Full,
         }
     }
 }
@@ -280,6 +314,41 @@ impl Model {
                     warn!("model check failed: bad optimizer");
                     return false;
                 }
+                if let LLMTrainingMethod::Lora(config) = llm.training_method {
+                    if llm.architecture != LLMArchitecture::HfAuto {
+                        warn!("model check failed: LoRA requires the HfAuto architecture");
+                        return false;
+                    }
+                    if config.rank == 0
+                        || !config.alpha.is_finite()
+                        || config.alpha <= 0.0
+                        || !config.dropout.is_finite()
+                        || !(0.0..1.0).contains(&config.dropout)
+                    {
+                        warn!("model check failed: invalid LoRA configuration");
+                        return false;
+                    }
+                    if !matches!(
+                        llm.optimizer,
+                        OptimizerDefinition::AdamW { .. } | OptimizerDefinition::Distro { .. }
+                    ) {
+                        warn!("model check failed: LoRA requires AdamW or DisTrO");
+                        return false;
+                    }
+                    let bad_adapter_checkpoint = match config.adapter_checkpoint {
+                        AdapterCheckpoint::Fresh => false,
+                        AdapterCheckpoint::Hub(repo) | AdapterCheckpoint::P2P(repo) => {
+                            repo.repo_id.is_empty()
+                        }
+                        AdapterCheckpoint::Gcs(repo) | AdapterCheckpoint::P2PGcs(repo) => {
+                            repo.bucket.is_empty()
+                        }
+                    };
+                    if bad_adapter_checkpoint {
+                        warn!("model check failed: bad LoRA adapter checkpoint");
+                        return false;
+                    }
+                }
                 true
             }
         }
@@ -320,6 +389,17 @@ mod tests {
             data_location: LLMTrainingDataLocation::Dummy,
             lr_schedule: LearningRateSchedule::Constant(ConstantLR::default()),
             optimizer: adamw(),
+            training_method: LLMTrainingMethod::Full,
+        }
+    }
+
+    fn lora() -> LoraConfig {
+        LoraConfig {
+            rank: 16,
+            alpha: 32.0,
+            dropout: 0.05,
+            init_seed: 42,
+            adapter_checkpoint: AdapterCheckpoint::Fresh,
         }
     }
 
@@ -415,6 +495,162 @@ mod tests {
         llm.optimizer = OptimizerDefinition::Dummy;
 
         assert!(!Model::LLM(llm).check());
+    }
+
+    #[test]
+    fn model_check_accepts_lora_with_hf_auto_and_supported_optimizers() {
+        let optimizers = [
+            adamw(),
+            OptimizerDefinition::Distro {
+                clip_grad_norm: None,
+                weight_decay: Some(0.1),
+                compression_decay: 0.999,
+                compression_topk: 8,
+                compression_chunk: 64,
+                quantize_1bit: true,
+            },
+        ];
+
+        for optimizer in optimizers {
+            let mut llm = valid_llm();
+            llm.architecture = LLMArchitecture::HfAuto;
+            llm.optimizer = optimizer;
+            llm.training_method = LLMTrainingMethod::Lora(lora());
+            assert!(Model::LLM(llm).check());
+        }
+    }
+
+    #[test]
+    fn model_check_rejects_lora_for_non_hf_auto_architectures() {
+        for architecture in [
+            LLMArchitecture::HfLlama,
+            LLMArchitecture::HfDeepseek,
+            LLMArchitecture::Torchtitan,
+        ] {
+            let mut llm = valid_llm();
+            llm.architecture = architecture;
+            llm.training_method = LLMTrainingMethod::Lora(lora());
+            assert!(!Model::LLM(llm).check(), "accepted {architecture:?}");
+        }
+    }
+
+    #[test]
+    fn model_check_rejects_invalid_lora_parameters() {
+        let invalid = [
+            LoraConfig { rank: 0, ..lora() },
+            LoraConfig {
+                alpha: 0.0,
+                ..lora()
+            },
+            LoraConfig {
+                alpha: f32::NAN,
+                ..lora()
+            },
+            LoraConfig {
+                dropout: -0.1,
+                ..lora()
+            },
+            LoraConfig {
+                dropout: 1.0,
+                ..lora()
+            },
+            LoraConfig {
+                dropout: f32::NAN,
+                ..lora()
+            },
+        ];
+
+        for config in invalid {
+            let mut llm = valid_llm();
+            llm.architecture = LLMArchitecture::HfAuto;
+            llm.training_method = LLMTrainingMethod::Lora(config);
+            assert!(!Model::LLM(llm).check(), "accepted {config:?}");
+        }
+    }
+
+    #[test]
+    fn model_check_rejects_muon_for_lora_but_allows_it_for_full_training() {
+        let muon = OptimizerDefinition::Muon {
+            momentum: 0.95,
+            weight_decay: 0.1,
+            clip_grad_norm: Some(1.0),
+            nesterov: true,
+            ns_steps: 5,
+            lookahead: false,
+            compression_decay: 1.0,
+            compression_topk: 8,
+            compression_chunk: 64,
+            quantize_1bit: true,
+        };
+        let mut llm = valid_llm();
+        llm.architecture = LLMArchitecture::HfAuto;
+        llm.optimizer = muon;
+        assert!(Model::LLM(llm).check());
+
+        llm.training_method = LLMTrainingMethod::Lora(lora());
+        assert!(!Model::LLM(llm).check());
+    }
+
+    #[test]
+    fn model_check_validates_lora_adapter_checkpoint() {
+        let valid = [
+            AdapterCheckpoint::Fresh,
+            AdapterCheckpoint::Hub(hub_repo()),
+            AdapterCheckpoint::P2P(hub_repo()),
+            AdapterCheckpoint::Gcs(GcsRepo {
+                bucket: fixed("bucket"),
+                prefix: None,
+            }),
+            AdapterCheckpoint::P2PGcs(GcsRepo {
+                bucket: fixed("bucket"),
+                prefix: Some(fixed("adapter")),
+            }),
+        ];
+        for adapter_checkpoint in valid {
+            let mut llm = valid_llm();
+            llm.architecture = LLMArchitecture::HfAuto;
+            llm.training_method = LLMTrainingMethod::Lora(LoraConfig {
+                adapter_checkpoint,
+                ..lora()
+            });
+            assert!(Model::LLM(llm).check());
+        }
+
+        for adapter_checkpoint in [
+            AdapterCheckpoint::Hub(HubRepo::dummy()),
+            AdapterCheckpoint::P2P(HubRepo::dummy()),
+            AdapterCheckpoint::Gcs(GcsRepo::dummy()),
+            AdapterCheckpoint::P2PGcs(GcsRepo::dummy()),
+        ] {
+            let mut llm = valid_llm();
+            llm.architecture = LLMArchitecture::HfAuto;
+            llm.training_method = LLMTrainingMethod::Lora(LoraConfig {
+                adapter_checkpoint,
+                ..lora()
+            });
+            assert!(!Model::LLM(llm).check());
+        }
+    }
+
+    #[test]
+    fn adapter_checkpoint_variants_roundtrip() {
+        let variants = [
+            AdapterCheckpoint::Fresh,
+            AdapterCheckpoint::Hub(hub_repo()),
+            AdapterCheckpoint::P2P(hub_repo()),
+            AdapterCheckpoint::Gcs(GcsRepo {
+                bucket: fixed("bucket"),
+                prefix: None,
+            }),
+            AdapterCheckpoint::P2PGcs(GcsRepo {
+                bucket: fixed("bucket"),
+                prefix: Some(fixed("adapter")),
+            }),
+        ];
+
+        for checkpoint in variants {
+            aether_test_support::assert_postcard_roundtrip(&checkpoint);
+        }
     }
 
     #[test]
@@ -544,12 +780,14 @@ mod tests {
             data_location: LLMTrainingDataLocation::Dummy,
             lr_schedule: LearningRateSchedule::Constant(ConstantLR::default()),
             optimizer: adamw(),
+            training_method: LLMTrainingMethod::Lora(lora()),
         };
         let back = aether_test_support::postcard_roundtrip(&llm);
         assert_eq!(back.max_seq_len, 4096);
         assert_eq!(back.cold_start_warmup_steps, 100);
         assert!(matches!(back.architecture, LLMArchitecture::HfDeepseek));
         assert!(matches!(back.data_type, LLMTrainingDataType::Finetuning));
+        assert_eq!(back.training_method, LLMTrainingMethod::Lora(lora()));
     }
 
     #[test]

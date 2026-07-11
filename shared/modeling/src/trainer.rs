@@ -1,7 +1,8 @@
 use crate::{
-    unsharded_cpu_variables, AllReduce, CausalLM, Communicator, CommunicatorId, CudaSynchronize,
-    Distro, DistroResult, EosToks, Fp32GradientAccumulator, Optimizer, ReduceType,
-    StableVariableIterator,
+    distro_result_manifest, unsharded_cpu_trainable_variables, unsharded_cpu_variables,
+    variable_manifest, variable_manifest_digest, AllReduce, CausalLM, Communicator, CommunicatorId,
+    CudaSynchronize, Distro, DistroResult, DistroResultMetadata, EosToks, Fp32GradientAccumulator,
+    Optimizer, ReduceType, StableVariableIterator, VariableRole,
 };
 use aether_core::{Barrier, BatchId, LearningRateSchedule, OptimizerDefinition};
 use anyhow::{Error, Result};
@@ -240,6 +241,8 @@ pub struct TrainOutput {
     pub nonce: u32,
     pub distro_results: Option<DistroResults>,
     pub cancelled: bool,
+    pub manifest_digest: [u8; 32],
+    pub result_metadata: Option<Vec<DistroResultMetadata>>,
 }
 
 #[derive(Clone, Debug)]
@@ -274,7 +277,7 @@ enum ParallelAssignment {
         num_logits_to_keep: Option<i64>,
         loss_scale: Option<f64>,
     },
-    Extract,
+    Extract(VariableRole),
     TruncateBf16,
 }
 
@@ -304,6 +307,22 @@ pub enum Trainer {
 }
 
 impl Trainer {
+    pub fn manifest_digest(&self) -> [u8; 32] {
+        match self {
+            Trainer::Local(trainer) => trainer.manifest_digest,
+            #[cfg(feature = "python")]
+            Trainer::PythonDistributed(trainer) => trainer.manifest_digest(),
+        }
+    }
+
+    pub fn result_metadata(&self) -> Option<&[DistroResultMetadata]> {
+        match self {
+            Trainer::Local(trainer) => trainer.result_metadata.as_deref(),
+            #[cfg(feature = "python")]
+            Trainer::PythonDistributed(trainer) => trainer.result_metadata(),
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn train(
         self,
@@ -360,6 +379,16 @@ impl Trainer {
             Trainer::Local(local_trainer) => local_trainer.extract(),
             #[cfg(feature = "python")]
             Trainer::PythonDistributed(python) => python.extract(),
+        }
+    }
+
+    pub fn extract_trainable(
+        &mut self,
+    ) -> Result<HashMap<String, Tensor>, TrainerThreadCommunicationError> {
+        match self {
+            Trainer::Local(local_trainer) => local_trainer.extract_trainable(),
+            #[cfg(feature = "python")]
+            Trainer::PythonDistributed(python) => python.extract_trainable(),
         }
     }
 
@@ -427,6 +456,8 @@ pub struct LocalTrainer {
     barrier: Arc<dyn Barrier>,
     data_parallel: Option<Vec<DataParallel>>,
     can_do_inferences: Vec<Arc<AtomicBool>>,
+    manifest_digest: [u8; 32],
+    result_metadata: Option<Vec<DistroResultMetadata>>,
 }
 
 #[derive(Debug, Error)]
@@ -449,6 +480,14 @@ pub enum TrainerThreadCommunicationError {
 }
 
 impl LocalTrainer {
+    pub fn manifest_digest(&self) -> [u8; 32] {
+        self.manifest_digest
+    }
+
+    pub fn result_metadata(&self) -> Option<&[DistroResultMetadata]> {
+        self.result_metadata.as_deref()
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         models: ParallelModels,
@@ -467,6 +506,28 @@ impl LocalTrainer {
         assert!(!models.is_empty());
         let first_model_device = models[0].device();
         let first_model_max_context_length = models[0].max_context_length();
+        let manifest = variable_manifest(models[0].trainable_variables());
+        let manifest_digest = variable_manifest_digest(&manifest);
+        let result_metadata = match optimizer {
+            OptimizerDefinition::Distro {
+                compression_chunk,
+                compression_topk,
+                quantize_1bit,
+                ..
+            }
+            | OptimizerDefinition::Muon {
+                compression_chunk,
+                compression_topk,
+                quantize_1bit,
+                ..
+            } => Some(distro_result_manifest(
+                &manifest,
+                compression_chunk as i64,
+                compression_topk as i64,
+                quantize_1bit,
+            )),
+            _ => None,
+        };
 
         let mut ret = Vec::with_capacity(models.len());
 
@@ -520,6 +581,8 @@ impl LocalTrainer {
             barrier,
             data_parallel,
             can_do_inferences,
+            manifest_digest,
+            result_metadata,
         }
     }
 
@@ -666,6 +729,8 @@ impl LocalTrainer {
             }
         }
         final_loss /= self.models.len() as f32;
+        let manifest_digest = self.manifest_digest;
+        let result_metadata = self.result_metadata.clone();
         Ok(TrainOutput {
             batch_id: data.id,
             trainer: Trainer::Local(self),
@@ -674,6 +739,8 @@ impl LocalTrainer {
             distro_results: final_distro_results,
             cancelled: final_cancelled,
             nonce: final_nonce,
+            manifest_digest,
+            result_metadata,
         })
     }
 
@@ -712,9 +779,22 @@ impl LocalTrainer {
     }
 
     pub fn extract(&mut self) -> Result<HashMap<String, Tensor>, TrainerThreadCommunicationError> {
+        self.extract_role(VariableRole::State)
+    }
+
+    pub fn extract_trainable(
+        &mut self,
+    ) -> Result<HashMap<String, Tensor>, TrainerThreadCommunicationError> {
+        self.extract_role(VariableRole::Trainable)
+    }
+
+    fn extract_role(
+        &mut self,
+        role: VariableRole,
+    ) -> Result<HashMap<String, Tensor>, TrainerThreadCommunicationError> {
         self.barrier.reset();
         for (tx, _) in &self.models {
-            tx.send(ParallelAssignment::Extract)
+            tx.send(ParallelAssignment::Extract(role))
                 .map_err(|_| TrainerThreadCommunicationError::SendCommand)?;
         }
         let mut extracted = HashMap::new();
@@ -946,7 +1026,7 @@ impl LocalTrainer {
                         "Train begin"
                     );
 
-                    for var in model.variables() {
+                    for var in model.trainable_variables() {
                         var.zero_grad();
                     }
 
@@ -1052,7 +1132,7 @@ impl LocalTrainer {
                         match &mut grad_accum {
                             Some(grad_accum) => grad_accum.reduce_gradients(dp_comm.clone()),
                             None => {
-                                for variable in model.variables() {
+                                for variable in model.trainable_variables() {
                                     let mut grad = variable.local_tensor().grad();
                                     if grad.defined() {
                                         // reduce grads in fp32
@@ -1233,8 +1313,16 @@ impl LocalTrainer {
                         return;
                     }
                 }
-                Ok(ParallelAssignment::Extract) => {
-                    match unsharded_cpu_variables(model.as_ref(), model.communicator()) {
+                Ok(ParallelAssignment::Extract(role)) => {
+                    let variables = match role {
+                        VariableRole::State => {
+                            unsharded_cpu_variables(model.as_ref(), model.communicator())
+                        }
+                        VariableRole::Trainable => {
+                            unsharded_cpu_trainable_variables(model.as_ref(), model.communicator())
+                        }
+                    };
+                    match variables {
                         Ok(variables) => {
                             if submission
                                 .send(ParallelResult::Extract { variables })
@@ -1251,7 +1339,7 @@ impl LocalTrainer {
                 }
                 Ok(ParallelAssignment::TruncateBf16) => {
                     let _no_grad = tch::no_grad_guard();
-                    for var in model.variables() {
+                    for var in model.state_variables() {
                         let mut tensor = var.local_tensor();
                         let original_kind = tensor.kind();
                         let truncated = tensor.to_kind(Kind::BFloat16).to_kind(original_kind);
@@ -1368,8 +1456,13 @@ impl CausalLM for LocalTrainer {
         self.first_model_max_context_length
     }
 
-    fn variables(&self) -> StableVariableIterator {
-        warn!("LocalTrainer does not expose variables through CausalLM::variables");
+    fn trainable_variables(&self) -> StableVariableIterator {
+        warn!("LocalTrainer does not expose trainable variables through CausalLM");
+        Box::new(std::iter::empty())
+    }
+
+    fn state_variables(&self) -> StableVariableIterator {
+        warn!("LocalTrainer does not expose state variables through CausalLM");
         Box::new(std::iter::empty())
     }
 
@@ -1531,12 +1624,22 @@ impl CausalLM for Trainer {
         }
     }
 
-    fn variables(&self) -> StableVariableIterator {
+    fn trainable_variables(&self) -> StableVariableIterator {
         match self {
-            Trainer::Local(local_trainer) => local_trainer.variables(),
+            Trainer::Local(local_trainer) => local_trainer.trainable_variables(),
             #[cfg(feature = "python")]
             Trainer::PythonDistributed(python_distributed_trainer) => {
-                python_distributed_trainer.variables()
+                python_distributed_trainer.trainable_variables()
+            }
+        }
+    }
+
+    fn state_variables(&self) -> StableVariableIterator {
+        match self {
+            Trainer::Local(local_trainer) => local_trainer.state_variables(),
+            #[cfg(feature = "python")]
+            Trainer::PythonDistributed(python_distributed_trainer) => {
+                python_distributed_trainer.state_variables()
             }
         }
     }

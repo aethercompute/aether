@@ -9,7 +9,7 @@ use aether_coordinator::{
 };
 use aether_core::{sha256, IntegrationTestLogMarker, MerkleRoot, MerkleTree, NodeIdentity};
 use aether_event_sourcing::event;
-use aether_modeling::{DistroResult, Trainer};
+use aether_modeling::{DistroResult, DistroResultMetadata, Trainer};
 use aether_network::{BlobTicket, Hash, P2PEndpointInfo, TransmittableDistroResult};
 use aether_watcher::OpportunisticData;
 use futures::FutureExt;
@@ -66,6 +66,9 @@ pub struct StepStateMachine {
     coordinator_state: Coordinator,
 
     consecutive_desync_steps: u32,
+
+    expected_manifest_digest: [u8; 32],
+    expected_result_metadata: Vec<DistroResultMetadata>,
 
     // Handles for checkpoint writes and uploads running in the background.
     pending_upload_handles:
@@ -152,6 +155,19 @@ impl StepStateMachine {
         tx_ready_for_epoch: mpsc::UnboundedSender<()>,
         stats_logger: StatsLogger,
     ) -> Self {
+        let expected_manifest_digest = trainers
+            .first()
+            .map(Trainer::manifest_digest)
+            .unwrap_or_default();
+        let expected_result_metadata = trainers
+            .first()
+            .and_then(Trainer::result_metadata)
+            .unwrap_or_default()
+            .to_vec();
+        debug_assert!(trainers.iter().all(|trainer| {
+            trainer.manifest_digest() == expected_manifest_digest
+                && trainer.result_metadata().unwrap_or_default() == expected_result_metadata
+        }));
         let mut previous_round = RoundState::default();
         let mut current_round = RoundState::default();
 
@@ -184,6 +200,9 @@ impl StepStateMachine {
             sent_warmup_witness: false,
 
             consecutive_desync_steps: 0,
+
+            expected_manifest_digest,
+            expected_result_metadata,
 
             pending_upload_handles: Vec::new(),
         }
@@ -545,6 +564,13 @@ impl StepStateMachine {
         distro_result: TransmittableDistroResult,
         self_result: Option<Vec<DistroResult>>,
     ) {
+        if let Err(err) = distro_result.validate(
+            self.expected_manifest_digest,
+            &self.expected_result_metadata,
+        ) {
+            warn!(hash = %hash, error = %err, "Rejecting invalid distro result payload");
+            return;
+        }
         let (round_state, current_round) =
             if self.current_round.distro_result_blob_downloaded(&hash) {
                 trace!(
@@ -606,7 +632,6 @@ impl StepStateMachine {
             return;
         };
 
-        // TODO: verify shape of distro_results
         let commitment = commitment.1 .0;
         let batch_ids_not_yet_trained_on = round_state.batch_ids_not_yet_trained_on.clone();
         let blooms = round_state.blooms.clone();
@@ -615,7 +640,7 @@ impl StepStateMachine {
         tokio::spawn(async move {
             // verify that the result matches the commitment
             let (distro_hash, distro_result) =
-                tokio::task::spawn_blocking(move || (distro_result.comptue_hash(), distro_result))
+                tokio::task::spawn_blocking(move || (distro_result.compute_hash(), distro_result))
                     .await
                     .unwrap();
 
@@ -1253,7 +1278,18 @@ impl RunManager {
 /// Dummy) can be downloaded independently of epoch admission.
 fn checkpoint_needs_p2p(state: &Coordinator) -> bool {
     match &state.model {
-        Model::LLM(llm) => matches!(llm.checkpoint, Checkpoint::P2P(_) | Checkpoint::P2PGcs(_)),
+        Model::LLM(llm) => {
+            matches!(llm.checkpoint, Checkpoint::P2P(_) | Checkpoint::P2PGcs(_))
+                || matches!(
+                    llm.training_method,
+                    aether_coordinator::model::LLMTrainingMethod::Lora(config)
+                        if matches!(
+                            config.adapter_checkpoint,
+                            aether_coordinator::model::AdapterCheckpoint::P2P(_)
+                                | aether_coordinator::model::AdapterCheckpoint::P2PGcs(_)
+                        )
+                )
+        }
     }
 }
 
@@ -1314,7 +1350,9 @@ impl From<&RunManager> for ClientTUIState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aether_coordinator::model::{Checkpoint, GcsRepo, HubRepo, LLM};
+    use aether_coordinator::model::{
+        AdapterCheckpoint, Checkpoint, GcsRepo, HubRepo, LLMTrainingMethod, LoraConfig, LLM,
+    };
     use bytemuck::Zeroable;
 
     /// Builds a `Coordinator` (zero-initialized everywhere except `model`) for
@@ -1357,6 +1395,14 @@ mod tests {
         assert!(!checkpoint_needs_p2p(&coordinator_with_checkpoint(
             Checkpoint::Gcs(GcsRepo::dummy())
         )));
+
+        let mut adapter_state = coordinator_with_checkpoint(Checkpoint::Hub(HubRepo::dummy()));
+        let Model::LLM(llm) = &mut adapter_state.model;
+        llm.training_method = LLMTrainingMethod::Lora(LoraConfig {
+            adapter_checkpoint: AdapterCheckpoint::P2P(HubRepo::dummy()),
+            ..LoraConfig::default()
+        });
+        assert!(checkpoint_needs_p2p(&adapter_state));
     }
 
     #[test]

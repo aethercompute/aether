@@ -367,6 +367,8 @@ async fn main() -> Result<()> {
                             args.attn_implementation.map(Into::into).unwrap_or_default(),
                             None,
                             Some(args.sequence_length),
+                            None,
+                            None,
                         )?) as Box<dyn CausalLM>];
                         Ok(LocalTrainer::new(
                             ParallelModels {

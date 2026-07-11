@@ -555,12 +555,27 @@ pub fn unsharded_cpu_variables(
     vars: &dyn CausalLM,
     comm: Option<Arc<Communicator>>,
 ) -> Result<HashMap<String, Tensor>> {
+    unsharded_cpu_variables_for_role(vars, comm, crate::VariableRole::State)
+}
+
+pub fn unsharded_cpu_trainable_variables(
+    vars: &dyn CausalLM,
+    comm: Option<Arc<Communicator>>,
+) -> Result<HashMap<String, Tensor>> {
+    unsharded_cpu_variables_for_role(vars, comm, crate::VariableRole::Trainable)
+}
+
+fn unsharded_cpu_variables_for_role(
+    vars: &dyn CausalLM,
+    comm: Option<Arc<Communicator>>,
+    role: crate::VariableRole,
+) -> Result<HashMap<String, Tensor>> {
     let _no_grad = tch::no_grad_guard();
     let mut ret = match comm.as_ref().map(|x| x.rank() == 0).unwrap_or(true) {
         true => Some(HashMap::new()),
         false => None,
     };
-    for var in vars.variables() {
+    for var in vars.variables_for_role(role) {
         let name = var.name();
         let var = var.gather_full_tensor();
         // now you're probably thinking, why are you moving this to the CPU? why even unshard the tensor

@@ -53,6 +53,10 @@ pub struct GcsManifestMetadata {
 
 const MODEL_EXTENSIONS: [&str; 3] = [".safetensors", ".json", ".py"];
 
+fn is_checkpoint_upload_file(file_name: &str) -> bool {
+    file_name.ends_with(".safetensors") || file_name.ends_with(".json")
+}
+
 fn get_cache_base(bucket: &str) -> PathBuf {
     // Use HF_HOME if set, otherwise fall back to ~/.cache
     std::env::var("HF_HOME")
@@ -365,8 +369,8 @@ pub async fn upload_to_gcs(
             .to_str()
             .ok_or_else(|| UploadError::InvalidFilename(path.clone()))?;
 
-        // Only upload safetensors files
-        if !file_name.ends_with(".safetensors") {
+        // Checkpoints include model/adapter configuration JSON alongside tensors.
+        if !is_checkpoint_upload_file(file_name) {
             continue;
         }
 
@@ -444,4 +448,16 @@ pub async fn upload_to_gcs(
         .map_err(|_| UploadError::SendCheckpoint)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod upload_filter_tests {
+    use super::is_checkpoint_upload_file;
+
+    #[test]
+    fn uploads_adapter_tensors_and_json_metadata() {
+        assert!(is_checkpoint_upload_file("adapter_model.safetensors"));
+        assert!(is_checkpoint_upload_file("adapter_config.json"));
+        assert!(!is_checkpoint_upload_file("README.md"));
+    }
 }

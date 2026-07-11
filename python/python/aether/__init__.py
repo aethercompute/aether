@@ -2,6 +2,7 @@ __all__ = [
     "DistroResult",
     "PretrainedSourceRepoFiles",
     "PretrainedSourceStateDict",
+    "LoraConfig",
     "Trainer",
     "make_causal_lm",
     "start_process_watcher",
@@ -13,10 +14,12 @@ def __getattr__(name):
         "make_causal_lm",
         "PretrainedSourceRepoFiles",
         "PretrainedSourceStateDict",
+        "LoraConfig",
     }:
         from .models import (
             PretrainedSourceRepoFiles,
             PretrainedSourceStateDict,
+            LoraConfig,
             make_causal_lm,
         )
 
@@ -24,6 +27,7 @@ def __getattr__(name):
             "make_causal_lm": make_causal_lm,
             "PretrainedSourceRepoFiles": PretrainedSourceRepoFiles,
             "PretrainedSourceStateDict": PretrainedSourceStateDict,
+            "LoraConfig": LoraConfig,
         }[name]
 
     if name in {"Trainer", "DistroResult", "start_process_watcher"}:

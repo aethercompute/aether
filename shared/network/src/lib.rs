@@ -91,7 +91,8 @@ pub use p2p_model_sharing::{
 pub use serde::Networkable;
 pub use serialized_distro::{
     distro_results_from_reader, distro_results_to_bytes, SerializeDistroResultError,
-    SerializedDistroResult, TransmittableDistroResult,
+    SerializedDistroResult, TransmittableDistroResult, ValidateDistroResultError,
+    DISTRO_RESULT_FORMAT_VERSION,
 };
 pub use signed_message::SignedMessage;
 pub use tcp::{ClientNotification, TcpClient, TcpServer};

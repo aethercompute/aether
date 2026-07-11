@@ -143,15 +143,10 @@ fn load_config_state(
     state_path: PathBuf,
     data_config_path: Option<PathBuf>,
 ) -> Result<(Coordinator, Option<DataServerInfo>)> {
-    let coordinator: Coordinator = toml::from_str(std::str::from_utf8(
-        &std::fs::read(&state_path).with_context(|| {
-            format!("failed to read coordinator state toml file {state_path:?}")
-        })?,
-    )?)?;
-
-    if let Err(err) = coordinator.config.check_error() {
-        bail!("Invalid coordinator config {err:?}");
-    }
+    let contents = std::fs::read_to_string(&state_path)
+        .with_context(|| format!("failed to read coordinator state toml file {state_path:?}"))?;
+    let coordinator = parse_config_state(&contents)
+        .with_context(|| format!("failed to parse coordinator state toml file {state_path:?}"))?;
 
     let data_server_config = match data_config_path {
         Some(config_path) => {
@@ -175,6 +170,19 @@ fn load_config_state(
     };
 
     Ok((coordinator, data_server_config))
+}
+
+fn parse_config_state(contents: &str) -> Result<Coordinator> {
+    let coordinator: Coordinator = toml::from_str(contents)?;
+
+    if let Err(err) = coordinator.config.check_error() {
+        bail!("Invalid coordinator config {err:?}");
+    }
+    if !coordinator.model.check() {
+        bail!("Invalid model config");
+    }
+
+    Ok(coordinator)
 }
 
 fn load_experiment(
@@ -388,5 +396,51 @@ mod tests {
         let err = parse_admission_allowlist("abcd").unwrap_err();
 
         assert!(err.to_string().contains("expected 64 hex chars"));
+    }
+
+    const LEGACY_STATE: &str = include_str!("../../../../config/aether0-500m/state_distro.toml");
+
+    #[test]
+    fn legacy_state_defaults_to_full_training() {
+        let coordinator = parse_config_state(LEGACY_STATE).unwrap();
+        let aether_coordinator::model::Model::LLM(llm) = coordinator.model;
+
+        assert_eq!(
+            llm.training_method,
+            aether_coordinator::model::LLMTrainingMethod::Full
+        );
+    }
+
+    #[test]
+    fn lora_state_deserializes_all_configuration_fields() {
+        let lora_state = format!(
+            "{}\n[model.LLM.training_method.Lora]\nrank = 16\nalpha = 32.0\ndropout = 0.05\ninit_seed = 42\n",
+            LEGACY_STATE.replace("architecture = \"HfDeepseek\"", "architecture = \"HfAuto\"")
+        );
+
+        let coordinator = parse_config_state(&lora_state).unwrap();
+        let aether_coordinator::model::Model::LLM(llm) = coordinator.model;
+        assert_eq!(
+            llm.training_method,
+            aether_coordinator::model::LLMTrainingMethod::Lora(
+                aether_coordinator::model::LoraConfig {
+                    rank: 16,
+                    alpha: 32.0,
+                    dropout: 0.05,
+                    init_seed: 42,
+                    adapter_checkpoint: aether_coordinator::model::AdapterCheckpoint::Fresh,
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn production_config_parser_runs_model_validation() {
+        let invalid_lora = format!(
+            "{LEGACY_STATE}\n[model.LLM.training_method.Lora]\nrank = 16\nalpha = 32.0\ndropout = 0.05\ninit_seed = 42\n"
+        );
+
+        let err = parse_config_state(&invalid_lora).unwrap_err();
+        assert!(err.to_string().contains("Invalid model config"));
     }
 }

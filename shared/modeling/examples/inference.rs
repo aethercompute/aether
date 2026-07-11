@@ -192,6 +192,8 @@ fn inference(
                     attn_implementation,
                     None,
                     None,
+                    None,
+                    None,
                 )?) as Box<dyn CausalLM>
             } else {
                 tracing::info!("Faking TP with FSDP");

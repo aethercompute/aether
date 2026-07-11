@@ -14,7 +14,7 @@ impl Fp32GradientAccumulator {
         let mut total_numel: i64 = 0;
 
         let parameters = model
-            .variables()
+            .trainable_variables()
             .filter_map(|parameter| {
                 let parameter = parameter.local_tensor();
                 match parameter.requires_grad() {

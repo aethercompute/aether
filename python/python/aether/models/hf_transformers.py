@@ -4,10 +4,14 @@ import logging
 import os
 import sys
 
-from .causal_lm import CausalLM, PretrainedSourceRepoFiles, PretrainedSourceStateDict
+from .causal_lm import (
+    CausalLM,
+    LoraConfig,
+    PretrainedSourceRepoFiles,
+    PretrainedSourceStateDict,
+)
 from transformers import (
     AutoModelForCausalLM,
-    GradientCheckpointingLayer,
     PreTrainedModel,
 )
 from typing import Union, Iterable, Optional, Tuple
@@ -15,7 +19,6 @@ from safetensors import safe_open
 from safetensors.torch import load_file as safe_load_file
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from torch.distributed import init_device_mesh
-from torch.distributed.fsdp.wrap import ModuleWrapPolicy
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed._composable.fsdp import fully_shard, MixedPrecisionPolicy
 from torch.distributed.tensor import DTensor, Replicate, distribute_tensor
@@ -25,7 +28,6 @@ from torch.distributed.tensor.parallel import (
     RowwiseParallel,
 )
 from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
-    apply_activation_checkpointing,
     _CHECKPOINT_PREFIX,
 )
 from liger_kernel.transformers.monkey_patch import (
@@ -108,12 +110,68 @@ def missing_tied_lm_head(name: str, config) -> bool:
     return name == "lm_head.weight" and getattr(config, "tie_word_embeddings", False)
 
 
+def _attach_lora(
+    model: torch.nn.Module,
+    lora_config: LoraConfig,
+    device: torch.device,
+    adapter_source: Optional[
+        PretrainedSourceRepoFiles | PretrainedSourceStateDict
+    ] = None,
+) -> torch.nn.Module:
+    from peft import LoraConfig as PeftLoraConfig
+    from peft import TaskType, get_peft_model
+    from peft.utils import set_peft_model_state_dict
+
+    peft_config = PeftLoraConfig(
+        task_type=TaskType.CAUSAL_LM,
+        r=lora_config.rank,
+        lora_alpha=lora_config.alpha,
+        lora_dropout=lora_config.dropout,
+        target_modules="all-linear",
+        bias="none",
+    )
+    rng_devices = (
+        [device.index] if device.type == "cuda" and device.index is not None else []
+    )
+    with torch.random.fork_rng(devices=rng_devices):
+        torch.manual_seed(lora_config.init_seed)
+        model = get_peft_model(model, peft_config)
+
+    if adapter_source is not None:
+        if isinstance(adapter_source, PretrainedSourceStateDict):
+            adapter_state = adapter_source.state_dict
+        else:
+            adapter_state = {}
+            for file in adapter_source.files:
+                if os.path.basename(file).lower().endswith(".safetensors"):
+                    adapter_state.update(safe_load_file(file))
+        if not adapter_state:
+            raise RuntimeError("No adapter state present")
+        adapter_state = {
+            name.replace(".lora_A.default.", ".lora_A.").replace(
+                ".lora_B.default.", ".lora_B."
+            ): tensor
+            for name, tensor in adapter_state.items()
+        }
+        load_result = set_peft_model_state_dict(model, adapter_state)
+        if load_result.unexpected_keys:
+            raise RuntimeError(
+                "Unexpected parameter(s) in adapter checkpoint: "
+                f"{load_result.unexpected_keys}"
+            )
+
+    for name, parameter in model.named_parameters():
+        parameter.requires_grad_("lora_" in name)
+    return model
+
+
 class HfTransformersAuto(CausalLM):
     def __init__(self, model, config, world_mesh: DeviceMesh, device: torch.device):
         self.model = model
         self.config = config
         self.world_mesh = world_mesh
         self.device = device
+        self.lora_config: Optional[LoraConfig] = None
 
     @staticmethod
     def from_pretrained(
@@ -126,7 +184,15 @@ class HfTransformersAuto(CausalLM):
         param_dtype: torch.dtype = torch.bfloat16,
         reduce_dtype: torch.dtype = torch.float32,
         fsdp_modules: Optional[Iterable[str]] = None,
+        lora_config: Optional[LoraConfig] = None,
+        adapter_source: Optional[
+            PretrainedSourceRepoFiles | PretrainedSourceStateDict
+        ] = None,
     ):
+        if lora_config is None and adapter_source is not None:
+            raise ValueError("adapter_source requires lora_config")
+        if lora_config is not None and (dp != 1 or tp != 1):
+            raise ValueError("HfAuto LoRA requires dp=1 and tp=1")
         if isinstance(source, PretrainedSourceStateDict):
             state_dict = source.state_dict
             config_json = source.config_json
@@ -263,7 +329,7 @@ class HfTransformersAuto(CausalLM):
             reinit_rope(module)
         reinit_rope(model)
 
-        if model.supports_gradient_checkpointing:
+        if lora_config is None and model.supports_gradient_checkpointing:
             model.gradient_checkpointing_enable()
 
         if sys.version_info >= (3, 14):
@@ -298,10 +364,29 @@ class HfTransformersAuto(CausalLM):
 
             dest.copy_(source)
 
+        if lora_config is not None:
+            expected = set(model.state_dict())
+            if getattr(config, "tie_word_embeddings", False):
+                expected.discard("lm_head.weight")
+            unexpected = set(state_dict) - expected
+            if unexpected:
+                raise RuntimeError(
+                    f"Unexpected parameter(s) in base checkpoint: {sorted(unexpected)}"
+                )
+
         if getattr(config, "tie_word_embeddings", False):
             model.tie_weights()
 
-        return HfTransformersAuto(model, config, world_mesh, device)
+        if lora_config is not None:
+            model = _attach_lora(model, lora_config, device, adapter_source)
+
+        if lora_config is not None and model.supports_gradient_checkpointing:
+            model.gradient_checkpointing_enable()
+            model.enable_input_require_grads()
+
+        result = HfTransformersAuto(model, config, world_mesh, device)
+        result.lora_config = lora_config
+        return result
 
     def forward(
         self,
@@ -344,7 +429,7 @@ class HfTransformersAuto(CausalLM):
                     return_dict=True,
                     use_cache=False,
                 )
-            except Exception as e:
+            except Exception:
                 logger.exception("[%s]: forward failed", self.device)
                 raise
             if ret.loss and loss_scale:
@@ -355,6 +440,46 @@ class HfTransformersAuto(CausalLM):
         params = dict(self.model.named_parameters())
         # undo activation checkpoint wrapping
         return {k.replace(_CHECKPOINT_PREFIX, ""): v for k, v in params.items()}
+
+    def named_state(self) -> dict[str, torch.Tensor]:
+        return {
+            k.replace(_CHECKPOINT_PREFIX, ""): v
+            for k, v in self.model.state_dict().items()
+        }
+
+    def named_state_parameters(self) -> dict[str, torch.Tensor]:
+        return self.named_parameters()
+
+    def named_trainable_parameters(self) -> dict[str, torch.Tensor]:
+        return {
+            name: parameter
+            for name, parameter in self.named_parameters().items()
+            if parameter.requires_grad
+        }
+
+    def adapter_state_dict(self) -> dict[str, torch.Tensor]:
+        if self.lora_config is None:
+            raise RuntimeError("Model does not have a LoRA adapter")
+        from peft import get_peft_model_state_dict
+
+        return get_peft_model_state_dict(self.model)
+
+    def merged_state_dict(self) -> dict[str, torch.Tensor]:
+        """Return a merged export without mutating the live training model.
+
+        This intentionally copies the complete PEFT model, so callers must have
+        enough host/device memory for a second model. Cooldown does not invoke it.
+        """
+        if self.lora_config is None:
+            return self.named_state()
+
+        import copy
+
+        merged_model = copy.deepcopy(self.model).merge_and_unload()
+        return {
+            name: tensor.detach().clone()
+            for name, tensor in merged_model.state_dict().items()
+        }
 
     def train(self):
         self.model.train()

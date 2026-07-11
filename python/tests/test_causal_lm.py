@@ -105,3 +105,49 @@ def test_pretrained_source_dataclasses_are_distinct_types():
     assert PretrainedSourceRepoFiles is not PretrainedSourceStateDict
     assert PretrainedSourceRepoFiles.__name__ == "PretrainedSourceRepoFiles"
     assert PretrainedSourceStateDict.__name__ == "PretrainedSourceStateDict"
+
+
+def test_lora_config_round_trips_as_serializable_dict():
+    from aether.models.causal_lm import LoraConfig
+
+    config = LoraConfig(rank=4, alpha=8.0, dropout=0.1, init_seed=42)
+    serialized = config.to_dict()
+
+    assert serialized == {
+        "rank": 4,
+        "alpha": 8.0,
+        "dropout": 0.1,
+        "init_seed": 42,
+    }
+    assert LoraConfig.from_dict(serialized) == config
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"rank": 0},
+        {"alpha": 0},
+        {"dropout": -0.1},
+        {"dropout": 1.0},
+    ],
+)
+def test_lora_config_rejects_invalid_values(kwargs):
+    from aether.models.causal_lm import LoraConfig
+
+    with pytest.raises(ValueError):
+        LoraConfig(**kwargs)
+
+
+def test_factory_rejects_lora_for_non_hf_architecture():
+    import torch
+
+    from aether.models import LoraConfig, PretrainedSourceRepoFiles, make_causal_lm
+
+    with pytest.raises(ValueError, match="only for the HfAuto"):
+        make_causal_lm(
+            "Torchtitan",
+            PretrainedSourceRepoFiles([]),
+            torch.device(),
+            "eager",
+            lora_config=LoraConfig(),
+        )

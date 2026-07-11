@@ -213,6 +213,7 @@ def update_config_from_form(form: dict[str, list[str]]) -> None:
             "prompt_field": str,
             "response_field": str,
             "sft_mode": str,
+            "messages_field": str,
             "system_prompt": str,
             "tokenizer": str,
             "seed": int_value,
@@ -697,6 +698,8 @@ def prepare_dataset_command(config: dict) -> list[str]:
             command.extend(["--subset", dataset["subset"]])
         if dataset.get("system_prompt"):
             command.extend(["--system-prompt", dataset["system_prompt"]])
+        if dataset.get("messages_field"):
+            command.extend(["--messages-field", dataset["messages_field"]])
         if dataset.get("trust_remote_code", False):
             command.append("--trust-remote-code")
         return command

@@ -81,6 +81,43 @@ impl Iterator for StableVarStoreIterator {
 
 pub type StableVariableIterator = Box<dyn Iterator<Item = Box<dyn Variable>>>;
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct VariableManifestEntry {
+    pub name: String,
+    pub shape: Vec<i64>,
+    pub dtype: String,
+}
+
+pub fn variable_manifest(variables: StableVariableIterator) -> Vec<VariableManifestEntry> {
+    let mut manifest = variables
+        .map(|variable| VariableManifestEntry {
+            name: variable.name().to_owned(),
+            shape: variable.full_tensor_shape(),
+            dtype: format!("{:?}", variable.logical_tensor().kind()),
+        })
+        .collect::<Vec<_>>();
+    manifest.sort_by(|a, b| (&a.name, &a.shape, &a.dtype).cmp(&(&b.name, &b.shape, &b.dtype)));
+    manifest
+}
+
+pub fn variable_manifest_digest(manifest: &[VariableManifestEntry]) -> [u8; 32] {
+    let mut manifest = manifest.to_vec();
+    manifest.sort_by(|a, b| (&a.name, &a.shape, &a.dtype).cmp(&(&b.name, &b.shape, &b.dtype)));
+
+    let mut encoded = Vec::new();
+    for entry in manifest {
+        for bytes in [entry.name.as_bytes(), entry.dtype.as_bytes()] {
+            encoded.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+            encoded.extend_from_slice(bytes);
+        }
+        encoded.extend_from_slice(&(entry.shape.len() as u64).to_le_bytes());
+        for dimension in entry.shape {
+            encoded.extend_from_slice(&dimension.to_le_bytes());
+        }
+    }
+    aether_core::sha256(&encoded)
+}
+
 impl Variable for (String, Tensor, Option<Shard>, Option<Arc<Communicator>>) {
     fn name(&self) -> &str {
         &self.0
@@ -169,5 +206,36 @@ impl Variable for (String, Tensor, Option<Shard>, Option<Arc<Communicator>>) {
         if grad.defined() {
             let _ = self.1.grad().zero_();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manifest_digest_is_order_independent_and_metadata_sensitive() {
+        let first = VariableManifestEntry {
+            name: "adapter.a".to_owned(),
+            shape: vec![2, 4],
+            dtype: "Float".to_owned(),
+        };
+        let second = VariableManifestEntry {
+            name: "adapter.b".to_owned(),
+            shape: vec![4, 2],
+            dtype: "BFloat16".to_owned(),
+        };
+
+        let digest = variable_manifest_digest(&[first.clone(), second.clone()]);
+        assert_eq!(
+            digest,
+            variable_manifest_digest(&[second.clone(), first.clone()])
+        );
+
+        let changed = VariableManifestEntry {
+            shape: vec![4, 3],
+            ..second
+        };
+        assert_ne!(digest, variable_manifest_digest(&[first, changed]));
     }
 }

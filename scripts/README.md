@@ -28,6 +28,7 @@ Supported `aethercompute-client.sh` modes include default launch, `seed`,
 - `prepare-ultra-fineweb-local.py`: streams Hugging Face datasets, tokenizes text, and writes binary shards plus metadata.
 - `prepare-sft-local.py`: streams prompt/response datasets, applies chat templates, and writes masked-label SFT Parquet data.
 - `push-new-model-hf.py`: initializes a random model from config and pushes it to Hugging Face Hub or saves locally.
+- `merge-lora.py`: merges an adapter checkpoint into a standalone Hugging Face model.
 - `run-inference.py`: simple Hugging Face Transformers checkpoint inference helper.
 
 Run the dashboard locally:
@@ -92,6 +93,57 @@ python3 scripts/push-new-model-hf.py \
 
 Supported model initialization dtypes are `bfloat16`, `float16`, `float32`,
 and `float64`.
+
+## LoRA Training
+
+LoRA is configured in the coordinator state and currently supports `HfAuto`, one
+local device, and the AdamW or DisTrO optimizers. It targets all linear layers.
+Existing states without `training_method` continue to use full training.
+
+```toml
+[model.LLM]
+architecture = "HfAuto"
+data_type = "Finetuning"
+max_seq_len = 2048
+cold_start_warmup_steps = 0
+
+[model.LLM.checkpoint.Hub]
+repo_id = "org/base-model"
+revision = "immutable-commit-sha"
+
+[model.LLM.training_method.Lora]
+rank = 16
+alpha = 32.0
+dropout = 0.05
+init_seed = 1337
+adapter_checkpoint = "Fresh"
+```
+
+The base checkpoint remains immutable. Aether checkpoints and shares only the
+adapter as `adapter_model.safetensors` plus `adapter_config.json`. To resume from
+an uploaded adapter, replace `adapter_checkpoint = "Fresh"` with, for example:
+
+```toml
+[model.LLM.training_method.Lora.adapter_checkpoint.Hub]
+repo_id = "org/aether-adapter"
+revision = "immutable-commit-sha"
+```
+
+Local DP/FSDP, tensor parallelism, native models, TorchTitan, and Muon are
+rejected for LoRA until their dedicated implementations are available.
+
+### Merging an Adapter
+
+Merging is deliberately separate from live training because it requires a
+second full-model materialization. Run it on a machine with enough memory:
+
+```sh
+python3 scripts/merge-lora.py \
+  --base-model org/base-model \
+  --base-revision immutable-commit-sha \
+  --adapter ./checkpoints/run-step1000 \
+  --output ./checkpoints/run-step1000-merged
+```
 
 ## Common Environment
 

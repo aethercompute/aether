@@ -334,6 +334,8 @@ impl PythonDistributedCausalLM {
                     attn_implementation,
                     Some(parallelism),
                     override_max_position_embeddings,
+                    None,
+                    None,
                 )?;
                 Ok((comm, local))
             })
@@ -509,8 +511,12 @@ impl CausalLM for PythonDistributedCausalLM {
         self.local.prepare_for_training();
     }
 
-    fn variables(&self) -> StableVariableIterator {
-        self.local.variables()
+    fn trainable_variables(&self) -> StableVariableIterator {
+        self.local.trainable_variables()
+    }
+
+    fn state_variables(&self) -> StableVariableIterator {
+        self.local.state_variables()
     }
 
     fn clip_grad_norm(&self, max_grad_norm: f64) {

@@ -4,6 +4,18 @@ use tch::{Device, Kind, TchError, Tensor};
 
 use crate::serializable_kind::SerializableKind;
 
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum SerializableTensorError {
+    #[error("tensor dimensions are negative or overflow")]
+    InvalidDimensions,
+    #[error("serialized tensor requires gradients")]
+    RequiresGrad,
+    #[error("serialized tensor encoding does not match dtype")]
+    InvalidEncoding,
+    #[error("serialized tensor has {actual} data bytes, expected {expected}")]
+    InvalidDataLength { expected: usize, actual: usize },
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum SerializableTensorData {
     Full(#[serde(with = "serde_bytes")] Vec<u8>),
@@ -23,6 +35,53 @@ impl SerializableTensor {
         match &self.data {
             SerializableTensorData::Full(items) => items,
             SerializableTensorData::OneBit(items) => items,
+        }
+    }
+
+    pub fn dims(&self) -> &[i64] {
+        &self.dims
+    }
+
+    pub fn kind_name(&self) -> String {
+        format!("{:?}", Kind::from(&self.kind))
+    }
+
+    pub fn validate(&self) -> Result<(), SerializableTensorError> {
+        if self.requires_grad {
+            return Err(SerializableTensorError::RequiresGrad);
+        }
+        let elements = self
+            .dims
+            .iter()
+            .try_fold(1usize, |total, &dimension| {
+                let dimension = usize::try_from(dimension).ok()?;
+                total.checked_mul(dimension)
+            })
+            .ok_or(SerializableTensorError::InvalidDimensions)?;
+        let kind = Kind::from(&self.kind);
+        let expected = match (&self.data, kind) {
+            (SerializableTensorData::OneBit(_), Kind::Bool) => elements.div_ceil(8),
+            (SerializableTensorData::Full(_), Kind::Bool)
+            | (SerializableTensorData::OneBit(_), _) => {
+                return Err(SerializableTensorError::InvalidEncoding)
+            }
+            (SerializableTensorData::Full(_), _) => elements
+                .checked_mul(kind.elt_size_in_bytes())
+                .ok_or(SerializableTensorError::InvalidDimensions)?,
+        };
+        let actual = self.raw_tensor_data().len();
+        if actual != expected {
+            return Err(SerializableTensorError::InvalidDataLength { expected, actual });
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn truncate_data_for_test(&mut self) {
+        match &mut self.data {
+            SerializableTensorData::Full(data) | SerializableTensorData::OneBit(data) => {
+                data.pop();
+            }
         }
     }
 }

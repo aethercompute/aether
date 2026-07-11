@@ -39,7 +39,7 @@ impl Optimizer {
                         false,
                     )
                     .unwrap();
-                    for var in model.variables() {
+                    for var in model.trainable_variables() {
                         let tensor = var.logical_tensor();
                         adamw.add_parameters(&tensor, 0).unwrap();
                     }

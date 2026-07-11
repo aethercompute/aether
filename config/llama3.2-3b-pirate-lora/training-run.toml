@@ -1,0 +1,28 @@
+[server]
+state_path = "config/llama3.2-3b-pirate-lora/state_distro.toml"
+data_config = "config/llama3.2-3b-pirate-lora/data.toml"
+experiment_path = "config/experiment-run.toml"
+experiment_enabled = false
+server_port = 39405
+live_web_port = 8081
+tui = false
+
+[dataset]
+enabled = true
+objective = "sft"
+script = "scripts/prepare-sft-local.py"
+output_dir = "data/pirate-ultrachat-10k-llama3.2-3b-sft-2048"
+sequence_length = 2048
+num_sequences = 10000
+shard_size = 2048
+dataset = "winglian/pirate-ultrachat-10k"
+split = "train"
+tokenizer = "meta-llama/Llama-3.2-3B-Instruct"
+seed = 1337
+buffer_docs = 10000
+trust_remote_code = false
+sft_mode = "messages"
+messages_field = "messages"
+
+[model]
+enabled = false

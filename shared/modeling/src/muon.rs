@@ -130,7 +130,7 @@ impl MuonOptimizer {
         let mut state = Vec::new();
         let mut scales = Vec::new();
         let mut eligible = Vec::new();
-        for variable in vs.variables() {
+        for variable in vs.trainable_variables() {
             let name = variable.name().to_string();
             let shape = variable.full_tensor_shape();
             let elig = is_muon_eligible(&name, &shape);
@@ -143,7 +143,7 @@ impl MuonOptimizer {
             variable.zero_grad();
         }
 
-        let transform = TransformDCT::new(vs.variables(), compression_chunk);
+        let transform = TransformDCT::new(vs.trainable_variables(), compression_chunk);
 
         Self {
             momentum,
@@ -233,7 +233,7 @@ impl MuonOptimizer {
         let _no_grad = tch::no_grad_guard();
 
         let mut ret = Vec::new();
-        for (index, var) in variables.variables().enumerate() {
+        for (index, var) in variables.trainable_variables().enumerate() {
             let scale = self.scales[index];
             let elig = self.eligible[index];
             let mut variable = var.logical_tensor();
@@ -358,7 +358,7 @@ impl MuonOptimizer {
             return;
         }
 
-        for (index, var) in vars.variables().enumerate() {
+        for (index, var) in vars.trainable_variables().enumerate() {
             let scale = self.scales[index];
             let elig = self.eligible[index];
             let mut variable = var.logical_tensor();
@@ -396,7 +396,7 @@ impl MuonOptimizer {
             let _t = variable.g_sub_(&update_local.multiply_scalar(lr));
         }
 
-        for var in vars.variables() {
+        for var in vars.trainable_variables() {
             var.zero_grad();
         }
     }
@@ -407,7 +407,7 @@ impl MuonOptimizer {
             return;
         }
         let _no_grad = tch::no_grad_guard();
-        for (index, var) in vars.variables().enumerate() {
+        for (index, var) in vars.trainable_variables().enumerate() {
             let scale = self.scales[index];
             let elig = self.eligible[index];
             let mut variable = var.logical_tensor();

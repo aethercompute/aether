@@ -753,7 +753,9 @@ mod tests {
         // Pinned size (bytes). Update deliberately + note the on-disk breakage.
         // 94056: grew 8 bytes after adding OptimizerDefinition::Muon (new optimizer
         //        variant — its payload is the largest of the enum's variants).
-        let expected = 94056;
+        // 94088: grew 32 bytes after adding the fixed-size LLM LoRA configuration.
+        // 94224: grew 136 bytes after adding the fixed-size adapter checkpoint locator.
+        let expected = 94224;
         assert_eq!(
             coord_size, expected,
             "Coordinator size changed ({coord_size} != {expected}); \

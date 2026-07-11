@@ -48,6 +48,7 @@ impl TinyCausalLm {
                 ..Default::default()
             },
         );
+        let _checkpoint_only = root.var("checkpoint_only", &[1], nn::Init::Const(3.0));
 
         let model = Self { vs, embed, lm_head };
         model.initialize_weights();
@@ -135,7 +136,14 @@ impl CausalLM for TinyCausalLm {
         SEQ_LEN
     }
 
-    fn variables(&self) -> StableVariableIterator {
+    fn trainable_variables(&self) -> StableVariableIterator {
+        Box::new(
+            StableVarStoreIterator::new(&self.vs, None)
+                .filter(|variable| variable.name() != "checkpoint_only"),
+        )
+    }
+
+    fn state_variables(&self) -> StableVariableIterator {
         Box::new(StableVarStoreIterator::new(&self.vs, None))
     }
 
@@ -165,7 +173,7 @@ impl DirectAdamW {
     }
 
     fn train_step(&mut self, step: u32, batch: &Batch) -> f32 {
-        for variable in self.model.variables() {
+        for variable in self.model.trainable_variables() {
             variable.zero_grad();
         }
 
@@ -235,7 +243,7 @@ impl SimulatedDataParallelAdamW {
             &self.model,
             worker_batches.first().expect("worker batch present"),
         );
-        for variable in self.model.variables() {
+        for variable in self.model.trainable_variables() {
             let mut mean_grad = Tensor::zeros_like(
                 worker_grads[0]
                     .get(variable.name())
@@ -293,7 +301,7 @@ fn adamw_optimizer(model: &dyn CausalLM) -> COptimizer {
         false,
     )
     .expect("adamw optimizer initializes");
-    for variable in model.variables() {
+    for variable in model.trainable_variables() {
         optimizer
             .add_parameters(&variable.logical_tensor(), 0)
             .expect("parameter can be added to adamw");
@@ -566,7 +574,7 @@ fn distro_worker_batches_by_round() -> Vec<Vec<Batch>> {
 
 fn snapshot_state(model: &dyn CausalLM) -> HashMap<String, Tensor> {
     model
-        .variables()
+        .state_variables()
         .map(|variable| {
             (
                 variable.name().to_owned(),
@@ -578,7 +586,7 @@ fn snapshot_state(model: &dyn CausalLM) -> HashMap<String, Tensor> {
 
 fn load_state(model: &dyn CausalLM, state: &HashMap<String, Tensor>) {
     let _no_grad = tch::no_grad_guard();
-    for variable in model.variables() {
+    for variable in model.state_variables() {
         let mut tensor = variable.logical_tensor();
         tensor.copy_(state.get(variable.name()).expect("state tensor present"));
     }
@@ -588,6 +596,20 @@ fn extract_state(trainer: &mut Trainer) -> HashMap<String, Tensor> {
     trainer
         .extract()
         .expect("trainer state extraction succeeds")
+}
+
+#[test]
+fn extraction_defaults_to_full_state_and_can_select_trainable_state() {
+    let mut trainer = new_trainer(OptimizerDefinition::Dummy, 1);
+
+    let full = trainer.extract().expect("full state extraction succeeds");
+    let trainable = trainer
+        .extract_trainable()
+        .expect("trainable state extraction succeeds");
+
+    assert!(full.contains_key("checkpoint_only"));
+    assert!(!trainable.contains_key("checkpoint_only"));
+    assert_eq!(full.len(), trainable.len() + 1);
 }
 
 fn assert_state_close(
@@ -636,7 +658,7 @@ fn gradients_for_batch_from_state(
     batch: &Batch,
 ) -> HashMap<String, Tensor> {
     let model = TinyCausalLm::from_state(state);
-    for variable in model.variables() {
+    for variable in model.trainable_variables() {
         variable.zero_grad();
     }
 
@@ -655,7 +677,7 @@ fn gradients_for_batch_from_state(
     loss.expect("tiny oracle model returns a loss").backward();
 
     model
-        .variables()
+        .trainable_variables()
         .map(|variable| {
             let grad = variable.logical_tensor().grad();
             assert!(grad.defined(), "missing gradient for {}", variable.name());
@@ -668,7 +690,7 @@ fn gradients_for_batch_from_state(
 }
 
 fn materialize_zero_grads(model: &dyn CausalLM, batch: &Batch) {
-    for variable in model.variables() {
+    for variable in model.trainable_variables() {
         variable.zero_grad();
     }
 
@@ -686,7 +708,7 @@ fn materialize_zero_grads(model: &dyn CausalLM, batch: &Batch) {
     );
     let zero_loss = loss.expect("tiny oracle model returns a loss") * 0.0;
     zero_loss.backward();
-    for variable in model.variables() {
+    for variable in model.trainable_variables() {
         variable.zero_grad();
     }
 }
@@ -705,7 +727,10 @@ fn sign_mean_reference_update(worker_batches: &[Batch], lr: f64) -> HashMap<Stri
     initial
         .iter()
         .map(|(key, initial_tensor)| {
-            let mut mean_grad = Tensor::zeros_like(initial_tensor);
+            let Some(first_grad) = worker_grads[0].get(key) else {
+                return (key.clone(), initial_tensor.shallow_clone());
+            };
+            let mut mean_grad = Tensor::zeros_like(first_grad);
             for grads in &worker_grads {
                 mean_grad += grads.get(key).expect("worker gradient present");
             }
@@ -735,8 +760,11 @@ fn sign_mean_reference_rounds(rounds: &[Vec<Batch>]) -> HashMap<String, Tensor> 
                     Some(prev_grad) => state
                         .iter()
                         .map(|(key, tensor)| {
-                            let prev = prev_grad.get(key).expect("previous gradient present");
-                            (key.clone(), tensor - prev.sign() * prev_lr)
+                            let corrected = match prev_grad.get(key) {
+                                Some(prev) => tensor - prev.sign() * prev_lr,
+                                None => tensor.shallow_clone(),
+                            };
+                            (key.clone(), corrected)
                         })
                         .collect(),
                     None => clone_state(&state),
@@ -749,7 +777,10 @@ fn sign_mean_reference_rounds(rounds: &[Vec<Batch>]) -> HashMap<String, Tensor> 
         state = state
             .iter()
             .map(|(key, current_tensor)| {
-                let mut mean_grad = Tensor::zeros_like(current_tensor);
+                let Some(first_grad) = worker_grads[0].get(key) else {
+                    return (key.clone(), current_tensor.shallow_clone());
+                };
+                let mut mean_grad = Tensor::zeros_like(first_grad);
                 for grads in &worker_grads {
                     mean_grad += grads.get(key).expect("worker gradient present");
                 }
@@ -923,6 +954,8 @@ fn serialized_distro_results_apply_like_in_memory_results() {
 fn transmittable_distro_result_hash_survives_postcard_roundtrip() {
     let results = run_distro_worker(7, distro_worker_batches()[0].clone()).1;
     let payload = TransmittableDistroResult {
+        format_version: aether_network::DISTRO_RESULT_FORMAT_VERSION,
+        manifest_digest: [9; 32],
         step: 7,
         trainer_nonce: 42,
         batch_id: batch_id(11, 12),
@@ -947,6 +980,22 @@ fn transmittable_distro_result_hash_survives_postcard_roundtrip() {
         changed_step.comptue_hash(),
         hash,
         "hash must commit to the training step"
+    );
+
+    let mut changed_nonce = decoded.clone();
+    changed_nonce.trainer_nonce += 1;
+    assert_ne!(
+        changed_nonce.comptue_hash(),
+        hash,
+        "hash must commit to the trainer nonce"
+    );
+
+    let mut changed_metadata = decoded.clone();
+    changed_metadata.distro_results[0].totalk += 1;
+    assert_ne!(
+        changed_metadata.comptue_hash(),
+        hash,
+        "hash must commit to result metadata"
     );
 
     let mut changed_batch = decoded;

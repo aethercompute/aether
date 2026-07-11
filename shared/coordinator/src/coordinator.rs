@@ -1,5 +1,5 @@
 use crate::{
-    model::{Checkpoint, Model},
+    model::{AdapterCheckpoint, Checkpoint, LLMTrainingMethod, Model},
     Commitment, Committee, CommitteeProof, CommitteeSelection, WitnessProof,
 };
 
@@ -510,30 +510,53 @@ impl Coordinator {
         // with the last checkpointed one. We could instead have a vector of checkpoints to have
         // more download options.
         let Model::LLM(llm) = &mut self.model;
-        match (&llm.checkpoint, checkpoint_repo) {
-            // If current is P2P, wrap the new checkpoint in P2P
-            (Checkpoint::P2P(_), Checkpoint::Hub(hub_repo)) => {
-                llm.checkpoint = Checkpoint::P2P(hub_repo);
+        match &mut llm.training_method {
+            LLMTrainingMethod::Full => match (&llm.checkpoint, checkpoint_repo) {
+                // If current is P2P, wrap the new checkpoint in P2P
+                (Checkpoint::P2P(_), Checkpoint::Hub(hub_repo)) => {
+                    llm.checkpoint = Checkpoint::P2P(hub_repo);
+                }
+                (Checkpoint::P2PGcs(_), Checkpoint::Gcs(gcs_repo)) => {
+                    llm.checkpoint = Checkpoint::P2PGcs(gcs_repo);
+                }
+                // If current is Hub, only accept Hub updates
+                (Checkpoint::Hub(_), Checkpoint::Hub(hub_repo)) => {
+                    llm.checkpoint = Checkpoint::Hub(hub_repo);
+                }
+                // If current is Gcs, only accept Gcs updates
+                (Checkpoint::Gcs(_), Checkpoint::Gcs(gcs_repo)) => {
+                    llm.checkpoint = Checkpoint::Gcs(gcs_repo);
+                }
+                (Checkpoint::P2PGcs(_), Checkpoint::Hub(hub_repo)) => {
+                    llm.checkpoint = Checkpoint::P2P(hub_repo);
+                }
+                (Checkpoint::P2P(_), Checkpoint::Gcs(gcs_repo)) => {
+                    llm.checkpoint = Checkpoint::P2PGcs(gcs_repo);
+                }
+                // Ignore other combinations
+                _ => {}
+            },
+            LLMTrainingMethod::Lora(config) => {
+                match (&config.adapter_checkpoint, checkpoint_repo) {
+                    (AdapterCheckpoint::Fresh, Checkpoint::Hub(repo))
+                    | (AdapterCheckpoint::Hub(_), Checkpoint::Hub(repo)) => {
+                        config.adapter_checkpoint = AdapterCheckpoint::Hub(repo);
+                    }
+                    (AdapterCheckpoint::Fresh, Checkpoint::Gcs(repo))
+                    | (AdapterCheckpoint::Gcs(_), Checkpoint::Gcs(repo)) => {
+                        config.adapter_checkpoint = AdapterCheckpoint::Gcs(repo);
+                    }
+                    (AdapterCheckpoint::P2P(_), Checkpoint::Hub(repo))
+                    | (AdapterCheckpoint::P2PGcs(_), Checkpoint::Hub(repo)) => {
+                        config.adapter_checkpoint = AdapterCheckpoint::P2P(repo);
+                    }
+                    (AdapterCheckpoint::P2P(_), Checkpoint::Gcs(repo))
+                    | (AdapterCheckpoint::P2PGcs(_), Checkpoint::Gcs(repo)) => {
+                        config.adapter_checkpoint = AdapterCheckpoint::P2PGcs(repo);
+                    }
+                    _ => {}
+                }
             }
-            (Checkpoint::P2PGcs(_), Checkpoint::Gcs(gcs_repo)) => {
-                llm.checkpoint = Checkpoint::P2PGcs(gcs_repo);
-            }
-            // If current is Hub, only accept Hub updates
-            (Checkpoint::Hub(_), Checkpoint::Hub(hub_repo)) => {
-                llm.checkpoint = Checkpoint::Hub(hub_repo);
-            }
-            // If current is Gcs, only accept Gcs updates
-            (Checkpoint::Gcs(_), Checkpoint::Gcs(gcs_repo)) => {
-                llm.checkpoint = Checkpoint::Gcs(gcs_repo);
-            }
-            (Checkpoint::P2PGcs(_), Checkpoint::Hub(hub_repo)) => {
-                llm.checkpoint = Checkpoint::P2P(hub_repo);
-            }
-            (Checkpoint::P2P(_), Checkpoint::Gcs(gcs_repo)) => {
-                llm.checkpoint = Checkpoint::P2PGcs(gcs_repo);
-            }
-            // Ignore other combinations
-            _ => {}
         }
 
         Ok(())
@@ -1239,7 +1262,7 @@ impl CoordinatorProgress {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{HubRepo, LLM};
+    use crate::model::{GcsRepo, HubRepo, LoraConfig, LLM};
     use aether_core::{sha256, FixedVec, NodeIdentity, OptimizerDefinition};
     use bytemuck::Zeroable;
 
@@ -1247,6 +1270,23 @@ mod tests {
         let mut key = [0u8; 32];
         key[0] = n;
         NodeIdentity::from_single_key(key)
+    }
+
+    fn hub_repo(repo_id: &str) -> HubRepo {
+        HubRepo {
+            repo_id: FixedString::try_from(repo_id).unwrap(),
+            revision: None,
+        }
+    }
+
+    fn checkpoint_coordinator(training_method: LLMTrainingMethod) -> Coordinator {
+        let mut coordinator = Coordinator::zeroed();
+        coordinator.epoch_state.clients = FixedVec::from_iter([Client::new(identity(1))]);
+        let mut llm = LLM::dummy();
+        llm.checkpoint = Checkpoint::Hub(hub_repo("base/model"));
+        llm.training_method = training_method;
+        coordinator.model = Model::LLM(llm);
+        coordinator
     }
 
     #[test]
@@ -1677,6 +1717,83 @@ mod tests {
         assert!(c.withdraw(99).is_err());
         // index 1 still healthy, untouched
         assert_eq!(c.epoch_state.clients[1].state, ClientState::Healthy);
+    }
+
+    #[test]
+    fn checkpoint_updates_full_model_checkpoint() {
+        let mut coordinator = checkpoint_coordinator(LLMTrainingMethod::Full);
+        let Model::LLM(llm) = &mut coordinator.model;
+        llm.checkpoint = Checkpoint::P2P(hub_repo("base/model"));
+
+        coordinator
+            .checkpoint(&identity(1), 0, Checkpoint::Hub(hub_repo("full/upload")))
+            .unwrap();
+
+        let Model::LLM(llm) = coordinator.model;
+        assert!(matches!(
+            llm.checkpoint,
+            Checkpoint::P2P(repo) if repo == hub_repo("full/upload")
+        ));
+    }
+
+    #[test]
+    fn checkpoint_initializes_fresh_lora_adapter_without_changing_base() {
+        let mut coordinator = checkpoint_coordinator(LLMTrainingMethod::Lora(LoraConfig {
+            rank: 16,
+            alpha: 32.0,
+            dropout: 0.05,
+            init_seed: 42,
+            adapter_checkpoint: AdapterCheckpoint::Fresh,
+        }));
+
+        coordinator
+            .checkpoint(&identity(1), 0, Checkpoint::Hub(hub_repo("adapter/upload")))
+            .unwrap();
+
+        let Model::LLM(llm) = coordinator.model;
+        assert!(matches!(
+            llm.checkpoint,
+            Checkpoint::Hub(repo) if repo == hub_repo("base/model")
+        ));
+        assert!(matches!(
+            llm.training_method,
+            LLMTrainingMethod::Lora(LoraConfig {
+                adapter_checkpoint: AdapterCheckpoint::Hub(repo),
+                ..
+            }) if repo == hub_repo("adapter/upload")
+        ));
+    }
+
+    #[test]
+    fn checkpoint_preserves_lora_adapter_p2p_mode() {
+        let mut coordinator = checkpoint_coordinator(LLMTrainingMethod::Lora(LoraConfig {
+            rank: 16,
+            alpha: 32.0,
+            dropout: 0.05,
+            init_seed: 42,
+            adapter_checkpoint: AdapterCheckpoint::P2P(hub_repo("adapter/old")),
+        }));
+        let uploaded = GcsRepo {
+            bucket: FixedString::try_from("adapter-bucket").unwrap(),
+            prefix: Some(FixedString::try_from("checkpoint").unwrap()),
+        };
+
+        coordinator
+            .checkpoint(&identity(1), 0, Checkpoint::Gcs(uploaded))
+            .unwrap();
+
+        let Model::LLM(llm) = coordinator.model;
+        assert!(matches!(
+            llm.checkpoint,
+            Checkpoint::Hub(repo) if repo == hub_repo("base/model")
+        ));
+        assert!(matches!(
+            llm.training_method,
+            LLMTrainingMethod::Lora(LoraConfig {
+                adapter_checkpoint: AdapterCheckpoint::P2PGcs(repo),
+                ..
+            }) if repo == uploaded
+        ));
     }
 
     // ── Model::check validator ─────────────────────────────────────────────────

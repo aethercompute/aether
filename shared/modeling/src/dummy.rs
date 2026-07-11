@@ -98,7 +98,11 @@ impl CausalLM for DummyModel {
         2048
     }
 
-    fn variables(&self) -> StableVariableIterator {
+    fn trainable_variables(&self) -> StableVariableIterator {
+        Box::new(StableVarStoreIterator::new(&self.var_store, None))
+    }
+
+    fn state_variables(&self) -> StableVariableIterator {
         Box::new(StableVarStoreIterator::new(&self.var_store, None))
     }
 

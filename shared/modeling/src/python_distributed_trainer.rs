@@ -1,6 +1,6 @@
 use crate::{
     python_causal_lm::WrappedPythonCausalLM, trainer::DistroResults, ApplyDistroResultError, Batch,
-    BatchData, CausalLM, Communicator, EosToks, LocalTrainer, ParallelModels,
+    BatchData, CausalLM, Communicator, DistroResultMetadata, EosToks, LocalTrainer, ParallelModels,
     PythonDistributedCausalLM, ReduceType, StableVariableIterator, TorchDistributedCommunicator,
     TrainOutput, Trainer, TrainerThreadCommunicationError,
 };
@@ -199,6 +199,8 @@ impl PythonDistributedTrainer {
             "zero_optim": zero_optim,
             "results_len": results_len,
             "results_metadata": prev_self_distro_results.as_ref().map(|r| Self::distro_results_metadata(r)),
+            "manifest_digest": self.manifest_digest(),
+            "expected_result_metadata": self.result_metadata(),
         });
 
         let iteration = self.iteration.fetch_add(1, Ordering::Relaxed);
@@ -285,6 +287,8 @@ impl PythonDistributedTrainer {
             "warmup_lr_between": warmup_lr_between,
             "results_len": results_len,
             "results_metadata": distro_results.as_ref().map(|r| Self::distro_results_metadata(r)),
+            "manifest_digest": self.manifest_digest(),
+            "expected_result_metadata": self.result_metadata(),
         });
 
         let iteration = self.iteration.fetch_add(1, Ordering::Relaxed);
@@ -317,8 +321,22 @@ impl PythonDistributedTrainer {
     }
 
     pub fn extract(&mut self) -> Result<HashMap<String, Tensor>, TrainerThreadCommunicationError> {
+        self.extract_role(false)
+    }
+
+    pub fn extract_trainable(
+        &mut self,
+    ) -> Result<HashMap<String, Tensor>, TrainerThreadCommunicationError> {
+        self.extract_role(true)
+    }
+
+    fn extract_role(
+        &mut self,
+        trainable: bool,
+    ) -> Result<HashMap<String, Tensor>, TrainerThreadCommunicationError> {
         let operation = serde_json::json!({
             "operation": "extract",
+            "trainable": trainable,
         });
 
         let iteration = self.iteration.fetch_add(1, Ordering::Relaxed);
@@ -334,7 +352,11 @@ impl PythonDistributedTrainer {
         let dummy = Tensor::zeros([], (Kind::Float, self.device));
         self.comm.all_reduce(&dummy, ReduceType::Sum)?;
 
-        let result = self.local.extract()?;
+        let result = if trainable {
+            self.local.extract_trainable()?
+        } else {
+            self.local.extract()?
+        };
         trace!("Extract operation complete on all Python clients");
 
         Ok(result)
@@ -398,6 +420,14 @@ impl PythonDistributedTrainer {
     pub fn can_do_inference(&self) -> bool {
         self.local.can_do_inference()
     }
+
+    pub fn manifest_digest(&self) -> [u8; 32] {
+        self.local.manifest_digest()
+    }
+
+    pub fn result_metadata(&self) -> Option<&[DistroResultMetadata]> {
+        self.local.result_metadata()
+    }
 }
 
 impl From<PythonDistributedTrainer> for Trainer {
@@ -438,8 +468,12 @@ impl CausalLM for PythonDistributedTrainer {
         self.device
     }
 
-    fn variables(&self) -> StableVariableIterator {
-        self.model.variables()
+    fn trainable_variables(&self) -> StableVariableIterator {
+        self.model.trainable_variables()
+    }
+
+    fn state_variables(&self) -> StableVariableIterator {
+        self.model.state_variables()
     }
 
     fn communicator(&self) -> Option<Arc<Communicator>> {
