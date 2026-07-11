@@ -365,7 +365,7 @@ torch_lib_dirs() {
   # the loader path for libtorch_cuda to resolve. Uses the sandbox python so the
   # build and runtime libtorch always match.
   "$VENV/bin/python" -c '
-import pathlib
+import pathlib, sysconfig
 try:
     import torch
 except Exception:
@@ -375,6 +375,9 @@ dirs = [str(tf.parent / "lib")]
 nv = tf.parent.parent / "nvidia"
 if nv.is_dir():
     dirs += [str(d) for d in sorted(nv.glob("*/lib"))]
+python_lib = pathlib.Path(sysconfig.get_config_var("LIBDIR") or "")
+if python_lib.is_dir():
+    dirs.append(str(python_lib))
 print(":".join(dirs))
 ' 2>/dev/null
 }
@@ -546,6 +549,7 @@ do_launch() {
   export DYLD_LIBRARY_PATH="${torch_libs:+$torch_libs:}${DYLD_LIBRARY_PATH:-}"
   export LIBTORCH_USE_PYTORCH=1
   export LIBTORCH_BYPASS_VERSION_CHECK=1
+  export PYO3_PYTHON="$VENV/bin/python"
   export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
   export RUST_MIN_STACK=268435456
   export VIRTUAL_ENV="$VENV"

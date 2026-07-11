@@ -69,7 +69,12 @@ impl Env {
             .env("LIBTORCH_BYPASS_VERSION_CHECK", "1")
             .env("PYO3_USE_ABI3_FORWARD_COMPATIBILITY", "1")
             .env("RUST_MIN_STACK", "268435456");
+        let sandbox_python = config::sandbox_venv().join("bin").join("python");
+        if sandbox_python.exists() {
+            cmd.env("PYO3_PYTHON", sandbox_python);
+        }
         prepend_python_path(cmd, &config::repo_root().join("python").join("python"));
+        prepend_library_paths(cmd, "LIBRARY_PATH", &self.torch_lib_dirs);
         prepend_library_paths(cmd, "LD_LIBRARY_PATH", &self.torch_lib_dirs);
         prepend_library_paths(cmd, "DYLD_LIBRARY_PATH", &self.torch_lib_dirs);
     }
@@ -124,13 +129,15 @@ fn detect_torch_lib_dirs() -> Vec<PathBuf> {
 /// Run the dir-collecting snippet against one python; returns `Some` only when
 /// that python can actually `import torch`.
 fn probe_torch_lib_dirs(python: &Path) -> Option<Vec<PathBuf>> {
-    let script = "import pathlib\n\
+    let script = "import pathlib, sysconfig\n\
 try:\n    import torch\nexcept Exception:\n    raise SystemExit(1)\n\
 torch_file = pathlib.Path(torch.__file__).resolve()\n\
 dirs = [str(torch_file.parent / 'lib')]\n\
 site = torch_file.parent.parent\n\
 nv = site / 'nvidia'\n\
 if nv.is_dir():\n    dirs += [str(d) for d in sorted(nv.glob('*/lib'))]\n\
+python_lib = pathlib.Path(sysconfig.get_config_var('LIBDIR') or '')\n\
+if python_lib.is_dir():\n    dirs.append(str(python_lib))\n\
 print(':'.join(dirs))";
     let out = Command::new(python).arg("-c").arg(script).output().ok()?;
     if !out.status.success() {
