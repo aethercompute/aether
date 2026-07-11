@@ -76,6 +76,21 @@ def test_attach_lora_is_scoped_deterministic_and_freezes_base(hf_module):
     )
 
 
+def test_attach_lora_uses_explicit_adapter_dtype(hf_module):
+    from aether.models import LoraConfig
+
+    model = hf_module._attach_lora(
+        tiny_model(),
+        LoraConfig(rank=2, alpha=4),
+        torch.device("cpu"),
+        adapter_dtype=torch.bfloat16,
+    )
+
+    trainable = [parameter for parameter in model.parameters() if parameter.requires_grad]
+    assert trainable
+    assert all(parameter.dtype == torch.bfloat16 for parameter in trainable)
+
+
 def test_lora_state_views_and_exports(hf_module):
     from aether.models import LoraConfig
 

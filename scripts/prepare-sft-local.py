@@ -163,6 +163,35 @@ def message_tokens(tokenizer, messages: list[dict[str, str]]) -> tuple[list[int]
     ]
     if not assistant_indices:
         return None
+
+    # Templates using Transformers' {% generation %} blocks can identify every
+    # assistant span exactly. Older tokenizers/templates fall back below.
+    try:
+        encoded = tokenizer.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=False,
+            return_dict=True,
+            return_assistant_tokens_mask=True,
+        )
+        if isinstance(encoded, Mapping):
+            input_ids = token_ids(encoded)
+            assistant_mask = encoded.get("assistant_masks")
+            if assistant_mask is None:
+                assistant_mask = encoded.get("assistant_tokens_mask")
+            if (
+                isinstance(assistant_mask, list)
+                and len(assistant_mask) == len(input_ids)
+                and any(assistant_mask)
+            ):
+                labels = [
+                    token_id if supervised else IGNORE_INDEX
+                    for token_id, supervised in zip(input_ids, assistant_mask)
+                ]
+                return input_ids, labels
+    except (TypeError, ValueError, NotImplementedError):
+        pass
+
     assistant_index = assistant_indices[-1]
     if assistant_index == 0:
         return None
@@ -182,7 +211,8 @@ def message_tokens(tokenizer, messages: list[dict[str, str]]) -> tuple[list[int]
             add_generation_prompt=False,
         )
     )
-    return prompt_ids, full_ids
+    prefix_len = common_prefix_len(prompt_ids, full_ids)
+    return full_ids, [IGNORE_INDEX] * prefix_len + full_ids[prefix_len:]
 
 
 def build_example(
@@ -190,7 +220,7 @@ def build_example(
     prompt: str,
     response: str,
     args: argparse.Namespace,
-) -> tuple[list[int], list[int]] | None:
+) -> tuple[list[int], list[int], int] | None:
     if args.mode == "chat":
         prompt_ids, input_ids = chat_tokens(
             tokenizer, prompt, response, args.system_prompt
@@ -203,6 +233,7 @@ def build_example(
 
     input_ids = input_ids[: args.sequence_length]
     labels = labels[: args.sequence_length]
+    useful_tokens = len(input_ids)
 
     if len(input_ids) < args.sequence_length:
         pad = args.sequence_length - len(input_ids)
@@ -211,23 +242,22 @@ def build_example(
 
     if all(label == IGNORE_INDEX for label in labels):
         return None
-    return input_ids, labels
+    return input_ids, labels, useful_tokens
 
 
 def build_messages_example(
     tokenizer,
     messages: list[dict[str, str]],
     args: argparse.Namespace,
-) -> tuple[list[int], list[int]] | None:
+) -> tuple[list[int], list[int], int] | None:
     tokens = message_tokens(tokenizer, messages)
     if tokens is None:
         return None
-    prompt_ids, input_ids = tokens
-    prefix_len = common_prefix_len(prompt_ids, input_ids)
-    labels = [IGNORE_INDEX] * prefix_len + input_ids[prefix_len:]
+    input_ids, labels = tokens
 
     input_ids = input_ids[: args.sequence_length]
     labels = labels[: args.sequence_length]
+    useful_tokens = len(input_ids)
 
     if len(input_ids) < args.sequence_length:
         pad = args.sequence_length - len(input_ids)
@@ -236,7 +266,7 @@ def build_messages_example(
 
     if all(label == IGNORE_INDEX for label in labels):
         return None
-    return input_ids, labels
+    return input_ids, labels, useful_tokens
 
 
 def iter_samples(args: argparse.Namespace) -> Iterable[dict[str, Any]]:
@@ -298,6 +328,9 @@ def main() -> None:
     missing_text = 0
     no_supervised_tokens = 0
     written_files: list[str] = []
+    file_rows: dict[str, int] = {}
+    useful_tokens = 0
+    supervised_tokens = 0
 
     for sample in iter_samples(args):
         if args.mode == "messages":
@@ -319,14 +352,17 @@ def main() -> None:
             skipped += 1
             no_supervised_tokens += 1
             continue
-        input_ids, labels = example
+        input_ids, labels, example_useful_tokens = example
         rows.append({"inputs": input_ids, "labels": labels})
+        useful_tokens += example_useful_tokens
+        supervised_tokens += sum(label != IGNORE_INDEX for label in labels)
         total += 1
         progress.update(1)
 
         if len(rows) >= args.shard_size:
             path = write_shard(output_dir, args.split, shard_index, rows)
             written_files.append(str(path.relative_to(output_dir)))
+            file_rows[written_files[-1]] = len(rows)
             print(f"wrote {len(rows)} examples to {path}")
             rows = []
             shard_index += 1
@@ -339,6 +375,7 @@ def main() -> None:
     if rows:
         path = write_shard(output_dir, args.split, shard_index, rows)
         written_files.append(str(path.relative_to(output_dir)))
+        file_rows[written_files[-1]] = len(rows)
         print(f"wrote {len(rows)} examples to {path}")
 
     if total == 0:
@@ -369,10 +406,18 @@ def main() -> None:
         "system_prompt": args.system_prompt,
         "label_ignore_index": IGNORE_INDEX,
         "files": written_files,
+        "file_rows": file_rows,
+        "useful_tokens": useful_tokens,
+        "padding_tokens": total * args.sequence_length - useful_tokens,
+        "supervised_tokens": supervised_tokens,
     }
     (output_dir / "subset_metadata.json").write_text(
         json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
     )
+    listed_paths = {output_dir / name for name in written_files}
+    for stale_path in output_dir.glob(f"{args.split}-*.parquet"):
+        if stale_path not in listed_paths:
+            stale_path.unlink()
     print(f"finished {total} SFT examples in {output_dir} ({skipped} skipped)")
 
 

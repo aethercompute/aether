@@ -317,9 +317,22 @@ def dataset_status(config: dict) -> tuple[bool, str]:
     if int(metadata.get("sequence_length", 0)) != expected_seq_len:
         return False, "sequence length does not match config"
     if is_sft_dataset(dataset):
-        shard_count = len(list(output_dir.rglob("*.parquet")))
-        if shard_count == 0:
-            return False, "metadata exists but no .parquet shards were found"
+        files = metadata.get("files")
+        file_rows = metadata.get("file_rows")
+        if not isinstance(files, list) or not files:
+            return False, "SFT metadata has no authoritative file list"
+        if len(files) != len(set(files)) or not all(isinstance(name, str) for name in files):
+            return False, "SFT metadata has an invalid file list"
+        paths = [(output_dir / name).resolve() for name in files]
+        if any(output_dir.resolve() not in path.parents or not path.is_file() for path in paths):
+            return False, "an SFT shard listed by metadata is missing or outside the dataset directory"
+        if not isinstance(file_rows, dict) or set(file_rows) != set(files):
+            return False, "SFT metadata has no exact per-file row counts"
+        if any(not isinstance(count, int) or count <= 0 for count in file_rows.values()):
+            return False, "SFT metadata has invalid per-file row counts"
+        if sum(file_rows.values()) != actual_sequences:
+            return False, "SFT metadata file row counts do not match num_sequences"
+        shard_count = len(files)
         return True, f"ready: {actual_sequences:,} SFT examples across {shard_count:,} shards"
     expected_token_bytes = int(dataset.get("token_bytes", 0))
     if int(metadata.get("token_bytes", 0)) != expected_token_bytes:

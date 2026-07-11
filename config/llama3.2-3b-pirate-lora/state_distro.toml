@@ -10,14 +10,14 @@ round_witness_time = 20
 min_clients = 1
 init_min_clients = 1
 
-# One SFT epoch over 10k examples: 625 steps * 16 sequences/step.
+# One SFT epoch over 9k examples: ceil(9000 / 16) = 563 steps.
 global_batch_size_start = 16
 global_batch_size_end = 16
 global_batch_size_warmup_tokens = 0
 
 verification_percent = 0
 witness_nodes = 1
-total_steps = 625
+total_steps = 563
 waiting_for_members_extra_time = 120
 
 [model.LLM]
@@ -37,7 +37,7 @@ revision = "main"
 base_lr = 2.0e-4
 warmup_steps = 50
 warmup_init_lr = 0.0
-total_steps = 625
+total_steps = 563
 final_lr = 2.0e-5
 
 [model.LLM.optimizer.Distro]

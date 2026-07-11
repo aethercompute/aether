@@ -625,8 +625,8 @@ async fn timing_partial(State(state): State<SharedState>) -> Html<String> {
                 r#"<table border="1">
 <tr><td><b>Elapsed</b></td><td>{elapsed}</td></tr>
 <tr><td><b>Remaining Steps</b></td><td>{remaining_steps}</td></tr>
-<tr><td><b>Remaining Tokens</b></td><td>{remaining_tokens}</td></tr>
-<tr><td><b>Tokens / Step</b></td><td>{tokens_per_step:.0}</td></tr>
+<tr><td><b>Remaining Nominal Positions</b></td><td>{remaining_tokens}</td></tr>
+<tr><td><b>Nominal Positions / Step</b></td><td>{tokens_per_step:.0}</td></tr>
 <tr><td><b>ETA (weighted avg)</b></td><td>{weighted_eta} <span class="hint">({weighted_tps})</span></td></tr>
 <tr><td><b>ETA (overall avg)</b></td><td>{avg_eta} <span class="hint">({avg_tps})</span></td></tr>
 <tr><td><b>ETA (current speed)</b></td><td>{current_eta} <span class="hint">({current_tps})</span></td></tr>
@@ -648,7 +648,7 @@ async fn timing_partial(State(state): State<SharedState>) -> Html<String> {
 }
 
 fn format_tps(tps: Option<f64>) -> String {
-    tps.map(|v| format!("{v:.1} tok/s"))
+    tps.map(|v| format!("{v:.1} nominal pos/s"))
         .unwrap_or_else(|| "-".into())
 }
 

@@ -93,9 +93,12 @@ impl StatsLogger {
         let token_batch_size_val = token_batch_size(state);
         let efficiency_val = self.efficency();
 
-        round_log.insert("train/total_tokens", total_tokens_val);
-        round_log.insert("train/tokens_per_sec", tokens_per_sec_val);
-        round_log.insert("train/global_token_batch_size", token_batch_size_val);
+        round_log.insert("train/nominal_token_positions", total_tokens_val);
+        round_log.insert("train/nominal_token_positions_per_sec", tokens_per_sec_val);
+        round_log.insert(
+            "train/nominal_token_positions_per_step",
+            token_batch_size_val,
+        );
         round_log.insert("train/efficency", efficiency_val);
 
         self.metrics.record_total_tokens(total_tokens_val);
@@ -257,6 +260,8 @@ impl StatsLogger {
     }
 
     pub fn global_tokens_per_second(&self, state: &Coordinator) -> f32 {
+        // This is end-to-end sequence capacity, not supervised loss tokens:
+        // padding and labels masked with -100 are included.
         match self.step_durations.is_empty() {
             true => 0.,
             false => match &state.model {

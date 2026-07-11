@@ -932,15 +932,26 @@ impl Coordinator {
         unix_timestamp: u64,
         random_seed: u64,
     ) -> std::result::Result<TickResult, CoordinatorError> {
-        if self.check_timeout(unix_timestamp, self.config.round_witness_time) {
+        let expected_witnesses = if self.config.witness_nodes == 0 {
+            self.epoch_state.clients.len() as u16
+        } else {
+            self.config.witness_nodes
+        };
+        let has_quorum = self.current_round().is_some_and(|round| {
+            round.witnesses.len() as u16 >= self.witness_quorum(expected_witnesses)
+        });
+        let witness_timed_out = self.check_timeout(unix_timestamp, self.config.round_witness_time);
+        if has_quorum || witness_timed_out {
             self.epoch_state.first_round = false.into();
             self.progress.step += 1;
             let current_round = self.current_round_unchecked();
             let height = current_round.height;
             let num_witnesses = current_round.witnesses.len() as u16;
 
-            if let Err(error) = self.eject_missing_witnesses() {
-                warn!(?error, "could not identify missing elected witnesses");
+            if witness_timed_out {
+                if let Err(error) = self.eject_missing_witnesses() {
+                    warn!(?error, "could not identify missing elected witnesses");
+                }
             }
             self.move_clients_to_exited(height);
 
@@ -962,6 +973,12 @@ impl Coordinator {
                 }
             }
 
+            // DisTrO updates are applied two rounds after they are trained. Stop
+            // training at the configured limit, then drain those two updates.
+            if self.progress.step >= self.config.total_steps && !self.epoch_state.last_step_set() {
+                self.epoch_state.last_step = self.progress.step + 2;
+            }
+
             // We reached the last step of the epoch, we transition to Cooldown
             if self.epoch_state.last_step_set() && self.progress.step == self.epoch_state.last_step
             {
@@ -973,7 +990,6 @@ impl Coordinator {
             // we change to Cooldown
             if self.epoch_state.clients.len() < self.config.min_clients as usize
                 || num_witnesses < self.witness_quorum(num_witnesses)
-                || self.progress.step >= self.config.total_steps
                 || self.pending_pause.is_true()
             {
                 self.start_cooldown(unix_timestamp);
@@ -1329,6 +1345,7 @@ mod tests {
         coordinator.config.round_witness_time = 14;
         coordinator.config.witness_nodes = witness_nodes;
         coordinator.config.min_clients = 1;
+        coordinator.config.total_steps = 100;
         coordinator.epoch_state.clients =
             FixedVec::from_iter((0..client_count).map(|n| Client::new(identity(n + 1))));
 
@@ -1337,6 +1354,35 @@ mod tests {
         round.height = 7;
         round.random_seed = 42;
         coordinator
+    }
+
+    #[test]
+    fn total_steps_drains_two_pipeline_rounds_before_cooldown() {
+        let mut coordinator = witness_timeout_coordinator(1, 1);
+        coordinator.config.total_steps = 1;
+        coordinator.config.epoch_time = u64::MAX / 2;
+
+        for expected_step in 1..=3 {
+            let selection = CommitteeSelection::from_coordinator(&coordinator, 0).unwrap();
+            coordinator
+                .current_round_mut_unchecked()
+                .witnesses
+                .push(Witness {
+                    proof: selection.get_witness(0),
+                    ..Default::default()
+                })
+                .unwrap();
+            coordinator.run_state = RunState::RoundWitness;
+            coordinator.tick_round_witness(11, 99).unwrap();
+
+            assert_eq!(coordinator.progress.step, expected_step);
+            if expected_step < 3 {
+                assert_eq!(coordinator.run_state, RunState::RoundTrain);
+                assert_eq!(coordinator.epoch_state.last_step, 3);
+            }
+        }
+
+        assert_eq!(coordinator.run_state, RunState::Cooldown);
     }
 
     #[test]
@@ -1401,6 +1447,30 @@ mod tests {
             .clients
             .iter()
             .all(|client| client.state == ClientState::Healthy));
+    }
+
+    #[test]
+    fn witness_round_advances_before_timeout_at_quorum() {
+        let mut coordinator = witness_timeout_coordinator(4, 3);
+        let selection = CommitteeSelection::from_coordinator(&coordinator, 0).unwrap();
+        for index in (0..4)
+            .filter(|index| selection.get_witness(*index).witness.is_true())
+            .take(2)
+        {
+            coordinator
+                .current_round_mut_unchecked()
+                .witnesses
+                .push(Witness {
+                    proof: selection.get_witness(index),
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+
+        coordinator.tick_round_witness(11, 99).unwrap();
+
+        assert_eq!(coordinator.run_state, RunState::RoundTrain);
+        assert_eq!(coordinator.progress.step, 1);
     }
 
     // ── RunState <-> usize roundtrip ───────────────────────────────────────────

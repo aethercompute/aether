@@ -4,6 +4,7 @@ use crate::{
     TokenizedDataProvider,
 };
 use parquet::file::reader::FileReader;
+use parquet::file::reader::SerializedFileReader;
 
 use aether_core::{BatchId, Shuffle};
 use anyhow::{anyhow, bail, Result};
@@ -11,6 +12,16 @@ use parquet::record::RowAccessor;
 use rand::seq::SliceRandom;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha8Rng;
+use serde::Deserialize;
+use std::collections::HashMap;
+use std::fs::File;
+
+#[derive(Deserialize)]
+struct DatasetMetadata {
+    files: Vec<String>,
+    num_sequences: usize,
+    file_rows: HashMap<String, usize>,
+}
 
 fn field_to_int(field: &Field) -> Result<i32> {
     match field {
@@ -80,6 +91,54 @@ fn collect_parquet_files(dir: &std::path::Path, files: &mut Vec<std::path::PathB
     Ok(())
 }
 
+fn metadata_files(
+    dir: &std::path::Path,
+) -> Result<Option<(Vec<std::path::PathBuf>, DatasetMetadata)>> {
+    let path = dir.join("subset_metadata.json");
+    if !path.exists() {
+        return Ok(None);
+    }
+    let contents = std::fs::read(&path)?;
+    let value: serde_json::Value = serde_json::from_slice(&contents)
+        .map_err(|e| anyhow!("invalid {}: {e}", path.display()))?;
+    if value.get("files").is_none() {
+        return Ok(None);
+    }
+    let metadata: DatasetMetadata = serde_json::from_value(value)
+        .map_err(|e| anyhow!("invalid SFT manifest {}: {e}", path.display()))?;
+    if metadata.files.is_empty()
+        || metadata.file_rows.len() != metadata.files.len()
+        || metadata
+            .files
+            .iter()
+            .any(|name| !metadata.file_rows.contains_key(name))
+    {
+        bail!("{} has an incomplete SFT file manifest", path.display());
+    }
+    let mut files = Vec::with_capacity(metadata.files.len());
+    for name in &metadata.files {
+        let file = std::fs::canonicalize(dir.join(name))
+            .map_err(|e| anyhow!("metadata-listed shard {name:?} is unavailable: {e}"))?;
+        if !file.starts_with(dir)
+            || file.extension().and_then(|x| x.to_str()) != Some(PARQUET_EXTENSION)
+        {
+            bail!("invalid metadata-listed shard {name:?}");
+        }
+        let actual_rows = SerializedFileReader::new(File::open(&file)?)?
+            .metadata()
+            .file_metadata()
+            .num_rows() as usize;
+        if actual_rows != metadata.file_rows[name] {
+            bail!(
+                "metadata-listed shard {name:?} has {actual_rows} rows instead of {}",
+                metadata.file_rows[name]
+            );
+        }
+        files.push(file);
+    }
+    Ok(Some((files, metadata)))
+}
+
 pub struct PreprocessedDataProvider {
     dataset: Dataset,
     sequence_indices: Vec<usize>,
@@ -101,13 +160,29 @@ impl PreprocessedDataProvider {
         let dir = std::fs::canonicalize(&dir)
             .map_err(|e| anyhow!("Failed to open data directory {:?}: {e}", dir.as_ref()))?;
 
+        let manifest = metadata_files(&dir)?;
         let mut files = vec![];
-        collect_parquet_files(&dir, &mut files)?;
+        if let Some((listed, _)) = &manifest {
+            files.clone_from(listed);
+        } else {
+            collect_parquet_files(&dir, &mut files)?;
+        }
         if files.is_empty() {
             bail!("No training data files in directory {:?}", dir);
         }
 
         let dataset = Dataset::load_dataset(&files, split, subset)?;
+        if let Some((_, metadata)) = manifest {
+            let listed_rows: usize = metadata.file_rows.values().sum();
+            if listed_rows != metadata.num_sequences || dataset.num_rows() != metadata.num_sequences
+            {
+                bail!(
+                    "SFT manifest expects {} rows but listed files contain {}",
+                    metadata.num_sequences,
+                    dataset.num_rows()
+                );
+            }
+        }
         let inputs_column = match dataset.get_column_id("inputs") {
             Some(x) => x,
             None => bail!("Dataset does not have `inputs` column"),
@@ -131,23 +206,6 @@ impl PreprocessedDataProvider {
             position_ids_column,
             sequence_lengths_column,
         })
-    }
-
-    fn row_at(&self, mut row_index: usize) -> Result<Row> {
-        for file in self.dataset.files() {
-            let rows_in_file = file.metadata().file_metadata().num_rows() as usize;
-            if row_index >= rows_in_file {
-                row_index -= rows_in_file;
-                continue;
-            }
-
-            return Ok(file
-                .get_row_iter(None)?
-                .nth(row_index)
-                .ok_or_else(|| anyhow!("missing parquet row {row_index}"))??);
-        }
-
-        bail!("sample index out of range")
     }
 
     fn row_to_tokenized_data(&self, row: Row) -> Result<TokenizedData> {
@@ -200,12 +258,42 @@ impl TokenizedDataProvider for PreprocessedDataProvider {
             result
         };
 
-        sample_indices
-            .into_iter()
-            .map(|index| {
-                self.row_at(index)
-                    .and_then(|row| self.row_to_tokenized_data(row))
-            })
+        let mut requested: Vec<(usize, usize)> = sample_indices
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(output, row)| (row, output))
+            .collect();
+        requested.sort_unstable_by_key(|(row, _)| *row);
+        let mut rows: Vec<Option<Row>> = (0..sample_indices.len()).map(|_| None).collect();
+        let mut request = 0;
+        let mut global_start = 0;
+        for file in self.dataset.files() {
+            let file_rows = file.metadata().file_metadata().num_rows() as usize;
+            let file_end = global_start + file_rows;
+            if request < requested.len() && requested[request].0 < file_end {
+                let mut iter = file.get_row_iter(None)?;
+                let mut local_position = 0;
+                while request < requested.len() && requested[request].0 < file_end {
+                    let target = requested[request].0 - global_start;
+                    let row = iter
+                        .nth(target - local_position)
+                        .ok_or_else(|| anyhow!("missing parquet row {target}"))??;
+                    local_position = target + 1;
+                    while request < requested.len() && requested[request].0 - global_start == target
+                    {
+                        rows[requested[request].1] = Some(row.clone());
+                        request += 1;
+                    }
+                }
+            }
+            global_start = file_end;
+        }
+        if request != requested.len() {
+            bail!("sample index out of range");
+        }
+        rows.into_iter()
+            .map(|row| self.row_to_tokenized_data(row.expect("all requested rows were loaded")))
             .collect()
     }
 }

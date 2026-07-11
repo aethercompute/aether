@@ -7,7 +7,9 @@ use aether_coordinator::{
     model::{Checkpoint, Model},
     Committee, Coordinator, RunState, Witness, WitnessProof,
 };
-use aether_core::{sha256, IntegrationTestLogMarker, MerkleRoot, MerkleTree, NodeIdentity};
+use aether_core::{
+    sha256, BatchId, IntegrationTestLogMarker, MerkleRoot, MerkleTree, NodeIdentity,
+};
 use aether_event_sourcing::event;
 use aether_modeling::{DistroResult, DistroResultMetadata, Trainer};
 use aether_network::{BlobTicket, Hash, P2PEndpointInfo, TransmittableDistroResult};
@@ -15,6 +17,7 @@ use aether_watcher::OpportunisticData;
 use futures::FutureExt;
 use iroh_blobs::api::Tag;
 use std::{
+    collections::HashSet,
     fmt,
     sync::{Arc, Mutex, MutexGuard},
     time::Instant,
@@ -267,19 +270,10 @@ impl StepStateMachine {
 
                     // if we get here we've sent our own finished message.
                     // now we just need to wait until we've received everyone else's finished
-                    let unfinished_clients: Vec<_> = self
-                        .coordinator_state
-                        .epoch_state
-                        .clients
-                        .iter()
-                        .filter_map(|client| {
-                            if self.current_round.clients_finished.contains_key(&client.id) {
-                                None
-                            } else {
-                                Some(client.id)
-                            }
-                        })
-                        .collect();
+                    let unfinished_clients = unfinished_trainers(
+                        &self.current_round.data_assignments,
+                        &self.current_round.clients_finished,
+                    );
                     if !unfinished_clients.is_empty() {
                         return Ok(());
                     }
@@ -1017,6 +1011,19 @@ impl StepStateMachine {
     }
 }
 
+fn unfinished_trainers(
+    data_assignments: &std::collections::BTreeMap<BatchId, NodeIdentity>,
+    clients_finished: &std::collections::HashMap<NodeIdentity, crate::Finished>,
+) -> Vec<NodeIdentity> {
+    data_assignments
+        .values()
+        .copied()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .filter(|id| !clients_finished.contains_key(id))
+        .collect()
+}
+
 #[derive(Default, Debug)]
 enum ActiveStep {
     #[default]
@@ -1354,6 +1361,7 @@ mod tests {
         AdapterCheckpoint, Checkpoint, GcsRepo, HubRepo, LLMTrainingMethod, LoraConfig, LLM,
     };
     use bytemuck::Zeroable;
+    use std::collections::{BTreeMap, HashMap};
 
     /// Builds a `Coordinator` (zero-initialized everywhere except `model`) for
     /// exercising the pure predicates below.
@@ -1375,6 +1383,30 @@ mod tests {
         *lock_mutex(&lock, "test") = 4;
 
         assert_eq!(*lock_mutex(&lock, "test"), 4);
+    }
+
+    #[test]
+    fn finished_barrier_only_waits_for_assigned_trainers() {
+        let trainer = NodeIdentity::from_single_key([1; 32]);
+        let other_trainer = NodeIdentity::from_single_key([2; 32]);
+        let non_trainer = NodeIdentity::from_single_key([3; 32]);
+        let assignments = BTreeMap::from([
+            ("B[0, 0]".parse().unwrap(), trainer),
+            ("B[1, 1]".parse().unwrap(), trainer),
+            ("B[2, 2]".parse().unwrap(), other_trainer),
+        ]);
+        let finished = HashMap::from([(
+            trainer,
+            crate::Finished {
+                broadcast_merkle: Default::default(),
+                warmup: false,
+            },
+        )]);
+
+        let unfinished = unfinished_trainers(&assignments, &finished);
+
+        assert_eq!(unfinished, vec![other_trainer]);
+        assert!(!unfinished.contains(&non_trainer));
     }
 
     #[test]

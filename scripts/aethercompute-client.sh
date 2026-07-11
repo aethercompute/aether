@@ -286,22 +286,34 @@ ensure_c_compiler() {
 }
 
 ensure_python() {
-  if [[ -x "$VENV/bin/python" ]]; then return 0; fi
-  if ! has python3; then
-    warn "python3 not found."
-    if is_macos; then
-      hint "install with: xcode-select --install   (or: brew install python)"
-    else
-      hint "install with: sudo apt-get install -y python3 python3-venv"
+  local python_bin="${AETHER_PYTHON:-}"
+  if [[ -x "$VENV/bin/python" ]]; then
+    if "$VENV/bin/python" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)' >/dev/null 2>&1; then
+      return 0
     fi
-    die "python3 + venv is required to provision libtorch."
+    die "sandbox Python must be 3.12 for optimized model kernels; recreate $VENV with Python 3.12"
   fi
-  if ! python3 -m venv --help >/dev/null 2>&1; then
+  if [[ -z "$python_bin" ]] && has python3.12; then
+    python_bin="python3.12"
+  fi
+  if [[ -z "$python_bin" ]] && has python3 && python3 -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)' >/dev/null 2>&1; then
+    python_bin="python3"
+  fi
+  if [[ -z "$python_bin" ]] || ! has "$python_bin"; then
+    warn "Python 3.12 not found."
+    if is_macos; then
+      hint "install with: brew install python@3.12"
+    else
+      hint "install Python 3.12 and its venv module, or set AETHER_PYTHON"
+    fi
+    die "Python 3.12 + venv is required for optimized model kernels."
+  fi
+  if ! "$python_bin" -m venv --help >/dev/null 2>&1; then
     warn "python venv module missing."
-    is_linux && hint "install with: sudo apt-get install -y python3-venv"
-    die "python3-venv is required."
+    is_linux && hint "install the Python 3.12 venv package"
+    die "Python 3.12 venv support is required."
   fi
-  run_step "creating sandboxed python venv" python3 -m venv "$VENV" || die "venv creation failed"
+  run_step "creating sandboxed Python 3.12 venv" "$python_bin" -m venv "$VENV" || die "venv creation failed"
   run_step "upgrading pip" "$VENV/bin/python" -m pip install --upgrade pip
 }
 

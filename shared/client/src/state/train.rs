@@ -10,7 +10,7 @@ use aether_coordinator::{
 use aether_core::{BatchId, Bloom, IntegrationTestLogMarker, NodeIdentity, OptimizerDefinition};
 use aether_event_sourcing::event;
 use aether_modeling::{
-    ApplyDistroResultError, Batch, BatchData, DistroResult, TrainOutput, Trainer,
+    ApplyDistroResultError, Batch, BatchData, BatchDataCPU, DistroResult, TrainOutput, Trainer,
     TrainerThreadCommunicationError,
 };
 use aether_network::{
@@ -338,25 +338,9 @@ impl TrainingStepMetadata {
                             return Err(TrainError::TrainCrashed);
                         }
 
-                        let batches = match &data.data {
+                        let batches = match data.data {
                             BatchData::CPU(items) => {
-                                let total_size = items.len();
-                                let num_trainers = available_trainers.len();
-                                let chunk_size = total_size / num_trainers;
-                                let mut batches = items
-                                    .chunks(chunk_size)
-                                    .map(|x| x.to_owned())
-                                    .collect::<Vec<_>>();
-                                if batches.len() == num_trainers + 1 {
-                                    let last = batches.pop().unwrap();
-                                    for (i, sample) in last.into_iter().enumerate() {
-                                        batches[i].push(sample);
-                                    }
-                                }
-                                if batches.len() != num_trainers {
-                                    error!("Batches does not match DP world size");
-                                }
-                                batches
+                                split_local_batches(items, available_trainers.len())
                             }
                             BatchData::GPU(_) => {
                                 error!("Got data on GPU before distribution to trainers");
@@ -586,7 +570,7 @@ impl TrainingStepMetadata {
 
         Ok(tokio::task::spawn(async move {
                 let payloads = payloads.clone();
-                let mut distro_results: Vec<Vec<DistroResult>> = Vec::new();
+                let mut weighted_distro_results: Vec<(Vec<DistroResult>, usize)> = Vec::new();
                 let mut desync_skips: usize = 0;
 
                 trace!("Have commitments for batches {:?}", commitments.keys().collect::<Vec<_>>());
@@ -674,13 +658,14 @@ impl TrainingStepMetadata {
                                 // note, we are relying on honest communication of this value here -- will need to harden with verification.
                                 info!("Skipping apply of batch {batch_id}, trainer warming up ({trainer_nonce}/{cold_start_warmup_steps})");
                             } else {
-                                distro_results.push(results);
+                                weighted_distro_results.push((results, batch_size(batch_id)));
                             }
                         }
                         Err(err) => warn!("DESYNC: Got the following error when deserializing results for commitment 0x{}: {}", hex::encode(commitment.data_hash), err),
                     }
                 }
 
+                let distro_results = weight_distro_results(weighted_distro_results);
                 event!(train::ApplyDistroResultsStart);
                 let futures: Vec<JoinHandle<std::result::Result<Trainer, ApplyDistroResultError>>> =
                     trainers
@@ -719,6 +704,69 @@ impl TrainingStepMetadata {
                 Ok((trainers, desync_skips))
             }.instrument(trace_span!("Applying distro results"))))
     }
+}
+
+fn batch_size(batch_id: BatchId) -> usize {
+    (batch_id.0.end - batch_id.0.start + 1) as usize
+}
+
+fn split_local_batches(
+    mut items: Vec<BatchDataCPU>,
+    num_trainers: usize,
+) -> Vec<Vec<BatchDataCPU>> {
+    if !items.is_empty() && items.len() < num_trainers {
+        // Preserve labels=None semantics (labels=input_ids) while making padded
+        // samples explicitly ignored by the loss.
+        for item in &mut items {
+            if item.labels.is_none() {
+                item.labels = Some(item.input_ids.clone());
+            }
+        }
+        let template = items[0].clone();
+        let seq_len = template.input_ids.len();
+        while items.len() < num_trainers {
+            items.push(BatchDataCPU {
+                input_ids: vec![0; seq_len],
+                labels: Some(vec![-100; seq_len]),
+                position_ids: template
+                    .position_ids
+                    .as_ref()
+                    .map(|_| (0..seq_len as i32).collect()),
+                sequence_lengths: template
+                    .sequence_lengths
+                    .as_ref()
+                    .map(|_| vec![seq_len as i32]),
+            });
+        }
+    }
+
+    let mut batches = Vec::with_capacity(num_trainers);
+    let total_size = items.len();
+    let mut items = items.into_iter();
+    for index in 0..num_trainers {
+        let size = total_size / num_trainers + usize::from(index < total_size % num_trainers);
+        batches.push(items.by_ref().take(size).collect());
+    }
+    batches
+}
+
+fn weight_distro_results(results: Vec<(Vec<DistroResult>, usize)>) -> Vec<Vec<DistroResult>> {
+    let divisor = results
+        .iter()
+        .map(|(_, weight)| *weight)
+        .reduce(greatest_common_divisor)
+        .unwrap_or(1);
+    results
+        .into_iter()
+        .flat_map(|(result, weight)| std::iter::repeat_n(result, weight / divisor))
+        .collect()
+}
+
+fn greatest_common_divisor(mut a: usize, mut b: usize) -> usize {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
 }
 
 fn start_sending_health_checks(
@@ -836,4 +884,45 @@ async fn write_gradients_to_disk(
         })?;
     debug!("Wrote distro result {fname}.");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample(value: i32) -> BatchDataCPU {
+        BatchDataCPU {
+            input_ids: vec![value; 4],
+            labels: None,
+            position_ids: None,
+            sequence_lengths: None,
+        }
+    }
+
+    #[test]
+    fn local_split_pads_when_batch_is_smaller_than_dp_world() {
+        let batches = split_local_batches(vec![sample(1), sample(2)], 4);
+
+        assert_eq!(batches.len(), 4);
+        assert!(batches.iter().all(|batch| batch.len() == 1));
+        assert_eq!(batches[0][0].labels, Some(vec![1; 4]));
+        assert_eq!(batches[1][0].labels, Some(vec![2; 4]));
+        assert_eq!(batches[2][0].labels, Some(vec![-100; 4]));
+        assert_eq!(batches[3][0].labels, Some(vec![-100; 4]));
+    }
+
+    #[test]
+    fn local_split_balances_remainder_without_idle_trainers() {
+        let batches = split_local_batches((0..10).map(sample).collect(), 4);
+        assert_eq!(
+            batches.iter().map(Vec::len).collect::<Vec<_>>(),
+            [3, 3, 2, 2]
+        );
+    }
+
+    #[test]
+    fn update_weights_preserve_assigned_example_ratio() {
+        let weighted = weight_distro_results(vec![(Vec::new(), 6), (Vec::new(), 4)]);
+        assert_eq!(weighted.len(), 5);
+    }
 }

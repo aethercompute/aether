@@ -117,6 +117,7 @@ def _attach_lora(
     adapter_source: Optional[
         PretrainedSourceRepoFiles | PretrainedSourceStateDict
     ] = None,
+    adapter_dtype: Optional[torch.dtype] = None,
 ) -> torch.nn.Module:
     from peft import LoraConfig as PeftLoraConfig
     from peft import TaskType, get_peft_model
@@ -162,6 +163,8 @@ def _attach_lora(
 
     for name, parameter in model.named_parameters():
         parameter.requires_grad_("lora_" in name)
+        if parameter.requires_grad and adapter_dtype is not None:
+            parameter.data = parameter.data.to(dtype=adapter_dtype)
     return model
 
 
@@ -329,9 +332,11 @@ class HfTransformersAuto(CausalLM):
             reinit_rope(module)
         reinit_rope(model)
 
-        if lora_config is None and model.supports_gradient_checkpointing:
+        checkpointing_enabled = bool(model.supports_gradient_checkpointing)
+        if lora_config is None and checkpointing_enabled:
             model.gradient_checkpointing_enable()
 
+        liger_enabled = False
         if sys.version_info >= (3, 14):
             logger.info("Skipping liger kernels on Python 3.14+")
         elif config.model_type in MODEL_TYPE_TO_APPLY_LIGER_FN:
@@ -341,6 +346,7 @@ class HfTransformersAuto(CausalLM):
                 model=model,
                 fused_linear_cross_entropy=no_tp,  # liger fused ce can't deal with mixed tensor/dtensors which happens in non-pure-fsdp mode
             )
+            liger_enabled = True
 
         # Compiling the loss reduces memory for large vocabularies, but Torch
         # does not support torch.compile on Python 3.14+ yet.
@@ -378,11 +384,26 @@ class HfTransformersAuto(CausalLM):
             model.tie_weights()
 
         if lora_config is not None:
-            model = _attach_lora(model, lora_config, device, adapter_source)
+            model = _attach_lora(
+                model,
+                lora_config,
+                device,
+                adapter_source,
+                adapter_dtype=param_dtype,
+            )
 
-        if lora_config is not None and model.supports_gradient_checkpointing:
+        if lora_config is not None and checkpointing_enabled:
             model.gradient_checkpointing_enable()
             model.enable_input_require_grads()
+
+        logger.info(
+            "HfAuto runtime: dtype=%s attention=%s liger=%s gradient_checkpointing=%s lora=%s",
+            param_dtype,
+            getattr(config, "_attn_implementation", attn_implementation),
+            liger_enabled,
+            checkpointing_enabled,
+            lora_config is not None,
+        )
 
         result = HfTransformersAuto(model, config, world_mesh, device)
         result.lora_config = lora_config
@@ -432,7 +453,7 @@ class HfTransformersAuto(CausalLM):
             except Exception:
                 logger.exception("[%s]: forward failed", self.device)
                 raise
-            if ret.loss and loss_scale:
+            if ret.loss is not None and loss_scale is not None:
                 ret.loss /= loss_scale
             return (ret.logits, ret.loss)
 

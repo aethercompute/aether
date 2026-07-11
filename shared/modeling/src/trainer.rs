@@ -599,7 +599,6 @@ impl LocalTrainer {
         if barrier.wait().is_err() {
             return Ok(None);
         }
-        let device = inputs.device();
         let (_, loss) = model.forward(
             &inputs,
             Some(&labels),
@@ -610,10 +609,36 @@ impl LocalTrainer {
         );
         let loss = loss.ok_or(Error::msg("No loss"))?;
         loss.backward();
-        if device.is_cuda() {
-            device.cuda_synchronize();
-        }
         Ok(Some(loss.detach()))
+    }
+
+    fn batch_loss_item_counts(data: &BatchData, micro_batch_size: usize) -> Option<Vec<f64>> {
+        let BatchData::CPU(rows) = data else {
+            return None;
+        };
+        let all_have_labels = rows.iter().all(|row| row.labels.is_some());
+        Some(
+            rows.chunks(micro_batch_size)
+                .map(|chunk| {
+                    chunk
+                        .iter()
+                        .map(|row| {
+                            if all_have_labels {
+                                row.labels
+                                    .as_ref()
+                                    .unwrap()
+                                    .iter()
+                                    .skip(1)
+                                    .filter(|&&label| label != -100)
+                                    .count()
+                            } else {
+                                row.input_ids.len().saturating_sub(1)
+                            }
+                        })
+                        .sum::<usize>() as f64
+                })
+                .collect(),
+        )
     }
 
     fn loss_item_count(inputs: &Tensor, labels: Option<&Tensor>) -> f64 {
@@ -936,6 +961,9 @@ impl LocalTrainer {
                     }
                     let grad_accum_divisor = grad_accum_steps as f64;
 
+                    // Count CPU labels before transfer to avoid a CUDA scalar read per microbatch.
+                    let cpu_loss_item_counts =
+                        Self::batch_loss_item_counts(&batch.data, micro_batch_size);
                     // collate data for batch
                     let BatchDataGPU {
                         input_ids,
@@ -977,13 +1005,15 @@ impl LocalTrainer {
                                 .collect::<Vec<_>>()
                         })
                         .unwrap_or_else(|| vec![None; grad_accum_steps]);
-                    let loss_item_counts = input_ids
-                        .iter()
-                        .zip(labels.iter())
-                        .map(|(input_ids, labels)| {
-                            Self::loss_item_count(input_ids, labels.as_ref())
-                        })
-                        .collect::<Vec<_>>();
+                    let loss_item_counts = cpu_loss_item_counts.unwrap_or_else(|| {
+                        input_ids
+                            .iter()
+                            .zip(labels.iter())
+                            .map(|(input_ids, labels)| {
+                                Self::loss_item_count(input_ids, labels.as_ref())
+                            })
+                            .collect::<Vec<_>>()
+                    });
                     let total_loss_items = loss_item_counts.iter().sum::<f64>();
                     let loss_scales = loss_item_counts
                         .iter()
@@ -1087,25 +1117,12 @@ impl LocalTrainer {
                             &barrier,
                             Some(loss_scale),
                         ) {
-                            Ok(Some(batch_loss)) => {
-                                if batch_loss.double_value(&[]).is_finite() {
-                                    match loss.as_mut() {
-                                        Some(loss) => *loss += batch_loss,
-                                        None => {
-                                            loss = Some(batch_loss);
-                                        }
-                                    }
-                                } else {
-                                    cancelled = true;
-                                    barrier.cancel();
-                                    warn!(
-                                        step = step,
-                                        loss = batch_loss.double_value(&[]),
-                                        "Aborting training due to non-finite loss"
-                                    );
-                                    break;
+                            Ok(Some(batch_loss)) => match loss.as_mut() {
+                                Some(loss) => *loss += batch_loss,
+                                None => {
+                                    loss = Some(batch_loss);
                                 }
-                            }
+                            },
                             Ok(None) => {
                                 // cancelled barrier catching race to on run_state
                                 cancelled = true;
@@ -1121,6 +1138,20 @@ impl LocalTrainer {
                             grad_accum.accumulate_gradients();
                         }
                         trace!(micro_batch = index, "Finished micro batch forward/backward");
+                    }
+                    if !cancelled {
+                        if let Some(batch_loss) = &loss {
+                            let loss_value = batch_loss.double_value(&[]);
+                            if !loss_value.is_finite() {
+                                cancelled = true;
+                                barrier.cancel();
+                                warn!(
+                                    step = step,
+                                    loss = loss_value,
+                                    "Aborting training due to non-finite loss"
+                                );
+                            }
+                        }
                     }
                     if let Some(grad_accum) = &mut grad_accum {
                         grad_accum.apply_accumulation();
