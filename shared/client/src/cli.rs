@@ -271,7 +271,11 @@ impl TrainArgs {
     pub fn wandb_info(&self, run_name: String) -> Result<Option<WandBInfo>> {
         let wandb_info = match std::env::var("WANDB_API_KEY") {
             Ok(wandb_api_key) => Some(WandBInfo {
-                project: self.wandb_project.clone().unwrap_or("aether".to_string()),
+                project: self
+                    .wandb_project
+                    .clone()
+                    .or_else(|| std::env::var("WANDB_PROJECT").ok())
+                    .unwrap_or("aether".to_string()),
                 run: self.wandb_run.clone().unwrap_or(run_name),
                 entity: self.wandb_entity.clone(),
                 api_key: wandb_api_key,
