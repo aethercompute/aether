@@ -53,7 +53,8 @@ ENV LIBTORCH_USE_PYTORCH=1 \
     CONTROL_PORT=8080 \
     CONTROL_PASSWORD_FILE=/app/.aether-control/control-password \
     SERVER_PORT=39405 \
-    WEB_PORT=8081
+    WEB_PORT=8081 \
+    DATA_SERVER_ADDR=
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

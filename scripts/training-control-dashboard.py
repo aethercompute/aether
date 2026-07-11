@@ -921,6 +921,9 @@ def server_command(config: dict) -> list[str]:
     data_config = data_config_path(config)
     if data_config is not None:
         command.extend(["--data-config", str(data_config)])
+    data_server_addr = os.environ.get("DATA_SERVER_ADDR", "").strip()
+    if data_server_addr:
+        command.extend(["--data-server-addr", data_server_addr])
     if not server.get("tui", False):
         command.extend(["--tui=false"])
     return command
@@ -942,6 +945,9 @@ def experiment_server_command(config: dict) -> list[str]:
     data_config = data_config_path(config)
     if data_config is not None:
         command.extend(["--data-config", str(data_config)])
+    data_server_addr = os.environ.get("DATA_SERVER_ADDR", "").strip()
+    if data_server_addr:
+        command.extend(["--data-server-addr", data_server_addr])
     if not server.get("tui", False):
         command.extend(["--tui=false"])
     return command

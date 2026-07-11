@@ -2,7 +2,7 @@ mod app;
 mod dashboard;
 mod web;
 
-use aether_coordinator::Coordinator;
+use aether_coordinator::{model, Coordinator};
 use aether_tui::{
     logging::{MetricsDestination, OpenTelemetry, RemoteLogsDestination, TraceDestination},
     LogOutput, ServiceInfo,
@@ -78,6 +78,11 @@ struct RunArgs {
     /// Path to TOML of data server config
     #[clap(long)]
     data_config: Option<PathBuf>,
+
+    /// Public host:port advertised to clients for server-hosted training data.
+    /// The server still binds 0.0.0.0 on the port from this value.
+    #[clap(long)]
+    data_server_addr: Option<String>,
 
     /// Optional admission allowlist file. Each non-empty line must be a 32-byte hex public key.
     /// Lines may include comments after `#`. If omitted, any client with the run id may join.
@@ -183,6 +188,25 @@ fn parse_config_state(contents: &str) -> Result<Coordinator> {
     }
 
     Ok(coordinator)
+}
+
+fn override_data_server_addr(
+    coordinator: &mut Coordinator,
+    data_server_addr: Option<&str>,
+) -> Result<()> {
+    let Some(data_server_addr) = data_server_addr else {
+        return Ok(());
+    };
+    match &mut coordinator.model {
+        model::Model::LLM(llm) => {
+            if let model::LLMTrainingDataLocation::Server(url) = &mut llm.data_location {
+                *url = data_server_addr.try_into().with_context(|| {
+                    format!("invalid --data-server-addr {data_server_addr:?}")
+                })?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn load_experiment(
@@ -339,7 +363,13 @@ async fn main() -> Result<()> {
                 })
                 .init()?;
             let config = match config {
-                Ok(config) => config,
+                Ok(mut config) => {
+                    override_data_server_addr(&mut config.0, run_args.data_server_addr.as_deref())?;
+                    for coordinator in &mut config.2 {
+                        override_data_server_addr(coordinator, run_args.data_server_addr.as_deref())?;
+                    }
+                    config
+                }
                 Err(err) => {
                     error!("Error found in config: {err:#}");
                     logger.shutdown()?;
