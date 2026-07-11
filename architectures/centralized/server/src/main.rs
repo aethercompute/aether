@@ -200,9 +200,9 @@ fn override_data_server_addr(
     match &mut coordinator.model {
         model::Model::LLM(llm) => {
             if let model::LLMTrainingDataLocation::Server(url) = &mut llm.data_location {
-                *url = data_server_addr.try_into().with_context(|| {
-                    format!("invalid --data-server-addr {data_server_addr:?}")
-                })?;
+                *url = data_server_addr
+                    .try_into()
+                    .with_context(|| format!("invalid --data-server-addr {data_server_addr:?}"))?;
             }
         }
     }
@@ -366,7 +366,10 @@ async fn main() -> Result<()> {
                 Ok(mut config) => {
                     override_data_server_addr(&mut config.0, run_args.data_server_addr.as_deref())?;
                     for coordinator in &mut config.2 {
-                        override_data_server_addr(coordinator, run_args.data_server_addr.as_deref())?;
+                        override_data_server_addr(
+                            coordinator,
+                            run_args.data_server_addr.as_deref(),
+                        )?;
                     }
                     config
                 }
