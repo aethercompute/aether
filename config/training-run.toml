@@ -1,6 +1,6 @@
 [server]
-state_path = "config/aether0-500m/state_distro.toml"
-data_config = "config/aether0-500m/data.toml"
+state_path = "config/llama3.2-3b-pirate-lora/state_distro.toml"
+data_config = "config/llama3.2-3b-pirate-lora/data.toml"
 experiment_path = "config/experiment-run.toml"
 experiment_enabled = false
 server_port = 39405
@@ -9,20 +9,20 @@ tui = false
 
 [dataset]
 enabled = true
-objective = "pretraining"
-script = "scripts/prepare-ultra-fineweb-local.py"
-output_dir = "data/corpus-512-bin"
-sequence_length = 512
-num_sequences = 5859328
+objective = "sft"
+script = "scripts/prepare-sft-local.py"
+output_dir = "data/pirate-ultrachat-10k-llama3.2-3b-sft-2048"
+sequence_length = 2048
+num_sequences = 10000
 shard_size = 2048
-token_bytes = 4
-dataset = "openbmb/Ultra-FineWeb"
-split = "en"
-text_field = "content"
-tokenizer = "deepseek-ai/DeepSeek-V3"
+dataset = "winglian/pirate-ultrachat-10k"
+split = "train"
+tokenizer = "meta-llama/Llama-3.2-3B-Instruct"
 seed = 1337
-buffer_docs = 0
+buffer_docs = 10000
 trust_remote_code = false
+sft_mode = "messages"
+messages_field = "messages"
 
 [model]
 enabled = false
