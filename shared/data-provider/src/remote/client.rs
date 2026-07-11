@@ -35,7 +35,7 @@ impl DataProviderTcpClient {
                     });
                 }
                 Err(err) => {
-                    if attempt == 1 || attempt % 15 == 0 {
+                    if attempt == 1 || attempt.is_multiple_of(15) {
                         warn!(
                             address = %addr,
                             attempt,
