@@ -335,9 +335,10 @@ def dataset_status(config: dict) -> tuple[bool, str]:
 
 
 def model_status(config: dict) -> tuple[bool, str]:
-    model = config.get("model", {})
     if not model_push_enabled(config):
-        return True, "disabled"
+        reason = model_push_disabled_reason(config)
+        return True, reason or "disabled"
+    model = config.get("model", {})
     markers = read_model_markers()
     if not markers:
         return False, "no successful push recorded by this dashboard"
@@ -359,6 +360,21 @@ def experiment_state_paths(config: dict) -> list[Path]:
         state = Path(run["state"])
         paths.append(state if state.is_absolute() else base_dir / state)
     return paths
+
+
+def configured_state_path(config: dict) -> Path:
+    state_path = Path(config.get("server", {}).get("state_path", ""))
+    return state_path if state_path.is_absolute() else repo_root() / state_path
+
+
+def state_uses_lora(state_path: Path) -> bool:
+    try:
+        with state_path.open("rb") as f:
+            state = tomllib.load(f)
+        training_method = state.get("model", {}).get("LLM", {}).get("training_method", {})
+        return isinstance(training_method, dict) and "Lora" in training_method
+    except (OSError, tomllib.TOMLDecodeError, AttributeError):
+        return False
 
 
 def state_hub_checkpoint_repo(state_path: Path) -> str | None:
@@ -511,6 +527,8 @@ def data_server_endpoint_status(config: dict) -> tuple[bool, str]:
 
 
 def model_push_enabled(config: dict) -> bool:
+    if state_uses_lora(configured_state_path(config)):
+        return False
     model = config.get("model", {})
     if not model.get("enabled", False):
         return False
@@ -519,6 +537,8 @@ def model_push_enabled(config: dict) -> bool:
 
 
 def model_push_disabled_reason(config: dict) -> str | None:
+    if state_uses_lora(configured_state_path(config)):
+        return "not required for LoRA runs; using existing base checkpoint"
     model = config.get("model", {})
     if not model.get("enabled", False):
         return "model.enabled is false"
