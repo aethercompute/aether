@@ -508,6 +508,16 @@ def state_data_server(config: dict) -> str | None:
     return None
 
 
+def is_local_host(host: str) -> bool:
+    host = host.strip().lower()
+    if host in {"localhost", "localhost."}:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def data_server_endpoint_status(config: dict) -> tuple[bool, str]:
     endpoint = state_data_server(config)
     if not endpoint:
@@ -523,6 +533,8 @@ def data_server_endpoint_status(config: dict) -> tuple[bool, str]:
         with socket.create_connection((host, port), timeout=1.0):
             return True, f"reachable: {endpoint}"
     except OSError as err:
+        if is_local_host(host) and data_config_path(config) is not None:
+            return True, f"will be hosted by training server on {endpoint}"
         return False, f"not reachable: {endpoint} ({err})"
 
 
