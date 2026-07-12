@@ -269,6 +269,49 @@ where
     }
 }
 
+async fn create_hub_model_repo(hub_repo: &str, hub_token: &str) -> Result<(), UploadError> {
+    let (organization, name) = match hub_repo.split_once('/') {
+        Some((organization, name)) if !organization.is_empty() && !name.is_empty() => {
+            (Some(organization), name)
+        }
+        None if !hub_repo.is_empty() => (None, hub_repo),
+        _ => return Err(UploadError::InvalidHubRepo(hub_repo.to_string())),
+    };
+
+    let mut payload = serde_json::json!({
+        "name": name,
+        "type": "model",
+        "private": false,
+        "exist_ok": true,
+    });
+    if let Some(organization) = organization {
+        payload["organization"] = serde_json::json!(organization);
+    }
+
+    let response = reqwest::Client::new()
+        .post("https://huggingface.co/api/repos/create")
+        .bearer_auth(hub_token)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(UploadError::HfRepoCreateRequest)?;
+
+    let status = response.status();
+    if status.is_success() || status == reqwest::StatusCode::CONFLICT {
+        return Ok(());
+    }
+
+    let body = response
+        .text()
+        .await
+        .unwrap_or_else(|err| format!("failed to read response body: {err}"));
+    Err(UploadError::HfRepoCreateStatus {
+        repo: hub_repo.to_string(),
+        status,
+        body,
+    })
+}
+
 pub async fn upload_to_hub(
     hub_info: HubUploadInfo,
     local: Vec<PathBuf>,
@@ -281,6 +324,7 @@ pub async fn upload_to_hub(
         upload_timeout,
         max_retries,
     } = hub_info;
+    let hub_repo = sanitize_repo_id(&hub_repo);
 
     info!(repo = hub_repo, "Uploading checkpoint to HuggingFace");
 
@@ -289,6 +333,14 @@ pub async fn upload_to_hub(
         .build()?;
     let repo = Repo::model(hub_repo.clone());
     let api_repo = api.repo(repo);
+
+    if !api_repo.exists().await {
+        info!(repo = hub_repo, "Creating HuggingFace checkpoint repo");
+        create_hub_model_repo(&hub_repo, &hub_token).await?;
+    }
+    if !api_repo.is_writable().await {
+        return Err(UploadError::HfRepoNotWritable(hub_repo));
+    }
 
     let files: Result<Vec<(PathBuf, String)>, _> = local
         .into_iter()

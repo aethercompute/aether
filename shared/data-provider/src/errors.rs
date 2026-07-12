@@ -22,6 +22,22 @@ pub enum UploadError {
     #[error("HF checkpoint upload timed out after {0:?}")]
     HfUploadTimeout(Duration),
 
+    #[error("invalid HF repo id for checkpoint upload: {0}")]
+    InvalidHubRepo(String),
+
+    #[error("failed to create HF checkpoint repo: {0}")]
+    HfRepoCreateRequest(#[source] reqwest::Error),
+
+    #[error("failed to create HF checkpoint repo {repo}: {status}: {body}")]
+    HfRepoCreateStatus {
+        repo: String,
+        status: reqwest::StatusCode,
+        body: String,
+    },
+
+    #[error("HF checkpoint repo is not writable: {0}")]
+    HfRepoNotWritable(String),
+
     // GCS-specific errors
     #[error("GCS authentication failed: {0}")]
     GcsAuth(#[from] google_cloud_storage::client::google_cloud_auth::error::Error),

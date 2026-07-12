@@ -129,6 +129,19 @@ repo_id = "org/aether-adapter"
 revision = "immutable-commit-sha"
 ```
 
+The seed client's upload destination is configured separately in the training
+run config. Do not put the adapter repo in `[model.LLM.checkpoint.Hub]`; that
+field must remain the immutable base model.
+
+```toml
+[checkpoint]
+dir = "checkpoints/{run_id}"
+hub_repo = "org/aether-adapter"
+delete_old_steps = true
+keep_steps = 3
+epoch_interval = 1
+```
+
 Local DP/FSDP, tensor parallelism, native models, TorchTitan, and Muon are
 rejected for LoRA until their dedicated implementations are available.
 

@@ -505,18 +505,68 @@ do_update() {
   hint "re-run without arguments to rebuild + launch."
 }
 
+load_seed_checkpoint_config() {
+  local config_path="${TRAINING_RUN_CONFIG:-config/training-run.toml}"
+  local resolved=""
+  if [[ -f "$REPO_ROOT/$config_path" ]]; then
+    resolved="$REPO_ROOT/$config_path"
+  elif [[ -f "$config_path" ]]; then
+    resolved="$config_path"
+  else
+    return 0
+  fi
+
+  local assignments
+  assignments="$(python3 - "$resolved" <<'PY'
+import os
+import shlex
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as f:
+    checkpoint = tomllib.load(f).get("checkpoint", {})
+
+fields = {
+    "hub_repo": "HUB_REPO",
+    "gcs_bucket": "GCS_BUCKET",
+    "gcs_prefix": "GCS_PREFIX",
+    "dir": "CHECKPOINT_DIR",
+    "delete_old_steps": "DELETE_OLD_STEPS",
+    "keep_steps": "KEEP_STEPS",
+    "epoch_interval": "CHECKPOINT_EPOCH_INTERVAL",
+}
+
+for key, env in fields.items():
+    value = checkpoint.get(key)
+    if value is None or value == "" or os.environ.get(env):
+        continue
+    if isinstance(value, bool):
+        value = "true" if value else "false"
+    print(f"export {env}={shlex.quote(str(value))}")
+PY
+  )" || return 0
+  eval "$assignments"
+}
+
 do_seed() {
   if [[ -z "${HF_TOKEN:-}" ]]; then
     die "HF_TOKEN is required for seed mode. Get one at https://huggingface.co/settings/tokens"
   fi
-  export HUB_REPO="${HUB_REPO:-aethercompute/llama3.2-1b-think}"
+  load_seed_checkpoint_config
+  if [[ -z "${HUB_REPO:-}" && -z "${GCS_BUCKET:-}" ]]; then
+    export HUB_REPO="aethercompute/llama3.2-1b-think"
+  fi
   export CHECKPOINT_EPOCH_INTERVAL="${CHECKPOINT_EPOCH_INTERVAL:-1}"
   export KEEP_STEPS="${KEEP_STEPS:-3}"
   export DELETE_OLD_STEPS="${DELETE_OLD_STEPS:-true}"
   export CHECKPOINT_DIR="${CHECKPOINT_DIR:-$AETHER_HOME/checkpoints}"
 
   printf "\n  "; brand '◆ AETHERCOMPUTE'; printf "  ${dim}seed node${reset}\n\n"
-  hint "Hub repo:        $HUB_REPO"
+  if [[ -n "${HUB_REPO:-}" ]]; then
+    hint "Hub repo:        $HUB_REPO"
+  elif [[ -n "${GCS_BUCKET:-}" ]]; then
+    hint "GCS checkpoint:  gs://$GCS_BUCKET${GCS_PREFIX:+/$GCS_PREFIX}"
+  fi
   hint "Checkpoint dir:  $CHECKPOINT_DIR"
   hint "Push interval:   every $CHECKPOINT_EPOCH_INTERVAL epoch(s)"
   hint "Keep steps:      $KEEP_STEPS"

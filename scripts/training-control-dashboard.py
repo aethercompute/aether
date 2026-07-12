@@ -152,7 +152,7 @@ def _toml_inline_value(value) -> str:
 
 def write_config(config: dict) -> None:
     lines: list[str] = []
-    for section in ("server", "dataset", "model"):
+    for section in ("server", "dataset", "model", "checkpoint"):
         lines.append(f"[{section}]")
         items = list(config.get(section, {}).items())
         # Emit scalars/arrays FIRST. Arrays-of-tables ([[section.key]]) must
@@ -229,6 +229,15 @@ def update_config_from_form(form: dict[str, list[str]]) -> None:
             "private": bool_value,
             "dtype": str,
             "device": str,
+        },
+        "checkpoint": {
+            "dir": str,
+            "hub_repo": str,
+            "gcs_bucket": str,
+            "gcs_prefix": str,
+            "delete_old_steps": bool_value,
+            "keep_steps": int_value,
+            "epoch_interval": int_value,
         },
     }
     for section, keys in schema.items():
@@ -390,6 +399,36 @@ def state_uses_lora(state_path: Path) -> bool:
         return False
 
 
+def state_lora_adapter_checkpoint(state_path: Path) -> str | None:
+    try:
+        with state_path.open("rb") as f:
+            state = tomllib.load(f)
+        lora = (
+            state.get("model", {})
+            .get("LLM", {})
+            .get("training_method", {})
+            .get("Lora", {})
+        )
+        adapter = lora.get("adapter_checkpoint")
+        if adapter == "Fresh":
+            return "Fresh"
+        if isinstance(adapter, dict):
+            hub = adapter.get("Hub") or adapter.get("P2P")
+            if isinstance(hub, dict):
+                repo = str(hub.get("repo_id", "")).strip()
+                if repo:
+                    return repo
+            gcs = adapter.get("Gcs") or adapter.get("P2PGcs")
+            if isinstance(gcs, dict):
+                bucket = str(gcs.get("bucket", "")).strip()
+                prefix = str(gcs.get("prefix", "")).strip()
+                if bucket:
+                    return f"gs://{bucket}/{prefix}" if prefix else f"gs://{bucket}"
+    except (OSError, tomllib.TOMLDecodeError, AttributeError):
+        pass
+    return None
+
+
 def state_hub_checkpoint_repo(state_path: Path) -> str | None:
     try:
         with state_path.open("rb") as f:
@@ -463,9 +502,27 @@ def state_checkpoint(config: dict) -> str:
     if not state_path.exists():
         return "state file missing"
     try:
-        return state_checkpoint_repo(state_path)
+        base = state_checkpoint_repo(state_path)
+        adapter = state_lora_adapter_checkpoint(state_path)
+        if adapter is not None:
+            return f"base: {base}; adapter: {adapter}"
+        return base
     except RuntimeError:
         return "checkpoint repo not found in state file"
+
+
+def checkpoint_upload_summary(config: dict) -> str:
+    checkpoint = config.get("checkpoint", {})
+    hub_repo = str(checkpoint.get("hub_repo", "")).strip()
+    gcs_bucket = str(checkpoint.get("gcs_bucket", "")).strip()
+    if hub_repo and gcs_bucket:
+        return "invalid: both checkpoint.hub_repo and checkpoint.gcs_bucket are set"
+    if hub_repo:
+        return f"hub: {hub_repo}"
+    if gcs_bucket:
+        prefix = str(checkpoint.get("gcs_prefix", "")).strip()
+        return f"gcs: gs://{gcs_bucket}/{prefix}" if prefix else f"gcs: gs://{gcs_bucket}"
+    return "disabled"
 
 
 def hf_token() -> str:
@@ -608,6 +665,15 @@ def config_for_form(config: dict) -> dict:
         model.setdefault("private", False)
         model.setdefault("dtype", "bfloat16")
         model.setdefault("device", "")
+    checkpoint = display.setdefault("checkpoint", {})
+    if isinstance(checkpoint, dict):
+        checkpoint.setdefault("dir", "checkpoints/{run_id}")
+        checkpoint.setdefault("hub_repo", "")
+        checkpoint.setdefault("gcs_bucket", "")
+        checkpoint.setdefault("gcs_prefix", "")
+        checkpoint.setdefault("delete_old_steps", True)
+        checkpoint.setdefault("keep_steps", 3)
+        checkpoint.setdefault("epoch_interval", 1)
     return display
 
 
@@ -1086,6 +1152,7 @@ def html_page(message: str | None = None) -> str:
     model_short = "ready" if model_ready else "pending"
     model_cls = "ok" if model_ready else "warn"
     actions = render_actions(config)
+    checkpoint_upload = checkpoint_upload_summary(config)
     return f"""<!doctype html>
 <html>
 <head>
@@ -1145,6 +1212,7 @@ def html_page(message: str | None = None) -> str:
       <p>Init model: <span class="{'ok' if model_ready else 'warn'}">{html.escape(model_message)}</span></p>
       <p>Experiment init models: <span class="{'ok' if experiment_model_ready else 'warn'}">{html.escape(experiment_model_message)}</span></p>
       <p>State checkpoint: <code>{html.escape(checkpoint)}</code></p>
+      <p>Seed upload checkpoint: <code>{html.escape(checkpoint_upload)}</code></p>
       <p>Training server: {render_job_status(server, live=True)}</p>
       <p>Live dashboard: <a href="http://{html.escape(os.environ.get('PUBLIC_HOST', 'localhost'))}:{config['server']['live_web_port']}/">port {config['server']['live_web_port']}</a></p>
     </section>

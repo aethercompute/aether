@@ -26,3 +26,12 @@ messages_field = "messages"
 
 [model]
 enabled = false
+
+[checkpoint]
+dir = "checkpoints/{run_id}"
+hub_repo = "aethercompute/llama32-3b-pirate-lora-adapter"
+gcs_bucket = ""
+gcs_prefix = ""
+delete_old_steps = true
+keep_steps = 3
+epoch_interval = 1
