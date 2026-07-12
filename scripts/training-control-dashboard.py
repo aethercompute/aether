@@ -525,6 +525,75 @@ def checkpoint_upload_summary(config: dict) -> str:
     return "disabled"
 
 
+def checkpoint_repo_create_disabled_reason(config: dict) -> str | None:
+    checkpoint = config.get("checkpoint", {})
+    hub_repo = str(checkpoint.get("hub_repo", "")).strip()
+    gcs_bucket = str(checkpoint.get("gcs_bucket", "")).strip()
+    if hub_repo and gcs_bucket:
+        return "both checkpoint.hub_repo and checkpoint.gcs_bucket are set"
+    if gcs_bucket:
+        return "GCS checkpoint uploads do not need an HF repo"
+    if not hub_repo:
+        return "checkpoint.hub_repo is empty"
+    if not hf_token():
+        return "HF_TOKEN or HUGGING_FACE_HUB_TOKEN is not set"
+    return None
+
+
+def create_hf_checkpoint_repo(config: dict) -> str:
+    reason = checkpoint_repo_create_disabled_reason(config)
+    if reason:
+        raise RuntimeError(reason)
+
+    repo = str(config.get("checkpoint", {}).get("hub_repo", "")).strip()
+    if "/" in repo:
+        organization, name = repo.split("/", 1)
+        if not organization or not name:
+            raise RuntimeError(f"invalid checkpoint.hub_repo: {repo}")
+        payload = {
+            "name": name,
+            "organization": organization,
+            "type": "model",
+            "private": False,
+            "exist_ok": True,
+        }
+    else:
+        if not repo:
+            raise RuntimeError("checkpoint.hub_repo is empty")
+        payload = {
+            "name": repo,
+            "type": "model",
+            "private": False,
+            "exist_ok": True,
+        }
+
+    request = Request(
+        "https://huggingface.co/api/repos/create",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {hf_token()}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            if response.status < 400:
+                return f"Checkpoint repo ready: {repo}"
+            body = response.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"failed to create checkpoint repo {repo}: {response.status}: {body}")
+    except HTTPError as err:
+        if err.code == 409:
+            return f"Checkpoint repo already exists: {repo}"
+        body = err.read().decode("utf-8", errors="replace").strip()
+        detail = f": {body[:300]}" if body else ""
+        raise RuntimeError(
+            f"failed to create checkpoint repo {repo}: {err.code} {err.reason}{detail}"
+        ) from err
+    except URLError as err:
+        raise RuntimeError(f"could not create checkpoint repo {repo}: {err.reason}") from err
+
+
 def hf_token() -> str:
     return os.environ.get("HF_TOKEN", "") or os.environ.get("HUGGING_FACE_HUB_TOKEN", "")
 
@@ -1067,6 +1136,7 @@ def render_actions(config: dict) -> str:
     push_enabled = model_push_enabled(config)
     push_disabled_reason = model_push_disabled_reason(config)
     experiment_enabled = config.get("server", {}).get("experiment_enabled", False)
+    checkpoint_create_reason = checkpoint_repo_create_disabled_reason(config)
     actions = [
         (
             "/prepare-dataset",
@@ -1075,6 +1145,12 @@ def render_actions(config: dict) -> str:
             "dataset.enabled is false",
         ),
         ("/push-model", "Push init model", push_enabled, push_disabled_reason),
+        (
+            "/create-checkpoint-repo",
+            "Create checkpoint repo",
+            checkpoint_create_reason is None,
+            checkpoint_create_reason,
+        ),
         (
             "/push-experiment-models",
             "Push experiment init models",
@@ -1341,6 +1417,8 @@ class Handler(BaseHTTPRequestHandler):
 
                 run_background("push init model", command, on_success=mark_model)
                 message = "Init model push started."
+            elif path == "/create-checkpoint-repo":
+                message = create_hf_checkpoint_repo(config)
             elif path == "/push-experiment-models":
                 if not config.get("server", {}).get("experiment_enabled", False):
                     raise RuntimeError("experiment mode is disabled for this run")
