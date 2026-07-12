@@ -517,14 +517,16 @@ load_seed_checkpoint_config() {
   fi
 
   local assignments
-  assignments="$(python3 - "$resolved" <<'PY'
+  assignments="$(python3 - "$resolved" "$REPO_ROOT" <<'PY'
 import os
 import shlex
 import sys
 import tomllib
 
 with open(sys.argv[1], "rb") as f:
-    checkpoint = tomllib.load(f).get("checkpoint", {})
+    config = tomllib.load(f)
+
+checkpoint = config.get("checkpoint", {})
 
 fields = {
     "hub_repo": "HUB_REPO",
@@ -543,6 +545,16 @@ for key, env in fields.items():
     if isinstance(value, bool):
         value = "true" if value else "false"
     print(f"export {env}={shlex.quote(str(value))}")
+
+state_path = config.get("server", {}).get("state_path")
+if state_path and not os.environ.get("AETHER_RUN_ID"):
+    if not os.path.isabs(state_path):
+        state_path = os.path.join(sys.argv[2], state_path)
+    if os.path.isfile(state_path):
+        with open(state_path, "rb") as f:
+            run_id = tomllib.load(f).get("run_id")
+        if run_id:
+            print(f"export AETHER_RUN_ID={shlex.quote(str(run_id))}")
 PY
   )" || return 0
   eval "$assignments"
@@ -570,6 +582,7 @@ do_seed() {
     hint "GCS checkpoint:  gs://$GCS_BUCKET${GCS_PREFIX:+/$GCS_PREFIX}"
   fi
   hint "Checkpoint dir:  $CHECKPOINT_DIR"
+  hint "Run ID:          ${AETHER_RUN_ID:-launcher default}"
   hint "Push interval:   every $CHECKPOINT_EPOCH_INTERVAL epoch(s)"
   hint "Keep steps:      $KEEP_STEPS"
   echo

@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 pub const DEFAULT_RUN_ID: &str = "ds-v3-dense-100m-ufw";
+pub const RUN_ID_ENV: &str = "AETHER_RUN_ID";
 pub const DEFAULT_SERVER_HOST: &str = "train.aethercompute.org";
 pub const DEFAULT_SERVER_PORT: &str = "39405";
 pub const DEFAULT_MICRO_BATCH: &str = "1";
@@ -12,6 +13,13 @@ pub const DEFAULT_SLOT: &str = "1";
 
 pub const CLIENT_CRATE: &str = "aether-centralized-client";
 pub const CLIENT_BIN_NAME: &str = "aether-centralized-client";
+
+pub fn default_run_id() -> String {
+    std::env::var(RUN_ID_ENV)
+        .ok()
+        .filter(|run_id| !run_id.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_RUN_ID.to_string())
+}
 
 /// Repo root, resolved at runtime from this crate's compile-time manifest dir
 /// (the volunteer crate lives at `<root>/architectures/centralized/volunteer`).

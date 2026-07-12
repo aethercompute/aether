@@ -85,7 +85,7 @@ impl App {
             host_summary: detect::host_summary(),
             devices,
             form: Form {
-                run_id: config::DEFAULT_RUN_ID.to_string(),
+                run_id: config::default_run_id(),
                 server_host: config::DEFAULT_SERVER_HOST.to_string(),
                 server_port: config::DEFAULT_SERVER_PORT.to_string(),
                 slot: config::DEFAULT_SLOT.to_string(),
