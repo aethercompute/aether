@@ -552,6 +552,8 @@ do_seed() {
   if [[ -z "${HF_TOKEN:-}" ]]; then
     die "HF_TOKEN is required for seed mode. Get one at https://huggingface.co/settings/tokens"
   fi
+  ensure_dirs
+  ensure_repo
   load_seed_checkpoint_config
   if [[ -z "${HUB_REPO:-}" && -z "${GCS_BUCKET:-}" ]]; then
     export HUB_REPO="aethercompute/llama3.2-1b-think"
