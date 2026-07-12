@@ -55,7 +55,7 @@ def test_dashboard_action_forms_include_csrf_token():
 
     actions = dashboard.render_actions(config)
 
-    assert actions.count('name="_csrf"') == 8
+    assert actions.count('name="_csrf"') == actions.count('<form method="post"')
     assert f'value="{dashboard.CSRF_TOKEN}"' in actions
 
 
