@@ -11,8 +11,10 @@ def main() -> None:
     parser.add_argument("--adapter", required=True, help="Adapter repo or checkpoint directory")
     parser.add_argument("--repo", required=True, help="Destination Hugging Face model repo")
     parser.add_argument(
-        "--base-model", default="meta-llama/Llama-3.2-3B-Instruct", help="Base model repo"
+        "--base-model",
+        help="Base model repo (defaults to the model recorded in the adapter config)",
     )
+    parser.add_argument("--base-revision", help="Immutable base model revision")
     parser.add_argument("--output", type=Path, required=True, help="Merged model directory")
     parser.add_argument("--device", default="cuda:0", help="Merge device")
     parser.add_argument("--private", action="store_true", help="Create a private destination repo")
@@ -23,16 +25,30 @@ def main() -> None:
         parser.error("set HF_TOKEN or HUGGING_FACE_HUB_TOKEN")
 
     from huggingface_hub import HfApi
-    from peft import PeftModel
+    from peft import PeftConfig, PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
+    adapter_config = PeftConfig.from_pretrained(args.adapter, token=token)
+    base_model = args.base_model or adapter_config.base_model_name_or_path
+    if not base_model:
+        parser.error("adapter config has no base model; pass --base-model")
+    base_revision = args.base_revision or adapter_config.revision
+
     model = AutoModelForCausalLM.from_pretrained(
-        args.base_model, dtype="auto", low_cpu_mem_usage=True, token=token
+        base_model,
+        revision=base_revision,
+        dtype="auto",
+        low_cpu_mem_usage=True,
+        token=token,
     ).to(args.device)
-    merged = PeftModel.from_pretrained(model, args.adapter).merge_and_unload(safe_merge=True)
+    merged = PeftModel.from_pretrained(
+        model, args.adapter, config=adapter_config, token=token
+    ).merge_and_unload(safe_merge=True)
     args.output.mkdir(parents=True, exist_ok=True)
     merged.save_pretrained(args.output, safe_serialization=True, max_shard_size="5GB")
-    AutoTokenizer.from_pretrained(args.base_model, token=token).save_pretrained(args.output)
+    AutoTokenizer.from_pretrained(
+        base_model, revision=base_revision, token=token
+    ).save_pretrained(args.output)
 
     api = HfApi(token=token)
     api.create_repo(args.repo, repo_type="model", private=args.private, exist_ok=True)
