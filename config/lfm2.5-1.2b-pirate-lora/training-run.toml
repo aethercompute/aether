@@ -1,6 +1,6 @@
 [server]
-state_path = "config/llama3.2-3b-pirate-lora/state_distro.toml"
-data_config = "config/llama3.2-3b-pirate-lora/data.toml"
+state_path = "config/lfm2.5-1.2b-pirate-lora/state_distro.toml"
+data_config = "config/lfm2.5-1.2b-pirate-lora/data.toml"
 experiment_path = "config/experiment-run.toml"
 experiment_enabled = false
 server_port = 39405
@@ -11,13 +11,13 @@ tui = false
 enabled = true
 objective = "sft"
 script = "scripts/prepare-sft-local.py"
-output_dir = "data/pirate-ultrachat-10k-llama3.2-3b-sft-2048"
+output_dir = "data/pirate-ultrachat-10k-lfm2.5-1.2b-sft-2048"
 sequence_length = 2048
 num_sequences = 9000
 shard_size = 2048
 dataset = "winglian/pirate-ultrachat-10k"
 split = "train"
-tokenizer = "meta-llama/Llama-3.2-3B-Instruct"
+tokenizer = "LiquidAI/LFM2.5-1.2B-Instruct"
 seed = 1337
 buffer_docs = 10000
 trust_remote_code = false
@@ -29,7 +29,7 @@ enabled = false
 
 [checkpoint]
 dir = "checkpoints/{run_id}"
-hub_repo = "aethercompute/llama32-3b-pirate-lora-adapter"
+hub_repo = "aethercompute/lfm25-1.2b-pirate-lora-adapter"
 gcs_bucket = ""
 gcs_prefix = ""
 delete_old_steps = true

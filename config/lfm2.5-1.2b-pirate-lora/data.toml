@@ -1,7 +1,7 @@
 # Data-server config for winglian/pirate-ultrachat-10k prepared by
 # scripts/prepare-sft-local.py in messages mode.
 kind = "preprocessed"
-dir = "../../data/pirate-ultrachat-10k-llama3.2-3b-sft-2048"
+dir = "../../data/pirate-ultrachat-10k-lfm2.5-1.2b-sft-2048"
 seq_len = 2048
 split = "train"
 shuffle_seed = [
