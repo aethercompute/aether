@@ -5,140 +5,88 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Aether Compute</title>
     <style>
-        html, body { height: 100%; margin: 0; }
+        * { box-sizing: border-box; }
+
         body {
-            font-family: 'Courier New', monospace;
-            background: #000;
-            color: #fff;
-            overflow-x: hidden;
+            margin: 0;
+            background: #fff;
+            color: #111;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 14px;
+            line-height: 1.6;
         }
 
-        a { color: inherit; text-decoration: none; }
-        a:hover, a:focus { color: #00e5ff; text-shadow: 0 0 10px #00e5ff; }
+        a {
+            color: inherit;
+            text-decoration: underline;
+            text-underline-offset: 0.15em;
+        }
 
         .page {
-            position: relative;
-            z-index: 2;
-            min-height: 100%;
-            padding: 24px;
-            box-sizing: border-box;
+            width: min(100% - 40px, 76ch);
+            margin: 0 auto;
+            padding: 64px 0 80px;
         }
 
-        .stage {
-            display: flex;
-            justify-content: center;
-            padding-top: 6vh;
+        .stage { margin-bottom: 48px; }
+
+        .ascii {
+            margin: 0;
             overflow: hidden;
+            font: inherit;
+            font-size: clamp(5px, 1.15vw, 11px);
+            font-variant-ligatures: none;
+            line-height: 0.7;
+            white-space: pre;
         }
 
-        .docs {
-            max-width: 760px;
-            margin: 34px auto 72px;
-            color: rgba(255, 255, 255, 0.86);
-            font-size: 14px;
-            line-height: 1.5;
+        .docs h1,
+        .docs h2,
+        .docs p,
+        .docs ul { margin: 0; }
+
+        .docs h1 { font-size: 1em; }
+        .docs h2 { margin-top: 32px; font-size: 1em; }
+        .docs h2::before { content: "## "; }
+        .docs p,
+        .docs ul { margin-top: 16px; }
+        .docs ul { padding-left: 2ch; }
+
+        .links {
+            padding: 0;
+            list-style: none;
         }
 
-        .docs h1, .docs h2, .docs p, .docs ul { margin: 0; }
-        .docs h1 { color: #fff; font-size: 18px; }
-        .docs h2 { margin-top: 24px; color: #00e5ff; font-size: 15px; }
-        .docs p, .docs ul { margin-top: 10px; }
-        .docs li { margin-top: 6px; }
+        .links li {
+            display: grid;
+            grid-template-columns: 11ch 1fr;
+            gap: 2ch;
+        }
+
+        .links li + li { margin-top: 4px; }
+
         .docs code {
             display: block;
-            margin-top: 8px;
+            margin-top: 12px;
             padding-left: 2ch;
-            color: #00ff88;
+            font: inherit;
             white-space: pre-wrap;
         }
 
-        .glitch {
-            position: relative;
-            z-index: 2;
-            display: inline-block;
-            margin: 0;
-            font-family: 'Courier New', Courier, monospace;
-            font-kerning: none;
-            font-variant-ligatures: none;
-            white-space: pre;
-            font-size: clamp(7px, 1.28vw, 14px);
-            letter-spacing: 0;
-            line-height: 0.7;
-            tab-size: 1;
-        }
-
-        .glitch .line { transition: transform 0.06s; }
-        .glitch span {
-            display: inline-block;
-            width: 1ch;
-            text-align: center;
-            white-space: pre;
-            transition: color 0.08s, text-shadow 0.08s;
-        }
-
-        #flicker {
-            position: fixed;
-            inset: 0;
-            background: #000;
-            pointer-events: none;
-            z-index: 10;
-            opacity: 0;
-        }
-
-        #noise {
-            position: fixed;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: 0;
-            opacity: 0.6;
-            image-rendering: pixelated;
-        }
-
-        .glitch::before, .glitch::after {
-            content: attr(data-text);
-            position: absolute;
-            top: 0;
-            left: 0;
-            white-space: pre;
-            line-height: 0.7;
-            pointer-events: none;
-        }
-
-        .glitch::before {
-            color: #00e5ff;
-            mix-blend-mode: screen;
-            opacity: var(--c-op, 0);
-            transform: translate(var(--c-x, 0px), var(--c-y, 0px));
-            clip-path: var(--c-clip, none);
-            will-change: transform, opacity, clip-path;
-        }
-
-        .glitch::after {
-            color: #ff2d95;
-            mix-blend-mode: screen;
-            opacity: var(--m-op, 0);
-            transform: translate(var(--m-x, 0px), var(--m-y, 0px));
-            clip-path: var(--m-clip, none);
-            will-change: transform, opacity, clip-path;
-        }
-
-        @media (max-width: 720px) {
-            .page { padding: 12px; }
-            .stage { padding-top: 4vh; }
-            .docs {
-                margin-top: 28px;
-                font-size: 12px;
+        @media (max-width: 600px) {
+            body { font-size: 13px; }
+            .page {
+                width: min(100% - 28px, 76ch);
+                padding: 32px 0 48px;
             }
-            .docs h1 { font-size: 16px; }
+            .stage { margin-bottom: 32px; }
         }
     </style>
 </head>
 <body>
 <main class="page">
 <div class="stage" id="home" aria-hidden="true">
-<pre class="glitch" id="eye">AETHERCOMPUTEAETHERCOMPUTEAETHERCOMPUTEAETHERCOMPUTEAETHERCOMPUTEAETHERC
+<pre class="ascii">AETHERCOMPUTEAETHERCOMPUTEAETHERCOMPUTEAETHERCOMPUTEAETHERCOMPUTEAETHERC
 E:cccclllllllloooooooooodddddddddddodddddddddddddddddddddddddddddddooooO
 TcclllllllllllloooooooooddddddoooooooodddddddddddddddddddddddddddddooooM
 HllllllllllllllloooooolclllllllcllccllllllllllooooddddooddddddddddoooooP
@@ -168,272 +116,29 @@ TEAETHERCOMPUTEAETHERCOMPUTEAETHERCOMPUTEAETHERCOMPUTEAETHERCOMPUTEAETHE</pre>
     <section class="docs" id="docs" aria-label="Aether Compute documentation">
         <h1>Aether Compute</h1>
         <p>Aether is a place to train language models together.</p>
-        <p>The future of intelligence does not belong to a few companies. Not OpenAI. Not Anthropic. Not Google. Not any monopoly.</p>
-        <p>The future is built in the open. The models are free. The code is free. The work is shared by people who care.</p>
-        <p>Open source will win because it can be trusted. FOSS models will win because anyone can study them, run them, improve them, and pass them on. Doing good will win because people want tools that serve them, not tools that control them.</p>
-        <p>Aether is for that future. Many small machines can become one large effort. Many people can help train something useful. No gatekeepers. No closed weights. No permission needed.</p>
-        <p>This is not only about compute. It is about who gets to shape the next layer of human tools.</p>
+        <p>A handful of companies think they get to own this. OpenAI, Anthropic, Google, whoever's got the biggest cluster this quarter. They don't. Intelligence isn't something you fence off just because you raised a lot of money.</p>
+        <p>So build it in the open instead. Free models, free code, work anyone can pick up and keep going.</p>
+        <p>Open source wins because you can check it. Read the code, read the weights, don't take anyone's word for it.</p>
+        <p>Aether is a bunch of small machines doing together what none of them could do alone. No gatekeeper, no closed weights, no form to fill out to get in.</p>
+        <p>This isn't really about compute. It's about who decides what the next layer of tools looks like, and I'd rather that not get decided in a boardroom.</p>
 
         <h2>Vision</h2>
-        <p>Train strong language models in public.</p>
+        <p>Train real models in public, not behind an API you have to beg access to.</p>
         <p>Keep the code open.</p>
-        <p>Keep the models open.</p>
-        <p>Let anyone help.</p>
-        <p>Let anyone learn from the result.</p>
+        <p>Keep the weights open.</p>
+        <p>Let anyone help train.</p>
+        <p>Let anyone learn from what comes out of it.</p>
 
         <h2>Links</h2>
-        <ul>
-            <li>Training monitor: <a href="https://dashboard.aethercompute.org">dashboard.aethercompute.org</a></li>
-            <li>Repo: <a href="https://github.com/aethercompute/aether">source</a></li>
+        <ul class="links">
+            <li><a href="https://dashboard.aethercompute.org">dashboard</a><span>live training monitor</span></li>
+            <li><a href="https://github.com/aethercompute/aether">github</a><span>source code</span></li>
         </ul>
 
         <h2>Join</h2>
-        <p>If you have a machine to share, run the client.</p>
+        <p>Got a machine sitting idle? Run the client.</p>
         <code>curl -fsSL https://aethercompute.org/client.sh | bash</code>
     </section>
 </main>
-
-<script>
-    var eye = document.getElementById('eye');
-    eye.setAttribute('data-text', eye.textContent);
-
-    var rand = function (a, b) { return Math.random() * (b - a) + a; };
-    var pick = function (a) { return a[(Math.random() * a.length) | 0]; };
-
-    var CLIPS = [
-        'inset(10% 0 65% 0)', 'inset(45% 0 30% 0)', 'inset(70% 0 8% 0)',
-        'inset(25% 0 50% 0)', 'inset(55% 0 20% 0)', 'inset(5% 0 80% 0)',
-        'inset(35% 0 40% 0)', 'inset(60% 0 15% 0)', 'inset(15% 0 60% 0)',
-        'inset(80% 0 5% 0)',  'inset(40% 0 35% 0)', 'none'
-    ];
-
-    function setCh(prefix, op, x, y, clip) {
-        eye.style.setProperty('--' + prefix + '-op', op);
-        eye.style.setProperty('--' + prefix + '-x', x + 'px');
-        eye.style.setProperty('--' + prefix + '-y', y + 'px');
-        eye.style.setProperty('--' + prefix + '-clip', clip);
-    }
-
-    function jitterChannel(prefix, maxShift) {
-        setCh(prefix,
-              rand(0.5, 1).toFixed(2),
-              Math.round(rand(-maxShift, maxShift)),
-              Math.round(rand(-maxShift, maxShift)),
-              pick(CLIPS));
-    }
-
-    function calm() { setCh('c', 0, 0, 0, 'none'); setCh('m', 0, 0, 0, 'none'); }
-
-    function burst() {
-        var intensity = rand(0.5, 1);
-        var maxShift  = Math.round(rand(1, 10) * intensity);
-        var steps     = (rand(1, 14) * intensity) | 0;
-        var i = 0;
-
-        (function tick() {
-            jitterChannel('c', maxShift);
-            jitterChannel('m', maxShift);
-            if (++i < steps) { setTimeout(tick, rand(20, 130)); }
-            else { calm(); schedule(); }
-        })();
-    }
-
-    function schedule() { setTimeout(burst, rand(150, 1000)); }
-
-    calm();
-    schedule();
-
-    (function() {
-        var el = document.getElementById('eye');
-        var text = el.textContent;
-        var lines = text.split('\n');
-        var html = '';
-        for (var l = 0; l < lines.length; l++) {
-            html += '<div class="line">';
-            for (var i = 0; i < lines[l].length; i++)
-                html += '<span>' + lines[l][i] + '</span>';
-            html += '</div>';
-        }
-        el.innerHTML = html;
-
-        var spans = el.querySelectorAll('span');
-        var colors = ['#00e5ff', '#ff2d95', '#00ff88', '#0066ff', '#ffcc00', '#ff6600', '#ffffff'];
-
-        function glow() {
-            var count = (Math.random() * 20 + 5) | 0;
-            for (var i = 0; i < count; i++) {
-                var s = spans[(Math.random() * spans.length) | 0];
-                var c = colors[(Math.random() * colors.length) | 0];
-                s.style.color = c;
-                s.style.textShadow = '0 0 6px ' + c + ', 0 0 20px ' + c;
-            }
-            setTimeout(function () {
-                for (var i = 0; i < spans.length; i++) {
-                    spans[i].style.color = '';
-                    spans[i].style.textShadow = '';
-                }
-            }, 80);
-            setTimeout(glow, Math.random() * 1200 + 400);
-        }
-        glow();
-    })();
-
-    (function() {
-        var spans = document.querySelectorAll('#eye span');
-        var orig = '';
-        for (var i = 0; i < spans.length; i++) orig += spans[i].textContent;
-        var junk = '@#$%&?!<>{}[]';
-
-        function corrupt() {
-            var n = (Math.random() * 8 + 2) | 0;
-            var idx = [];
-            for (var i = 0; i < n; i++) idx.push((Math.random() * spans.length) | 0);
-            for (var i = 0; i < idx.length; i++)
-                spans[idx[i]].textContent = junk[(Math.random() * junk.length) | 0];
-            setTimeout(function () {
-                for (var i = 0; i < idx.length; i++)
-                    spans[idx[i]].textContent = orig[idx[i]];
-            }, Math.random() * 120 + 60);
-            setTimeout(corrupt, Math.random() * 400 + 150);
-        }
-        setTimeout(corrupt, Math.random() * 400 + 150);
-    })();
-
-    (function() {
-        var el = document.getElementById('eye');
-        var t = 0;
-        function breathe() {
-            t += 0.015;
-            el.style.filter = 'brightness(' + (0.75 + Math.sin(t) * 0.15).toFixed(2) + ')';
-            requestAnimationFrame(breathe);
-        }
-        breathe();
-    })();
-
-    (function() {
-        var el = document.getElementById('eye');
-        var t = 0;
-        function drift() {
-            t += 0.005;
-            el.style.marginLeft = (Math.sin(t) * 2).toFixed(1) + 'px';
-            requestAnimationFrame(drift);
-        }
-        drift();
-    })();
-
-    (function() {
-        var lines = document.querySelectorAll('#eye .line');
-
-        function jolt() {
-            for (var i = 0; i < lines.length; i++) {
-                if (Math.random() < 0.35) {
-                    var x = (Math.random() * 12 + 2) | 0;
-                    if (Math.random() < 0.5) x = -x;
-                    lines[i].style.transform = 'translateX(' + x + 'px)';
-                }
-            }
-            setTimeout(function () {
-                for (var i = 0; i < lines.length; i++)
-                    lines[i].style.transform = '';
-            }, Math.random() * 25 + 12);
-            setTimeout(jolt, Math.random() * 2500 + 800);
-        }
-        setTimeout(jolt, Math.random() * 2000 + 500);
-    })();
-
-    (function() {
-        var lines = document.querySelectorAll('#eye .line');
-
-        function tear() {
-            var split = (Math.random() * lines.length) | 0;
-            var offset = (Math.random() * 60 + 20) | 0;
-            if (Math.random() < 0.5) offset = -offset;
-            for (var i = split; i < lines.length; i++) {
-                lines[i].style.position = 'relative';
-                lines[i].style.left = offset + 'px';
-            }
-            setTimeout(function () {
-                for (var i = split; i < lines.length; i++) {
-                    lines[i].style.position = '';
-                    lines[i].style.left = '';
-                }
-            }, Math.random() * 60 + 30);
-            setTimeout(tear, Math.random() * 5000 + 2000);
-        }
-        setTimeout(tear, Math.random() * 3000 + 1000);
-    })();
-
-    (function() {
-        var lines = document.querySelectorAll('#eye .line');
-
-        function interlace() {
-            var odd = Math.random() < 0.5;
-            for (var i = odd ? 1 : 0; i < lines.length; i += 2)
-                lines[i].style.opacity = '0';
-            setTimeout(function () {
-                for (var i = odd ? 1 : 0; i < lines.length; i += 2)
-                    lines[i].style.opacity = '';
-            }, Math.random() * 80 + 30);
-            setTimeout(interlace, Math.random() * 8000 + 3000);
-        }
-        setTimeout(interlace, Math.random() * 4000 + 2000);
-    })();
-
-    (function() {
-        var el = document.createElement('div');
-        el.id = 'flicker';
-        document.body.appendChild(el);
-
-        function flick() {
-            if (Math.random() < 0.5) {
-                el.style.transition = 'none';
-                el.style.opacity = '1';
-                setTimeout(function () {
-                    el.style.transition = 'opacity 0.08s';
-                    el.style.opacity = '0';
-                }, Math.random() * 60 + 20);
-                setTimeout(flick, Math.random() * 100 + 50);
-            } else {
-                el.style.transition = 'none';
-                el.style.opacity = '1';
-                setTimeout(function () {
-                    el.style.transition = 'opacity 0.1s';
-                    el.style.opacity = '0';
-                }, Math.random() * 100 + 40);
-                setTimeout(flick, Math.random() * 8000 + 2000);
-            }
-        }
-        setTimeout(flick, Math.random() * 5000 + 2000);
-    })();
-
-    (function() {
-        var canvas = document.createElement('canvas');
-        canvas.id = 'noise';
-        document.body.appendChild(canvas);
-
-        var ctx = canvas.getContext('2d');
-        var chars = 'AETHER';
-        var w, h;
-
-        function resize() {
-            w = canvas.width = window.innerWidth;
-            h = canvas.height = window.innerHeight;
-        }
-        resize();
-        window.addEventListener('resize', resize);
-
-        function update() {
-            ctx.clearRect(0, 0, w, h);
-            ctx.font = '12px "Courier New"';
-            ctx.textBaseline = 'top';
-            for (var i = 0; i < 400; i++) {
-                ctx.fillStyle = 'rgba(255, 255, 255, ' + (Math.random() * 0.18 + 0.05).toFixed(3) + ')';
-                ctx.fillText(chars[(Math.random() * chars.length) | 0], Math.random() * w, Math.random() * h);
-            }
-            requestAnimationFrame(update);
-        }
-        update();
-    })();
-</script>
 </body>
 </html>
