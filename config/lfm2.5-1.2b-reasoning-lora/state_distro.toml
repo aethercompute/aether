@@ -1,0 +1,56 @@
+run_id = "lfm25-1.2b-reasoning-lora-r16"
+run_state = "WaitingForMembers"
+
+[config]
+warmup_time = 120
+cooldown_time = 10
+epoch_time = 900
+max_round_train_time = 300
+round_witness_time = 20
+min_clients = 1
+init_min_clients = 1
+
+# One SFT epoch over 6k examples: 6000 / 16 = 375 steps.
+global_batch_size_start = 16
+global_batch_size_end = 16
+global_batch_size_warmup_tokens = 0
+
+verification_percent = 0
+witness_nodes = 1
+total_steps = 375
+waiting_for_members_extra_time = 120
+
+[model.LLM]
+architecture = "HfAuto"
+data_type = "Finetuning"
+max_seq_len = 16384
+cold_start_warmup_steps = 0
+
+[model.LLM.data_location]
+Server = "train.aethercompute.org:39406"
+
+[model.LLM.checkpoint.Hub]
+repo_id = "LiquidAI/LFM2.5-1.2B-Instruct"
+revision = "868df74dd56ff8a0c2ac5dbf281690c2dbebe4c9"
+
+[model.LLM.lr_schedule.Cosine]
+base_lr = 2.0e-4
+warmup_steps = 33
+warmup_init_lr = 0.0
+total_steps = 375
+final_lr = 2.0e-5
+
+[model.LLM.optimizer.Distro]
+clip_grad_norm = 1.0
+compression_decay = 0.999
+compression_chunk = 64
+compression_topk = 8
+quantize_1bit = true
+weight_decay = 0.0
+
+[model.LLM.training_method.Lora]
+rank = 16
+alpha = 32.0
+dropout = 0.05
+init_seed = 1337
+adapter_checkpoint = "Fresh"

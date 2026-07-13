@@ -1,0 +1,12 @@
+# Data-server config for the first 6,000 glaiveai/reasoning-v1-20m rows,
+# prepared by scripts/prepare-sft-local.py without streaming shuffle.
+kind = "preprocessed"
+dir = "../../data/reasoning-v1-20m-first-6k-lfm2.5-1.2b-sft-16384"
+seq_len = 16384
+split = "train"
+shuffle_seed = [
+  42, 17, 93, 11, 5, 201, 77, 18,
+  144, 2, 66, 90, 31, 7, 222, 13,
+  8, 55, 34, 21, 1, 159, 6, 88,
+  123, 4, 15, 99, 10, 3, 71, 29,
+]
