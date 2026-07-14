@@ -256,7 +256,7 @@ async fn clients_partial(State(state): State<SharedState>) -> Html<String> {
                 })
                 .chain(s.ready_clients.iter().map(|c| {
                     format!(
-                        r#"<tr><td>{}</td><td style="color:#e2ccb8"><b>Ready (waiting for next epoch)</b></td></tr>"#,
+                        r#"<tr><td>{}</td><td style="color:#dddad6"><b>Ready (waiting for next epoch)</b></td></tr>"#,
                         escape_html(c)
                     )
                 }))
@@ -712,7 +712,7 @@ fn render_loss_svg(losses: &[LossPoint]) -> String {
         let val = min_loss as f64 + (max_loss - min_loss) as f64 * (i as f64 / y_ticks as f64);
         let y = plot_y1 - (i as f64 / y_ticks as f64) * plot_h;
         y_labels.push_str(&format!(
-            r##"<text x="{}" y="{}" text-anchor="end" fill="#e2ccb8">{:.4}</text>"##,
+            r##"<text x="{}" y="{}" text-anchor="end" fill="#dddad6">{:.4}</text>"##,
             pad_left - 5.0,
             y + 4.0,
             val,
@@ -725,7 +725,7 @@ fn render_loss_svg(losses: &[LossPoint]) -> String {
         let val = min_tokens + (max_tokens - min_tokens) * (i as f64 / x_ticks as f64);
         let x = plot_x0 + (i as f64 / x_ticks as f64) * plot_w;
         x_labels.push_str(&format!(
-            r##"<text x="{x}" y="{}" text-anchor="middle" fill="#e2ccb8">{}</text>"##,
+            r##"<text x="{x}" y="{}" text-anchor="middle" fill="#dddad6">{}</text>"##,
             height - 8.0,
             format_tokens(val),
         ));
@@ -742,7 +742,7 @@ fn render_loss_svg(losses: &[LossPoint]) -> String {
 <rect x="{plot_x0}" y="{plot_y0}" width="{plot_w}" height="{plot_h}" fill="none" stroke="#463840"/>
 {y_labels}
 {x_labels}
-<polyline points="{points_str}" fill="none" stroke="#e2ccb8"/>
+<polyline points="{points_str}" fill="none" stroke="#dddad6"/>
 </svg>
 </div>"##,
         last_loss = last_loss,
@@ -815,7 +815,7 @@ fn render_throughput_svg(losses: &[LossPoint]) -> String {
         let val = min_tps as f64 + (max_tps - min_tps) as f64 * (i as f64 / y_ticks as f64);
         let y = plot_y1 - (i as f64 / y_ticks as f64) * plot_h;
         y_labels.push_str(&format!(
-            r##"<text x="{}" y="{}" text-anchor="end" fill="#e2ccb8">{:.0}</text>"##,
+            r##"<text x="{}" y="{}" text-anchor="end" fill="#dddad6">{:.0}</text>"##,
             pad_left - 5.0,
             y + 4.0,
             val,
@@ -828,7 +828,7 @@ fn render_throughput_svg(losses: &[LossPoint]) -> String {
         let val = min_tokens + (max_tokens - min_tokens) * (i as f64 / x_ticks as f64);
         let x = plot_x0 + (i as f64 / x_ticks as f64) * plot_w;
         x_labels.push_str(&format!(
-            r##"<text x="{x}" y="{}" text-anchor="middle" fill="#e2ccb8">{}</text>"##,
+            r##"<text x="{x}" y="{}" text-anchor="middle" fill="#dddad6">{}</text>"##,
             height - 8.0,
             format_tokens(val),
         ));
@@ -974,21 +974,21 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
 <title>Aether Training Monitor</title>
 <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 <style>
-body { font-family: monospace; margin: 0; background: #141216; color: #e2ccb8; font-size: 13px; }
+body { font-family: monospace; margin: 0; background: #181a1b; color: #dddad6; font-size: 13px; }
 .wrap { max-width: 1200px; margin: 0 auto; padding: 0 1rem 1.5rem; }
-.topbar { position: sticky; top: 0; z-index: 10; background: #141216; border-bottom: 1px solid #463840; padding: .55rem 0; }
+.topbar { position: sticky; top: 0; z-index: 10; background: #181a1b; border-bottom: 1px solid #463840; padding: .55rem 0; }
 .topbar .wrap { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 .topbar h1 { font-size: 15px; margin: 0; }
 .hint { color: #746268; font-size: 12px; }
 h1 { color: #f5ead9; }
-h2 { color: #e2ccb8; border-bottom: 1px solid #463840; padding-bottom: 4px; font-size: 14px; margin: 0 0 .5rem; }
+h2 { color: #dddad6; border-bottom: 1px solid #463840; padding-bottom: 4px; font-size: 14px; margin: 0 0 .5rem; }
 table { border-collapse: collapse; }
 td, th { padding: 3px 8px; text-align: left; border: 1px solid #463840; font-size: 12px; }
 b { color: #f5ead9; }
 a { color: #52b8cd; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem 1.25rem; margin-top: 1rem; align-items: start; }
 svg { display: block; width: 100%; height: auto; }
-.chart-svg text { fill: #e2ccb8; font-size: 11px; }
+.chart-svg text { fill: #dddad6; font-size: 11px; }
 .panel { overflow-x: auto; }
 </style>
 </head>

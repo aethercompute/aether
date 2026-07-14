@@ -1236,9 +1236,9 @@ def html_page(message: str | None = None) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Aether Training Control</title>
   <style>
-    body {{ font-family: system-ui, sans-serif; margin: 0; background: #0d1117; color: #c9d1d9; font-size: 13px; line-height: 1.45; }}
+    body {{ font-family: system-ui, sans-serif; margin: 0; background: #181a1b; color: #dddad6; font-size: 13px; line-height: 1.45; }}
     .wrap {{ max-width: 1100px; margin: 0 auto; padding: 0 1rem 2rem; }}
-    .topbar {{ position: sticky; top: 0; z-index: 10; background: #0d1117; border-bottom: 1px solid #30363d; }}
+    .topbar {{ position: sticky; top: 0; z-index: 10; background: #181a1b; border-bottom: 1px solid #30363d; }}
     .topbar .wrap {{ display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding-top: .6rem; padding-bottom: .6rem; }}
     .brand {{ font-size: 15px; font-weight: 700; color: #f0f6fc; }}
     .statusline {{ font-size: 12px; color: #8b949e; }}
@@ -1263,7 +1263,7 @@ def html_page(message: str | None = None) -> str:
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: .5rem .75rem; }}
     .actions {{ display: flex; flex-wrap: wrap; gap: .5rem; }}
     .actions form {{ margin: 0; }}
-    h3 {{ margin: 1rem 0 .4rem; font-size: 13px; color: #c9d1d9; }}
+    h3 {{ margin: 1rem 0 .4rem; font-size: 13px; color: #dddad6; }}
     code {{ color: #f0f6fc; font-size: 12px; }}
     a {{ color: #58a6ff; }}
     p {{ margin: .3rem 0; }}
