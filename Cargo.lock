@@ -236,6 +236,8 @@ dependencies = [
  "aether-tui",
  "aether-watcher",
  "anyhow",
+ "arrow-array",
+ "arrow-schema",
  "async-trait",
  "bytemuck",
  "chrono",

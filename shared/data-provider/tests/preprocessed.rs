@@ -1,7 +1,12 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use aether_core::{BatchId, Shuffle};
 use aether_data_provider::{PreprocessedDataProvider, Split, TokenizedDataProvider};
+use arrow_array::types::Int32Type;
+use arrow_array::{ArrayRef, ListArray, RecordBatch};
+use arrow_schema::{Field, Schema};
+use parquet::arrow::ArrowWriter;
 use pretty_assertions::assert_eq;
 use serde::Deserialize;
 use tokio::fs::read_to_string;
@@ -37,11 +42,34 @@ fn provider_error_for_manifest(manifest: serde_json::Value) -> anyhow::Error {
         directory.path(),
         4,
         Shuffle::DontShuffle,
-        None,
+        Some(Split::Train),
         None,
     )
     .err()
     .expect("invalid manifest should be rejected")
+}
+
+fn write_parquet_lists(path: &std::path::Path, columns: &[(&str, &[i32])]) {
+    let arrays = columns
+        .iter()
+        .map(|(_, values)| {
+            Arc::new(ListArray::from_iter_primitive::<Int32Type, _, _>([Some(
+                values.iter().copied().map(Some).collect::<Vec<_>>(),
+            )])) as ArrayRef
+        })
+        .collect::<Vec<_>>();
+    let schema = Arc::new(Schema::new(
+        columns
+            .iter()
+            .zip(&arrays)
+            .map(|((name, _), array)| Field::new(*name, array.data_type().clone(), false))
+            .collect::<Vec<_>>(),
+    ));
+    let batch = RecordBatch::try_new(schema.clone(), arrays).unwrap();
+    let mut writer =
+        ArrowWriter::try_new(std::fs::File::create(path).unwrap(), schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
 }
 
 #[test]
@@ -119,6 +147,57 @@ async fn rejects_input_row_length_mismatch() {
         error
             .to_string()
             .contains("`inputs` has length 4096 instead of 4095"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[test]
+fn rejects_preprocessed_schema_without_inputs() {
+    let directory = tempfile::tempdir().unwrap();
+    write_parquet_lists(
+        &directory.path().join("train-000.parquet"),
+        &[("labels", &[1, 2, 3, 4])],
+    );
+
+    let error = PreprocessedDataProvider::new_from_directory(
+        directory.path(),
+        4,
+        Shuffle::DontShuffle,
+        Some(Split::Train),
+        None,
+    )
+    .err()
+    .expect("missing inputs column should be rejected");
+    assert!(
+        error.to_string().contains("does not have `inputs` column"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[tokio::test]
+async fn rejects_label_length_mismatch() {
+    let directory = tempfile::tempdir().unwrap();
+    write_parquet_lists(
+        &directory.path().join("train-000.parquet"),
+        &[("inputs", &[1, 2, 3, 4]), ("labels", &[1, 2, 3])],
+    );
+    let mut provider = PreprocessedDataProvider::new_from_directory(
+        directory.path(),
+        4,
+        Shuffle::DontShuffle,
+        Some(Split::Train),
+        None,
+    )
+    .unwrap();
+
+    let error = provider
+        .get_samples(BatchId((0, 0).into()))
+        .await
+        .expect_err("mismatched labels should be rejected");
+    assert!(
+        error
+            .to_string()
+            .contains("`labels` has length 3 instead of 4"),
         "unexpected error: {error:#}"
     );
 }

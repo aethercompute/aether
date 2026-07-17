@@ -396,9 +396,9 @@ Target: `shared/data-provider/`.
 - [ ] Test tokenizer and token-size mismatch.
 - [x] Test preprocessed manifest missing required fields.
 - [x] Test preprocessed manifest unknown versions.
-- [ ] Test preprocessed schema mismatch.
+- [x] Test preprocessed schema mismatch.
 - [x] Test preprocessed row-length mismatch.
-- [ ] Test preprocessed label-length mismatch.
+- [x] Test preprocessed label-length mismatch.
 - [ ] Test preprocessed file-list mismatch.
 - [x] Test preprocessed duplicate shard names.
 - [x] Test preprocessed missing shard files.

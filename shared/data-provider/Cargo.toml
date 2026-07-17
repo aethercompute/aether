@@ -35,6 +35,8 @@ remote = ["dep:aether-network", "dep:aether-tui", "dep:aether-watcher"]
 [dev-dependencies]
 aether-test-support.workspace = true
 aether-tui.workspace = true
+arrow-array = "51.0.0"
+arrow-schema = "51.0.0"
 tokenizers.workspace = true
 pretty_assertions.workspace = true
 test-log.workspace = true
