@@ -16,8 +16,16 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs::File;
 
+const SFT_MANIFEST_VERSION: u32 = 1;
+
+fn default_manifest_version() -> u32 {
+    SFT_MANIFEST_VERSION
+}
+
 #[derive(Deserialize)]
 struct DatasetMetadata {
+    #[serde(default = "default_manifest_version")]
+    version: u32,
     files: Vec<String>,
     num_sequences: usize,
     file_rows: HashMap<String, usize>,
@@ -106,6 +114,14 @@ fn metadata_files(
     }
     let metadata: DatasetMetadata = serde_json::from_value(value)
         .map_err(|e| anyhow!("invalid SFT manifest {}: {e}", path.display()))?;
+    if metadata.version != SFT_MANIFEST_VERSION {
+        bail!(
+            "unsupported SFT manifest version {} in {}; expected {}",
+            metadata.version,
+            path.display(),
+            SFT_MANIFEST_VERSION
+        );
+    }
     if metadata.files.is_empty()
         || metadata.file_rows.len() != metadata.files.len()
         || metadata

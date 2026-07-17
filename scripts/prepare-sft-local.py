@@ -390,6 +390,7 @@ def main() -> None:
 
     metadata = {
         "format": "aether-preprocessed-sft-parquet",
+        "version": 1,
         "dataset": args.dataset,
         "subset": args.subset,
         "split": args.split,

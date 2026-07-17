@@ -395,9 +395,9 @@ Target: `shared/data-provider/`.
 - [x] Test numbered URL overflow and missing files.
 - [ ] Test tokenizer and token-size mismatch.
 - [x] Test preprocessed manifest missing required fields.
-- [ ] Test preprocessed manifest unknown versions.
+- [x] Test preprocessed manifest unknown versions.
 - [ ] Test preprocessed schema mismatch.
-- [ ] Test preprocessed row-length mismatch.
+- [x] Test preprocessed row-length mismatch.
 - [ ] Test preprocessed label-length mismatch.
 - [ ] Test preprocessed file-list mismatch.
 - [x] Test preprocessed duplicate shard names.

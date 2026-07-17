@@ -69,6 +69,22 @@ fn manifest_rejects_duplicate_shard_names() {
 }
 
 #[test]
+fn manifest_rejects_unsupported_version() {
+    let error = provider_error_for_manifest(serde_json::json!({
+        "version": 2,
+        "files": ["train-000.parquet"],
+        "num_sequences": 1,
+        "file_rows": {"train-000.parquet": 1}
+    }));
+    assert!(
+        error
+            .to_string()
+            .contains("unsupported SFT manifest version 2"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[test]
 fn manifest_rejects_missing_shard_file() {
     let error = provider_error_for_manifest(serde_json::json!({
         "files": ["train-000.parquet"],
@@ -79,6 +95,30 @@ fn manifest_rejects_missing_shard_file() {
         error
             .to_string()
             .contains("metadata-listed shard \"train-000.parquet\" is unavailable"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[tokio::test]
+async fn rejects_input_row_length_mismatch() {
+    let data_dir = test_path(&["resources", "hermes3", "data"]);
+    let mut provider = PreprocessedDataProvider::new_from_directory(
+        data_dir,
+        4095,
+        Shuffle::DontShuffle,
+        Some(Split::Train),
+        None,
+    )
+    .unwrap();
+
+    let error = provider
+        .get_samples(BatchId((0, 0).into()))
+        .await
+        .expect_err("mismatched input row should be rejected");
+    assert!(
+        error
+            .to_string()
+            .contains("`inputs` has length 4096 instead of 4095"),
         "unexpected error: {error:#}"
     );
 }
