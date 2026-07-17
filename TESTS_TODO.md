@@ -385,7 +385,7 @@ Target: `shared/data-provider/`.
 
 - [x] Test HTTP 200 responses with missing length headers.
 - [x] Test HTTP non-success status codes.
-- [ ] Test HTTP timeout and connection reset.
+- [x] Test HTTP timeout and connection reset.
 - [x] Test HTTP range responses with incorrect offsets.
 - [x] Test HTTP short reads.
 - [x] Test HTTP responses larger than declared.

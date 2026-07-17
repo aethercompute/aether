@@ -405,6 +405,31 @@ impl TokenizedDataProvider for HttpDataProvider {
 // i tried this nicely with streams and generators.
 // there's some weird rust impl is not general enough for Send bug i hit
 // so i just manually chunk instead of doing it fancy with a limited concurrency stream
+async fn file_size(
+    client: &reqwest::Client,
+    url: reqwest::Url,
+    request_timeout: Duration,
+) -> Result<(reqwest::Url, u64)> {
+    let response = client
+        .head(url.clone())
+        .timeout(request_timeout)
+        .send()
+        .await
+        .with_context(|| format!("HEAD request for {url}"))?;
+
+    if !response.status().is_success() {
+        bail!("URL validation failed for {}: {}", url, response.status());
+    }
+
+    let size = response
+        .headers()
+        .get(reqwest::header::CONTENT_LENGTH)
+        .and_then(|header| header.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or_else(|| anyhow!("Missing or invalid Content-Length header for {url}"))?;
+    Ok((url, size))
+}
+
 async fn with_file_sizes(
     client: &reqwest::Client,
     urls: &[reqwest::Url],
@@ -413,24 +438,7 @@ async fn with_file_sizes(
         .iter()
         .map(|url| {
             let url = url.clone();
-            async move {
-                let response = client.head(url.clone()).send().await?;
-
-                if !response.status().is_success() {
-                    bail!("URL validation failed for {}: {}", url, response.status());
-                }
-
-                // grab the Content-Length header
-                let size = response
-                    .headers()
-                    .get(reqwest::header::CONTENT_LENGTH)
-                    .and_then(|h| h.to_str().ok())
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("Missing or invalid Content-Length header for {}", url)
-                    })?;
-                Ok::<(reqwest::Url, u64), anyhow::Error>((url, size))
-            }
+            async move { file_size(client, url, HTTP_REQUEST_TIMEOUT).await }
         })
         .collect();
 
@@ -455,4 +463,59 @@ async fn with_file_sizes(
     }
 
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::file_size;
+    use std::time::Duration;
+    use tokio::io::AsyncReadExt;
+
+    async fn unresponsive_server(stall: bool) -> (reqwest::Url, tokio::task::JoinHandle<()>) {
+        let (listener, address) = aether_test_support::bind_unused_loopback().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 1024];
+            let bytes_read = stream.read(&mut request).await.unwrap();
+            assert!(bytes_read > 0);
+            if stall {
+                std::future::pending::<()>().await;
+            }
+        });
+        (format!("http://{address}/data.ds").parse().unwrap(), server)
+    }
+
+    #[tokio::test]
+    async fn file_size_times_out_unresponsive_server() {
+        let (url, server) = unresponsive_server(true).await;
+        let error = file_size(&reqwest::Client::new(), url, Duration::from_millis(20))
+            .await
+            .expect_err("unresponsive HEAD request should time out");
+        assert!(
+            error
+                .downcast_ref::<reqwest::Error>()
+                .is_some_and(reqwest::Error::is_timeout),
+            "unexpected error: {error:#}"
+        );
+        server.abort();
+        assert!(server.await.unwrap_err().is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn file_size_reports_connection_reset() {
+        let (url, server) = unresponsive_server(false).await;
+        let error = file_size(&reqwest::Client::new(), url, Duration::from_secs(1))
+            .await
+            .expect_err("disconnected HEAD request should fail");
+        assert!(
+            error.to_string().contains("HEAD request"),
+            "unexpected error: {error:#}"
+        );
+        tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .expect("reset server did not shut down")
+            .expect("reset server task failed");
+    }
 }
