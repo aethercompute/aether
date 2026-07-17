@@ -59,9 +59,26 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Rust workspace tests
         run: cargo test --workspace
-      - name: Python tests
+
+  python-cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-libtorch
+        with:
+          torch-version: ${{ env.TORCH_VERSION }}
+          torch-index-url: ${{ env.TORCH_INDEX_URL }}
+      - name: Create Python test environment
         working-directory: python
-        run: uv run --frozen --extra tests pytest
+        run: |
+          uv venv --system-site-packages
+          uv sync --frozen --extra tests
+      - name: Verify required CPU dependencies
+        working-directory: python
+        run: uv run --frozen python -c "import torch, transformers, peft"
+      - name: Python CPU tests
+        working-directory: python
+        run: uv run --frozen pytest
 
   coverage:
     runs-on: ubuntu-latest

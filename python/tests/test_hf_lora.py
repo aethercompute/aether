@@ -1,12 +1,10 @@
 import sys
 import types
 
+import peft
 import pytest
-
-
-torch = pytest.importorskip("torch")
-peft = pytest.importorskip("peft")
-transformers = pytest.importorskip("transformers")
+import torch
+import transformers
 
 
 @pytest.fixture
