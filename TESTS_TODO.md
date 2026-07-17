@@ -394,14 +394,14 @@ Target: `shared/data-provider/`.
 - [x] Test malformed URL templates.
 - [x] Test numbered URL overflow and missing files.
 - [ ] Test tokenizer and token-size mismatch.
-- [ ] Test preprocessed manifest missing required fields.
+- [x] Test preprocessed manifest missing required fields.
 - [ ] Test preprocessed manifest unknown versions.
 - [ ] Test preprocessed schema mismatch.
 - [ ] Test preprocessed row-length mismatch.
 - [ ] Test preprocessed label-length mismatch.
 - [ ] Test preprocessed file-list mismatch.
-- [ ] Test preprocessed duplicate shard names.
-- [ ] Test preprocessed missing shard files.
+- [x] Test preprocessed duplicate shard names.
+- [x] Test preprocessed missing shard files.
 - [ ] Test local provider path traversal rejection.
 - [ ] Test local provider unreadable and truncated files.
 - [x] Test weighted provider zero, negative, NaN, and infinite weights.

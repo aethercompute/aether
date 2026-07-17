@@ -26,6 +26,63 @@ struct DecodedData {
     pub sequence_lengths: Option<Vec<i32>>,
 }
 
+fn provider_error_for_manifest(manifest: serde_json::Value) -> anyhow::Error {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(
+        directory.path().join("subset_metadata.json"),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+    PreprocessedDataProvider::new_from_directory(
+        directory.path(),
+        4,
+        Shuffle::DontShuffle,
+        None,
+        None,
+    )
+    .err()
+    .expect("invalid manifest should be rejected")
+}
+
+#[test]
+fn manifest_rejects_missing_required_fields() {
+    let error = provider_error_for_manifest(serde_json::json!({
+        "files": ["train-000.parquet"]
+    }));
+    assert!(
+        error.to_string().contains("invalid SFT manifest"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[test]
+fn manifest_rejects_duplicate_shard_names() {
+    let error = provider_error_for_manifest(serde_json::json!({
+        "files": ["train-000.parquet", "train-000.parquet"],
+        "num_sequences": 2,
+        "file_rows": {"train-000.parquet": 2}
+    }));
+    assert!(
+        error.to_string().contains("incomplete SFT file manifest"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[test]
+fn manifest_rejects_missing_shard_file() {
+    let error = provider_error_for_manifest(serde_json::json!({
+        "files": ["train-000.parquet"],
+        "num_sequences": 1,
+        "file_rows": {"train-000.parquet": 1}
+    }));
+    assert!(
+        error
+            .to_string()
+            .contains("metadata-listed shard \"train-000.parquet\" is unavailable"),
+        "unexpected error: {error:#}"
+    );
+}
+
 #[tokio::test]
 async fn loads_hermes3_subset() {
     let data_dir = test_path(&["resources", "hermes3", "data"]);
