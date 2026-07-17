@@ -6,13 +6,11 @@
 //! Add this layer when building your subscriber stack, typically inside the
 //! aether-logging crate:
 //!
-//! ```ignore
+//! ```no_run
 //! use tracing_subscriber::prelude::*;
 //! use aether_event_sourcing::EventStoreTracingLayer;
 //!
-//! let subscriber = tracing_subscriber::registry()
-//!     .with(EventStoreTracingLayer)
-//!     .with(/* your other layers */);
+//! let subscriber = tracing_subscriber::registry().with(EventStoreTracingLayer);
 //!
 //! tracing::subscriber::set_global_default(subscriber).unwrap();
 //! ```

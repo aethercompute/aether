@@ -5,7 +5,7 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```no_run
 //! use aether_metrics::{create_iroh_registry, IrohMetricsCollector};
 //!
 //! let registry = create_iroh_registry();

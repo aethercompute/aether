@@ -17,7 +17,7 @@ pub const COOLDOWN_TIME: u64 = 3;
 /// futures overflow the stack and abort. Use this in place of
 /// `#[tokio::test(flavor = "multi_thread")]`:
 ///
-/// ```ignore
+/// ```no_run
 /// #[test_log::test]
 /// fn my_test() {
 ///     aether_centralized_testing::run_test(async {

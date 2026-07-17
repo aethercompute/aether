@@ -22,6 +22,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Reject unannotated test skips
+        run: |
+          python - <<'PY'
+          import ast
+          import re
+          from pathlib import Path
+
+          errors = []
+          for path in Path(".").rglob("*.rs"):
+              if any(part in {"target", "vendor"} for part in path.parts):
+                  continue
+              for line_number, line in enumerate(path.read_text().splitlines(), 1):
+                  if "#[ignore" in line and not re.search(r'#\[ignore\s*=\s*".+"\]', line):
+                      errors.append(f"{path}:{line_number}: Rust #[ignore] requires a reason")
+
+          for path in Path(".").rglob("*.py"):
+              if any(part in {".venv", "target", "vendor"} for part in path.parts):
+                  continue
+              tree = ast.parse(path.read_text(), filename=str(path))
+              for node in ast.walk(tree):
+                  if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                      continue
+                  if not isinstance(node.func.value, ast.Name) or node.func.value.id != "pytest":
+                      continue
+                  if node.func.attr not in {"skip", "importorskip"}:
+                      continue
+                  reason = next((kw.value for kw in node.keywords if kw.arg == "reason"), None)
+                  if not isinstance(reason, ast.Constant) or not isinstance(reason.value, str) or not reason.value.strip():
+                      errors.append(
+                          f"{path}:{node.lineno}: pytest.{node.func.attr} requires reason=..."
+                      )
+
+          assert not errors, "\n" + "\n".join(errors)
+          PY
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
 
@@ -99,7 +133,7 @@ jobs:
               int(count)
               for count in re.findall(r"(\d+) ignored", result.stdout + result.stderr)
           )
-          assert ignored == 3, f"expected exactly 3 ignored doctests, found {ignored}"
+          assert ignored == 0, f"expected zero ignored doctests, found {ignored}"
           PY
       - name: Upload Rust test results
         if: always()

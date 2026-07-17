@@ -60,8 +60,8 @@ Current baseline (2026-07-17):
 - [x] Verify every workspace crate is included in the Rust test job.
 - [x] Verify every Python test file is included in pytest discovery.
 - [x] Run Rust doctests explicitly and account for ignored doctests.
-- [ ] Document the reason for every ignored or skipped test.
-- [ ] Add a CI check that rejects unannotated `#[ignore]`, `pytest.skip`, and `importorskip` usage.
+- [x] Document the reason for every ignored or skipped test.
+- [x] Add a CI check that rejects unannotated `#[ignore]`, `pytest.skip`, and `importorskip` usage.
 - [ ] Add a nightly job for optional features and expensive suites.
 - [ ] Add a scheduled job that repeats async integration tests to detect flakes.
 - [ ] Add a release-blocking test checklist to the release process.
