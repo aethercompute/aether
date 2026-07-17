@@ -20,7 +20,7 @@ override-dependencies = [
 torch = { path = "stub/torch" }
 
 [project.optional-dependencies]
-tests = ["pytest"]
+tests = ["datasets", "pyarrow", "pytest"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers"

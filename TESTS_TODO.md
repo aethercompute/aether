@@ -34,9 +34,9 @@ Current baseline (2026-07-17):
 - [ ] Add equivalent documented Rust test naming and feature conventions.
 - [ ] Split required CPU tests from optional hardware tests in CI.
 - [ ] Add a required Python CPU test job with Torch, Transformers, and PEFT import checks.
-- [ ] Add PyArrow and Datasets to the Python test dependencies.
+- [x] Add PyArrow and Datasets to the Python test dependencies.
 - [ ] Make the HF LoRA test module fail, not skip, in the required CPU job.
-- [ ] Make SFT preparation tests fail, not skip, in the required CPU job.
+- [x] Make SFT preparation tests fail, not skip, in the required CPU job.
 - [ ] Add a CI assertion that the expected Python test count was collected.
 - [ ] Add a CI assertion that required jobs contain zero skips.
 - [ ] Print a separate summary for allowed optional skips.

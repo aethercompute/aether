@@ -2,13 +2,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
-import pytest
-
-
 def load_script():
-    pytest.importorskip("pyarrow")
-    pytest.importorskip("datasets")
-    pytest.importorskip("transformers")
     path = Path(__file__).parents[2] / "scripts" / "prepare-sft-local.py"
     spec = importlib.util.spec_from_file_location("prepare_sft_local_under_test", path)
     module = importlib.util.module_from_spec(spec)
