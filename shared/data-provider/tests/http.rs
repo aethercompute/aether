@@ -51,25 +51,43 @@ impl TestServer {
     }
 }
 
-async fn file_urls_error_for_response(response: &'static [u8]) -> anyhow::Error {
+async fn read_http_request(stream: &mut tokio::net::TcpStream) {
+    let mut request = Vec::new();
+    loop {
+        let mut chunk = [0_u8; 512];
+        let bytes_read = stream.read(&mut chunk).await.unwrap();
+        assert!(bytes_read > 0, "client closed before sending HTTP headers");
+        request.extend_from_slice(&chunk[..bytes_read]);
+        assert!(request.len() <= 8192, "HTTP request headers are too large");
+        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+            break;
+        }
+    }
+}
+
+async fn scripted_server(responses: Vec<Vec<u8>>) -> (SocketAddr, tokio::task::JoinHandle<()>) {
     let (listener, address) = aether_test_support::bind_unused_loopback().unwrap();
     listener.set_nonblocking(true).unwrap();
     let listener = tokio::net::TcpListener::from_std(listener).unwrap();
     let server = tokio::spawn(async move {
-        let (mut stream, _) = listener.accept().await.unwrap();
-        let mut request = Vec::new();
-        loop {
-            let mut chunk = [0_u8; 512];
-            let bytes_read = stream.read(&mut chunk).await.unwrap();
-            assert!(bytes_read > 0, "client closed before sending HTTP headers");
-            request.extend_from_slice(&chunk[..bytes_read]);
-            assert!(request.len() <= 8192, "HTTP request headers are too large");
-            if request.windows(4).any(|window| window == b"\r\n\r\n") {
-                break;
-            }
+        for response in responses {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            read_http_request(&mut stream).await;
+            stream.write_all(&response).await.unwrap();
         }
-        stream.write_all(response).await.unwrap();
     });
+    (address, server)
+}
+
+async fn wait_for_scripted_server(server: tokio::task::JoinHandle<()>) {
+    timeout(Duration::from_secs(2), server)
+        .await
+        .expect("loopback server did not shut down")
+        .expect("loopback server task failed");
+}
+
+async fn file_urls_error_for_response(response: &'static [u8]) -> anyhow::Error {
+    let (address, server) = scripted_server(vec![response.to_vec()]).await;
     let url = format!("http://{address}/data.ds");
 
     let error = timeout(Duration::from_secs(2), FileURLs::from_list(&[url]))
@@ -77,10 +95,38 @@ async fn file_urls_error_for_response(response: &'static [u8]) -> anyhow::Error 
         .expect("HEAD request timed out")
         .err()
         .expect("response should be rejected");
-    timeout(Duration::from_secs(2), server)
+    wait_for_scripted_server(server).await;
+    error
+}
+
+async fn range_body_length_error(body: &[u8]) -> anyhow::Error {
+    let mut range_response = format!(
+        "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    range_response.extend_from_slice(body);
+    let (address, server) = scripted_server(vec![
+        b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\n".to_vec(),
+        range_response,
+    ])
+    .await;
+    let url = format!("http://{address}/data.ds");
+    let files = timeout(Duration::from_secs(2), FileURLs::from_list(&[url]))
         .await
-        .expect("loopback server did not shut down")
-        .expect("loopback server task failed");
+        .expect("HEAD request timed out")
+        .expect("HEAD response should be accepted");
+    let mut provider =
+        HttpDataProvider::new(files, TokenSize::TwoBytes, 2, Shuffle::DontShuffle).unwrap();
+
+    let error = timeout(
+        Duration::from_secs(2),
+        provider.get_samples(BatchId((0, 0).into())),
+    )
+    .await
+    .expect("range request timed out")
+    .expect_err("range body length should be rejected");
+    wait_for_scripted_server(server).await;
     error
 }
 
@@ -103,6 +149,28 @@ async fn file_urls_rejects_non_success_status() {
     .await;
     assert!(
         error.to_string().contains("404 Not Found"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[test(tokio::test)]
+async fn http_provider_rejects_short_range_reads() {
+    let error = range_body_length_error(&[1, 2, 3]).await;
+    assert!(
+        error
+            .to_string()
+            .contains("unexpected number of bytes: got 3, expected 4"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[test(tokio::test)]
+async fn http_provider_rejects_range_bodies_larger_than_requested() {
+    let error = range_body_length_error(&[1, 2, 3, 4, 5]).await;
+    assert!(
+        error
+            .to_string()
+            .contains("unexpected number of bytes: got 5, expected 4"),
         "unexpected error: {error:#}"
     );
 }

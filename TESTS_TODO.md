@@ -387,8 +387,8 @@ Target: `shared/data-provider/`.
 - [x] Test HTTP non-success status codes.
 - [ ] Test HTTP timeout and connection reset.
 - [ ] Test HTTP range responses with incorrect offsets.
-- [ ] Test HTTP short reads.
-- [ ] Test HTTP responses larger than declared.
+- [x] Test HTTP short reads.
+- [x] Test HTTP responses larger than declared.
 - [x] Test files shorter than one requested sequence.
 - [x] Test zero-length files.
 - [ ] Test malformed URL templates.
