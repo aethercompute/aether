@@ -53,6 +53,26 @@ const TEST_SEED: [u8; 32] = [
     164, 143, 161, 123, 88, 50, 61, 10, 234, 184, 161, 204, 105, 1, 20, 184, 43, 140, 200, 117, 24,
     180, 247, 84, 141, 68, 110, 161, 228, 223, 32, 242,
 ];
+
+#[test]
+fn explicitly_weighted_provider_rejects_invalid_weights() {
+    for (name, weight) in [
+        ("zero", 0.0),
+        ("negative", -1.0),
+        ("NaN", f64::NAN),
+        ("positive infinity", f64::INFINITY),
+        ("negative infinity", f64::NEG_INFINITY),
+    ] {
+        let result = std::panic::catch_unwind(|| {
+            WeightedDataProvider::new(
+                vec![(MockDataProvider::new(1, 10, vec![0]), weight)],
+                Shuffle::DontShuffle,
+            );
+        });
+        assert!(result.is_err(), "expected {name} weight to be rejected");
+    }
+}
+
 #[test(tokio::test)]
 async fn test_weighted_data_provider_equal_weights() -> Result<()> {
     let provider1 = MockDataProvider::new(1, 100, vec![0, 1, 2, 3]);

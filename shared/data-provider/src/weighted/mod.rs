@@ -37,12 +37,12 @@ impl<T: TokenizedDataProvider + LengthKnownDataProvider> Providers<T> {
     pub fn weights(&self) -> Vec<f64> {
         match self {
             Self::ExplicitlyWeighted(w) => {
-                normalize(&w.iter().map(|(_, w)| *w).collect::<Vec<_>>())
+                normalize(&w.iter().map(|(_, w)| *w).collect::<Vec<_>>(), true)
             }
             Self::LengthWeighted(w) => {
                 let dataset_lengths: Vec<f64> =
                     w.iter().map(|p| p.num_sequences() as f64).collect();
-                normalize(&dataset_lengths)
+                normalize(&dataset_lengths, false)
             }
         }
     }
@@ -174,8 +174,28 @@ impl<T: TokenizedDataProvider + LengthKnownDataProvider + Send> TokenizedDataPro
     }
 }
 
-fn normalize(weights: &[f64]) -> Vec<f64> {
+fn normalize(weights: &[f64], require_positive: bool) -> Vec<f64> {
+    assert!(!weights.is_empty(), "at least one provider is required");
+    assert!(
+        weights.iter().all(|weight| weight.is_finite()),
+        "provider weights must be finite"
+    );
+    if require_positive {
+        assert!(
+            weights.iter().all(|weight| *weight > 0.0),
+            "explicit provider weights must be positive"
+        );
+    } else {
+        assert!(
+            weights.iter().all(|weight| *weight >= 0.0),
+            "provider weights must not be negative"
+        );
+    }
     let sum: f64 = weights.iter().sum();
+    assert!(
+        sum.is_finite() && sum > 0.0,
+        "provider weights must have a positive finite sum"
+    );
     weights.iter().map(|w| w / sum).collect()
 }
 
