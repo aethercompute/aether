@@ -78,7 +78,23 @@ jobs:
         run: uv run --frozen python -c "import torch, transformers, peft"
       - name: Python CPU tests
         working-directory: python
-        run: uv run --frozen pytest
+        run: |
+          uv run --frozen pytest --junitxml=test-results.xml
+          uv run --frozen python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          suite = ET.parse("test-results.xml").getroot().find("testsuite")
+          assert suite is not None, "pytest JUnit report has no testsuite"
+          assert int(suite.get("tests", 0)) == 59, "expected exactly 59 Python tests"
+          assert int(suite.get("skipped", 0)) == 0, "required Python tests must not skip"
+          PY
+      - name: Upload Python test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-cpu-test-results
+          path: python/test-results.xml
+          if-no-files-found: error
 
   coverage:
     runs-on: ubuntu-latest

@@ -37,8 +37,8 @@ Current baseline (2026-07-17):
 - [x] Add PyArrow and Datasets to the Python test dependencies.
 - [x] Make the HF LoRA test module fail, not skip, in the required CPU job.
 - [x] Make SFT preparation tests fail, not skip, in the required CPU job.
-- [ ] Add a CI assertion that the expected Python test count was collected.
-- [ ] Add a CI assertion that required jobs contain zero skips.
+- [x] Add a CI assertion that the expected Python test count was collected.
+- [x] Add a CI assertion that required jobs contain zero skips.
 - [ ] Print a separate summary for allowed optional skips.
 - [ ] Add `pytest-cov` with line and branch coverage.
 - [ ] Publish Python HTML, XML, and terminal coverage reports.
@@ -52,7 +52,7 @@ Current baseline (2026-07-17):
 - [ ] Add a changed-lines coverage check for pull requests.
 - [ ] Fail CI when Rust or Python coverage decreases beyond an approved tolerance.
 - [ ] Store machine-readable test results as CI artifacts.
-- [ ] Add JUnit output for pytest.
+- [x] Add JUnit output for pytest.
 - [ ] Add JUnit output for Rust tests.
 - [ ] Track test duration by test case.
 - [ ] Report the slowest 20 Rust and Python tests.
