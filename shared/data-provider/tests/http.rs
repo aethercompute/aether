@@ -99,10 +99,10 @@ async fn file_urls_error_for_response(response: &'static [u8]) -> anyhow::Error 
     error
 }
 
-async fn range_body_length_error(body: &[u8]) -> anyhow::Error {
+async fn range_response_error(body: &[u8], content_range: &str) -> anyhow::Error {
     let mut range_response = format!(
-        "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
+        "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: {content_range}\r\nConnection: close\r\n\r\n",
+        body.len(),
     )
     .into_bytes();
     range_response.extend_from_slice(body);
@@ -155,7 +155,7 @@ async fn file_urls_rejects_non_success_status() {
 
 #[test(tokio::test)]
 async fn http_provider_rejects_short_range_reads() {
-    let error = range_body_length_error(&[1, 2, 3]).await;
+    let error = range_response_error(&[1, 2, 3], "bytes 0-3/8").await;
     assert!(
         error
             .to_string()
@@ -166,11 +166,20 @@ async fn http_provider_rejects_short_range_reads() {
 
 #[test(tokio::test)]
 async fn http_provider_rejects_range_bodies_larger_than_requested() {
-    let error = range_body_length_error(&[1, 2, 3, 4, 5]).await;
+    let error = range_response_error(&[1, 2, 3, 4, 5], "bytes 0-3/8").await;
     assert!(
         error
             .to_string()
             .contains("unexpected number of bytes: got 5, expected 4"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[test(tokio::test)]
+async fn http_provider_rejects_incorrect_content_range_offsets() {
+    let error = range_response_error(&[1, 2, 3, 4], "bytes 2-5/8").await;
+    assert!(
+        error.to_string().contains("got 2-5, expected 0-3"),
         "unexpected error: {error:#}"
     );
 }

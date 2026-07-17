@@ -248,6 +248,32 @@ impl HttpDataProvider {
             ));
         }
 
+        if response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
+            let content_range = response
+                .headers()
+                .get(reqwest::header::CONTENT_RANGE)
+                .and_then(|header| header.to_str().ok())
+                .ok_or_else(|| anyhow!("Missing or invalid Content-Range header from {url}"))?;
+            let actual_range = content_range
+                .strip_prefix("bytes ")
+                .and_then(|value| value.split_once('/').map(|(range, _)| range))
+                .and_then(|range| range.split_once('-'))
+                .and_then(|(start, end)| Some((start.parse().ok()?, end.parse().ok()?)))
+                .ok_or_else(|| {
+                    anyhow!("Invalid Content-Range header from {url}: {content_range}")
+                })?;
+            let expected_range = (start, start + length - 1);
+            if actual_range != expected_range {
+                bail!(
+                    "Unexpected Content-Range from {url}: got {}-{}, expected {}-{}",
+                    actual_range.0,
+                    actual_range.1,
+                    expected_range.0,
+                    expected_range.1
+                );
+            }
+        }
+
         let bytes = response.bytes().await?;
         let received_length = bytes.len();
 
