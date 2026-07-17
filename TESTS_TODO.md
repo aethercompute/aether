@@ -40,9 +40,9 @@ Current baseline (2026-07-17):
 - [x] Add a CI assertion that the expected Python test count was collected.
 - [x] Add a CI assertion that required jobs contain zero skips.
 - [ ] Print a separate summary for allowed optional skips.
-- [ ] Add `pytest-cov` with line and branch coverage.
-- [ ] Publish Python HTML, XML, and terminal coverage reports.
-- [ ] Add a Python coverage threshold at the measured baseline.
+- [x] Add `pytest-cov` with line and branch coverage.
+- [x] Publish Python HTML, XML, and terminal coverage reports.
+- [x] Add a Python coverage threshold at the measured baseline.
 - [ ] Raise the Python threshold as each P0 subsystem lands.
 - [ ] Add `cargo llvm-cov --fail-under-lines` at the measured Rust baseline.
 - [ ] Add a Rust function coverage threshold.

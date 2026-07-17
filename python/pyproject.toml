@@ -20,7 +20,7 @@ override-dependencies = [
 torch = { path = "stub/torch" }
 
 [project.optional-dependencies]
-tests = ["datasets", "pyarrow", "pytest"]
+tests = ["datasets", "pyarrow", "pytest", "pytest-cov"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers"
@@ -36,6 +36,14 @@ markers = [
   "slow: tests excluded from the default fast feedback suite",
   "regression: tests preserving a specific bug fix",
 ]
+
+[tool.coverage.run]
+branch = true
+source = ["python/aether", "../scripts"]
+
+[tool.coverage.report]
+fail_under = 19.5
+show_missing = true
 
 [build-system]
 requires = ["uv_build<0.9"]

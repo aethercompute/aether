@@ -79,7 +79,9 @@ jobs:
       - name: Python CPU tests
         working-directory: python
         run: |
-          uv run --frozen pytest --junitxml=test-results.xml
+          uv run --frozen pytest --junitxml=test-results.xml \
+            --cov --cov-report=term --cov-report=xml:coverage.xml \
+            --cov-report=html:htmlcov --cov-fail-under=19.5
           uv run --frozen python - <<'PY'
           import xml.etree.ElementTree as ET
 
@@ -92,8 +94,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: python-cpu-test-results
-          path: python/test-results.xml
+          name: python-cpu-test-artifacts
+          path: |
+            python/test-results.xml
+            python/coverage.xml
+            python/htmlcov
           if-no-files-found: error
 
   coverage:
