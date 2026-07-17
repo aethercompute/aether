@@ -215,7 +215,7 @@ mod tests {
         assert_eventually_eq(
             Duration::from_millis(25),
             Duration::from_millis(10),
-            || std::future::pending::<bool>(),
+            std::future::pending::<bool>,
             true,
         )
         .await;
