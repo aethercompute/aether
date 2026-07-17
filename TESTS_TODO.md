@@ -446,8 +446,8 @@ Target: `shared/eval/`.
 - [ ] Test accuracy and normalized-accuracy aggregation.
 - [ ] Test generation stop tokens.
 - [ ] Test generation maximum length.
-- [ ] Test answer extraction from generated text.
-- [ ] Test empty and malformed generated answers.
+- [x] Test answer extraction from generated text.
+- [x] Test empty and malformed generated answers.
 - [ ] Test per-category and overall aggregation.
 - [ ] Test minimum reporting ratio behavior.
 - [ ] Test batching produces the same result as single-document execution.

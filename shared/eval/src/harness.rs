@@ -837,23 +837,9 @@ impl PreparedTask {
                 clear_generated_tokens(cache.as_ref(), doc_index);
 
                 // Extract answer from the complete generated text using regex
-                // Use captures_iter to find all matches and take the last one (final answer)
                 if let Ok(generated_text) = tokenizer.decode(&generated_tokens, false) {
-                    if let Some(last_capture) = answer_extraction_regex
-                        .as_ref()
-                        .and_then(|regex| regex.captures_iter(&generated_text).last())
-                    {
-                        // last_capture.get(1) returns just the letter (A, B, C, ...)
-                        if let Some(answer_char) = last_capture.get(1) {
-                            // Gets the index of the letter (A=0, B=1, C=2, ...)
-                            generated_answer = Some(
-                                crate::ASCII_UPPERCASE
-                                    .iter()
-                                    .position(|&c| c == answer_char.as_str())
-                                    .unwrap_or(usize::MAX),
-                            );
-                        }
-                    }
+                    generated_answer =
+                        extract_generated_answer(&generated_text, answer_extraction_regex.as_ref());
                 }
 
                 let score = if generated_answer == Some(answer) {
@@ -896,6 +882,17 @@ impl PreparedTask {
             "acc"
         }
     }
+}
+
+fn extract_generated_answer(generated_text: &str, regex: Option<&Regex>) -> Option<usize> {
+    let answer = regex?
+        .captures_iter(generated_text)
+        .last()?
+        .get(1)?
+        .as_str();
+    ASCII_UPPERCASE
+        .iter()
+        .position(|candidate| *candidate == answer)
 }
 
 fn calculate_unconditional_loglikelihood(
@@ -1022,12 +1019,13 @@ fn min_reporting_ratio(eval_name: &String) -> Option<f32> {
 mod tests {
     use super::{
         argmax_f32, bos_token_id, cache_generated_tokens, cached_generated_tokens,
-        clear_generated_tokens, min_reporting_ratio, progress_bar_template_with_task, Task,
-        TaskType, TokenizedLLHDocument,
+        clear_generated_tokens, extract_generated_answer, min_reporting_ratio,
+        progress_bar_template_with_task, Task, TaskType, TokenizedLLHDocument,
     };
     use crate::traits::Document;
     use crate::{ArcChallenge, ArcEasy, BoolQ, Hellaswag, MMLUPro, OpenbookQA, MMLU, MMLUCF, PIQA};
     use rand::RngCore;
+    use regex::Regex;
     use std::collections::HashMap;
     use std::str::FromStr;
     use tokenizers::Tokenizer;
@@ -1138,6 +1136,40 @@ mod tests {
         let tmpl = progress_bar_template_with_task("my-task");
         assert!(tmpl.contains("[my-task]"));
         assert!(tmpl.contains("{pos}"));
+    }
+
+    #[test]
+    fn generated_answer_extraction_uses_the_last_valid_match() {
+        let regex = Regex::new(r"answer is \(?([ABCDEFGHIJ])\)?").unwrap();
+        assert_eq!(
+            extract_generated_answer(
+                "First the answer is A, but after checking, the answer is (C).",
+                Some(&regex),
+            ),
+            Some(2),
+        );
+    }
+
+    #[test]
+    fn generated_answer_extraction_rejects_empty_and_malformed_output() {
+        let valid_regex = Regex::new(r"answer is \(?([ABCDEFGHIJ])\)?").unwrap();
+        let no_capture_group = Regex::new(r"answer is [ABCDEFGHIJ]").unwrap();
+        let invalid_answer = Regex::new(r"answer is ([0-9])").unwrap();
+
+        assert_eq!(extract_generated_answer("", Some(&valid_regex)), None);
+        assert_eq!(
+            extract_generated_answer("there is no final answer", Some(&valid_regex)),
+            None,
+        );
+        assert_eq!(
+            extract_generated_answer("the answer is B", Some(&no_capture_group)),
+            None,
+        );
+        assert_eq!(
+            extract_generated_answer("the answer is 4", Some(&invalid_answer)),
+            None,
+        );
+        assert_eq!(extract_generated_answer("the answer is A", None), None);
     }
 
     #[test]
