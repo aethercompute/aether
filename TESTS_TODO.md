@@ -383,8 +383,8 @@ Target: `architectures/centralized/`.
 
 Target: `shared/data-provider/`.
 
-- [ ] Test HTTP 200 responses with missing length headers.
-- [ ] Test HTTP non-success status codes.
+- [x] Test HTTP 200 responses with missing length headers.
+- [x] Test HTTP non-success status codes.
 - [ ] Test HTTP timeout and connection reset.
 - [ ] Test HTTP range responses with incorrect offsets.
 - [ ] Test HTTP short reads.

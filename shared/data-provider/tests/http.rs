@@ -8,6 +8,7 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::{fs::File, time::Duration};
 use test_log::test;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
 use tracing::debug;
 
@@ -48,6 +49,62 @@ impl TestServer {
         let addr = SocketAddr::new("127.0.0.1".parse()?, port);
         Ok(Self { addr, cancel })
     }
+}
+
+async fn file_urls_error_for_response(response: &'static [u8]) -> anyhow::Error {
+    let (listener, address) = aether_test_support::bind_unused_loopback().unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        loop {
+            let mut chunk = [0_u8; 512];
+            let bytes_read = stream.read(&mut chunk).await.unwrap();
+            assert!(bytes_read > 0, "client closed before sending HTTP headers");
+            request.extend_from_slice(&chunk[..bytes_read]);
+            assert!(request.len() <= 8192, "HTTP request headers are too large");
+            if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+        }
+        stream.write_all(response).await.unwrap();
+    });
+    let url = format!("http://{address}/data.ds");
+
+    let error = timeout(Duration::from_secs(2), FileURLs::from_list(&[url]))
+        .await
+        .expect("HEAD request timed out")
+        .err()
+        .expect("response should be rejected");
+    timeout(Duration::from_secs(2), server)
+        .await
+        .expect("loopback server did not shut down")
+        .expect("loopback server task failed");
+    error
+}
+
+#[test(tokio::test)]
+async fn file_urls_rejects_success_without_content_length() {
+    let error = file_urls_error_for_response(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n").await;
+    assert!(
+        error
+            .to_string()
+            .contains("Missing or invalid Content-Length header"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[test(tokio::test)]
+async fn file_urls_rejects_non_success_status() {
+    let error = file_urls_error_for_response(
+        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert!(
+        error.to_string().contains("404 Not Found"),
+        "unexpected error: {error:#}"
+    );
 }
 
 #[test(tokio::test)]

@@ -232,6 +232,7 @@ dependencies = [
  "aether-coordinator",
  "aether-core",
  "aether-network",
+ "aether-test-support",
  "aether-tui",
  "aether-watcher",
  "anyhow",
