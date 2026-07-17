@@ -399,7 +399,7 @@ Target: `shared/data-provider/`.
 - [x] Test preprocessed schema mismatch.
 - [x] Test preprocessed row-length mismatch.
 - [x] Test preprocessed label-length mismatch.
-- [ ] Test preprocessed file-list mismatch.
+- [x] Test preprocessed file-list mismatch.
 - [x] Test preprocessed duplicate shard names.
 - [x] Test preprocessed missing shard files.
 - [ ] Test local provider path traversal rejection.

@@ -97,6 +97,22 @@ fn manifest_rejects_duplicate_shard_names() {
 }
 
 #[test]
+fn manifest_rejects_file_list_and_row_map_mismatch() {
+    let error = provider_error_for_manifest(serde_json::json!({
+        "files": ["train-000.parquet", "train-001.parquet"],
+        "num_sequences": 2,
+        "file_rows": {
+            "train-000.parquet": 1,
+            "unlisted.parquet": 1
+        }
+    }));
+    assert!(
+        error.to_string().contains("incomplete SFT file manifest"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[test]
 fn manifest_rejects_unsupported_version() {
     let error = provider_error_for_manifest(serde_json::json!({
         "version": 2,
@@ -170,6 +186,39 @@ fn rejects_preprocessed_schema_without_inputs() {
     .expect("missing inputs column should be rejected");
     assert!(
         error.to_string().contains("does not have `inputs` column"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[test]
+fn manifest_rejects_incorrect_actual_shard_row_count() {
+    let directory = tempfile::tempdir().unwrap();
+    write_parquet_lists(
+        &directory.path().join("train-000.parquet"),
+        &[("inputs", &[1, 2, 3, 4])],
+    );
+    std::fs::write(
+        directory.path().join("subset_metadata.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "files": ["train-000.parquet"],
+            "num_sequences": 2,
+            "file_rows": {"train-000.parquet": 2}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let error = PreprocessedDataProvider::new_from_directory(
+        directory.path(),
+        4,
+        Shuffle::DontShuffle,
+        Some(Split::Train),
+        None,
+    )
+    .err()
+    .expect("incorrect shard row count should be rejected");
+    assert!(
+        error.to_string().contains("has 1 rows instead of 2"),
         "unexpected error: {error:#}"
     );
 }
