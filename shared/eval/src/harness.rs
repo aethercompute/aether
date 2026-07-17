@@ -277,6 +277,7 @@ impl Task {
                             .contains(&name.as_str());
 
                             let mut fewshot_examples = fewshot_examples;
+                            fewshot_examples.retain(|example| example.text != doc.text);
                             if should_shuffle {
                                 fewshot_examples.shuffle(&mut self.rand);
                             }
@@ -1260,6 +1261,69 @@ mod tests {
         };
 
         assert_eq!(prepared_requests(first), prepared_requests(second));
+    }
+
+    #[test]
+    fn fewshot_sampling_excludes_the_evaluated_document() {
+        struct DummyTask;
+        impl std::fmt::Display for DummyTask {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "t")
+            }
+        }
+        impl crate::traits::LogLikelihoodTask for DummyTask {
+            fn get_documents(&self) -> Vec<Document> {
+                vec![Document {
+                    text: "target".into(),
+                    choices: vec!["correct".into()],
+                    answer: 0,
+                    category: None,
+                    cot_content: None,
+                    eval_name: "t".into(),
+                }]
+            }
+
+            fn get_fewshot_documents(&self) -> HashMap<String, Vec<Document>> {
+                HashMap::from([(
+                    "default".into(),
+                    vec![
+                        Document {
+                            text: "target".into(),
+                            choices: vec!["correct".into()],
+                            answer: 0,
+                            category: None,
+                            cot_content: None,
+                            eval_name: "t".into(),
+                        },
+                        Document {
+                            text: "example".into(),
+                            choices: vec!["answer".into()],
+                            answer: 0,
+                            category: None,
+                            cot_content: None,
+                            eval_name: "t".into(),
+                        },
+                    ],
+                )])
+            }
+        }
+
+        let tokenizer = tokenizer_with_vocab(&[
+            ("<unk>", 0),
+            ("target", 1),
+            ("correct", 2),
+            ("example", 3),
+            ("answer", 4),
+        ]);
+        let prepared = Task::new(TaskType::LogLikelihood(Box::new(DummyTask)), 2, 42)
+            .prepare(&tokenizer, None);
+        let request = match prepared.prepared_task_type {
+            super::PreparedTaskType::LogLikelihood { docs } => docs[0].requests[0].clone(),
+            super::PreparedTaskType::GenerateUntil { .. } => unreachable!(),
+        };
+
+        assert_eq!(request.iter().filter(|token| **token == 1).count(), 1);
+        assert_eq!(request.iter().filter(|token| **token == 3).count(), 1);
     }
 
     #[test]

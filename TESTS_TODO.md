@@ -438,7 +438,7 @@ Target: `shared/eval/`.
 - [ ] Test malformed answer indexes for every multiple-choice task.
 - [ ] Test category parsing and normalization.
 - [x] Test few-shot sampling determinism.
-- [ ] Test few-shot samples never include the evaluated document.
+- [x] Test few-shot samples never include the evaluated document.
 - [ ] Test prompt construction against golden text fixtures.
 - [ ] Test tokenizer output against golden token fixtures.
 - [ ] Test log-likelihood scoring against a toy-model oracle.
