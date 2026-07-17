@@ -460,3 +460,30 @@ async fn test_weighted_data_provider_exhausts_small_dataset_before_repeat() -> R
 
     Ok(())
 }
+
+#[test(tokio::test)]
+async fn weighted_provider_exhausts_later_small_source_before_repeat() -> Result<()> {
+    let mut weighted_provider = WeightedDataProvider::new(
+        vec![
+            (MockDataProvider::new(1, 20, vec![0]), 0.5),
+            (MockDataProvider::new(2, 5, vec![0]), 0.5),
+        ],
+        Shuffle::DontShuffle,
+    );
+    let samples = weighted_provider
+        .get_samples(BatchId(ClosedInterval { start: 0, end: 24 }))
+        .await?;
+    let small_source_ids = samples
+        .iter()
+        .filter_map(|sample| {
+            let value = sample.input_ids[0];
+            (value / 1000 == 2).then_some(value % 1000)
+        })
+        .collect::<Vec<_>>();
+
+    assert!((12..=13).contains(&small_source_ids.len()));
+    assert_eq!(&small_source_ids[..5], [0, 1, 2, 3, 4]);
+    assert!(small_source_ids[5..].iter().all(|id| (0..5).contains(id)));
+
+    Ok(())
+}
