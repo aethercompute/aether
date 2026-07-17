@@ -44,8 +44,8 @@ Current baseline (2026-07-17):
 - [x] Publish Python HTML, XML, and terminal coverage reports.
 - [x] Add a Python coverage threshold at the measured baseline.
 - [ ] Raise the Python threshold as each P0 subsystem lands.
-- [ ] Add `cargo llvm-cov --fail-under-lines` at the measured Rust baseline.
-- [ ] Add a Rust function coverage threshold.
+- [x] Add `cargo llvm-cov --fail-under-lines` at the measured Rust baseline.
+- [x] Add a Rust function coverage threshold.
 - [ ] Document how inline Rust test modules affect the coverage total.
 - [ ] Exclude generated code, vendored code, examples, and test fixtures from coverage totals.
 - [ ] Publish a merged per-crate Rust coverage summary.
