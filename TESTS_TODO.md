@@ -47,7 +47,7 @@ Current baseline (2026-07-17):
 - [x] Add `cargo llvm-cov --fail-under-lines` at the measured Rust baseline.
 - [x] Add a Rust function coverage threshold.
 - [ ] Document how inline Rust test modules affect the coverage total.
-- [ ] Exclude generated code, vendored code, examples, and test fixtures from coverage totals.
+- [x] Exclude generated code, vendored code, examples, and test fixtures from coverage totals.
 - [ ] Publish a merged per-crate Rust coverage summary.
 - [ ] Add a changed-lines coverage check for pull requests.
 - [ ] Fail CI when Rust or Python coverage decreases beyond an approved tolerance.

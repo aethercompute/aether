@@ -232,6 +232,8 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
+    env:
+      RUST_COVERAGE_IGNORE_REGEX: '(^|/)(vendor|examples|fixtures|test-data|test_data)(/|$)|(^|/)generated([^/]*)(/|$)'
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-libtorch
@@ -250,10 +252,14 @@ jobs:
         run: |
           mkdir -p ./coverage
           cargo llvm-cov --workspace --no-report
-          cargo llvm-cov report --fail-under-lines 60.68 --fail-under-functions 63.67
-          cargo llvm-cov report --cobertura --output-path ./coverage/cobertura.xml
-          cargo llvm-cov report --html --output-dir ./coverage
+          cargo llvm-cov report --ignore-filename-regex "$RUST_COVERAGE_IGNORE_REGEX" \
+            --cobertura --output-path ./coverage/cobertura.xml
+          cargo llvm-cov report --ignore-filename-regex "$RUST_COVERAGE_IGNORE_REGEX" \
+            --html --output-dir ./coverage
+          cargo llvm-cov report --ignore-filename-regex "$RUST_COVERAGE_IGNORE_REGEX" \
+            --fail-under-lines 60.68 --fail-under-functions 63.67
       - name: Upload coverage report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
