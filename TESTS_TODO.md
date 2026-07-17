@@ -407,7 +407,7 @@ Target: `shared/data-provider/`.
 - [x] Test weighted provider zero, negative, NaN, and infinite weights.
 - [x] Test weighted provider deterministic selection with fixed seeds.
 - [ ] Test weighted provider source exhaustion in every order.
-- [ ] Test weighted provider empty-source behavior.
+- [x] Test weighted provider empty-source behavior.
 - [ ] Test remote client successful request and response.
 - [ ] Test remote client timeout and disconnect.
 - [ ] Test remote server malformed requests.

@@ -74,6 +74,56 @@ fn explicitly_weighted_provider_rejects_invalid_weights() {
 }
 
 #[test(tokio::test)]
+async fn weighted_provider_ignores_empty_sources_when_data_is_available() -> Result<()> {
+    let mut length_weighted = WeightedDataProvider::new(
+        vec![
+            MockDataProvider::new(1, 0, vec![0]),
+            MockDataProvider::new(2, 3, vec![0]),
+        ],
+        Shuffle::DontShuffle,
+    );
+    let mut explicitly_weighted = WeightedDataProvider::new(
+        vec![
+            (MockDataProvider::new(1, 0, vec![0]), 0.9),
+            (MockDataProvider::new(2, 3, vec![0]), 0.1),
+        ],
+        Shuffle::DontShuffle,
+    );
+    let batch = BatchId(ClosedInterval { start: 0, end: 2 });
+
+    for samples in [
+        length_weighted.get_samples(batch).await?,
+        explicitly_weighted.get_samples(batch).await?,
+    ] {
+        assert_eq!(samples.len(), 3);
+        assert!(samples.iter().all(|sample| sample.input_ids[0] / 1000 == 2));
+        assert_eq!(
+            samples
+                .iter()
+                .map(|sample| sample.input_ids[0] % 1000)
+                .collect::<Vec<_>>(),
+            [0, 1, 2]
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn weighted_provider_rejects_all_empty_sources() {
+    let result = std::panic::catch_unwind(|| {
+        WeightedDataProvider::new(
+            vec![
+                MockDataProvider::new(1, 0, vec![0]),
+                MockDataProvider::new(2, 0, vec![0]),
+            ],
+            Shuffle::DontShuffle,
+        );
+    });
+    assert!(result.is_err());
+}
+
+#[test(tokio::test)]
 async fn test_weighted_data_provider_equal_weights() -> Result<()> {
     let provider1 = MockDataProvider::new(1, 100, vec![0, 1, 2, 3]);
     let provider2 = MockDataProvider::new(2, 100, vec![0, 1, 2, 3]);
