@@ -54,8 +54,8 @@ Current baseline (2026-07-17):
 - [x] Store machine-readable test results as CI artifacts.
 - [x] Add JUnit output for pytest.
 - [x] Add JUnit output for Rust tests.
-- [ ] Track test duration by test case.
-- [ ] Report the slowest 20 Rust and Python tests.
+- [x] Track test duration by test case.
+- [x] Report the slowest 20 Rust and Python tests.
 - [x] Add a required test-discovery job that does not execute tests.
 - [x] Verify every workspace crate is included in the Rust test job.
 - [x] Verify every Python test file is included in pytest discovery.
