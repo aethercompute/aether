@@ -1,4 +1,4 @@
-use std::{str::FromStr, time::Duration};
+use std::time::Duration;
 
 use aether_coordinator::model::HttpTrainingDataLocation;
 use aether_core::{BatchId, Shuffle, TokenSize};
@@ -70,17 +70,19 @@ impl FileURLs {
             );
         }
 
-        let urls: Result<Vec<reqwest::Url>, <reqwest::Url as FromStr>::Err> = (0..num_files)
-            .map(|index| {
-                let number = start_index + index;
+        let urls = (0..num_files)
+            .map(|index| -> Result<reqwest::Url> {
+                let number = start_index.checked_add(index).ok_or_else(|| {
+                    anyhow!("numbered URL index overflow: start {start_index} plus offset {index}")
+                })?;
                 let formatted_number =
                     format!("{:0>width$}", number, width = n_left_pad_zeros as usize);
-                url_template.replace("{}", &formatted_number).parse()
+                Ok(url_template.replace("{}", &formatted_number).parse()?)
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
 
         let client = reqwest::Client::new();
-        let urls_with_sizes = with_file_sizes(&client, &urls?).await?;
+        let urls_with_sizes = with_file_sizes(&client, &urls).await?;
 
         Ok(Self(urls_with_sizes))
     }

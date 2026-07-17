@@ -154,6 +154,56 @@ async fn file_urls_rejects_non_success_status() {
 }
 
 #[test(tokio::test)]
+async fn numbered_file_urls_reject_malformed_templates() {
+    for template in ["http://localhost/data.ds", "http://localhost/{}-{}.ds"] {
+        let error = FileURLs::from_template(template, 0, 3, 0)
+            .await
+            .err()
+            .expect("malformed template should be rejected");
+        assert!(
+            error.to_string().contains("expected 1 set of {}"),
+            "unexpected error for {template}: {error:#}"
+        );
+    }
+}
+
+#[test(tokio::test)]
+async fn numbered_file_urls_reject_index_overflow() {
+    let error = FileURLs::from_template("http://localhost/{}.ds", u32::MAX, 0, 2)
+        .await
+        .err()
+        .expect("numbered URL overflow should be rejected");
+    assert!(
+        error.to_string().contains("index overflow"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[test(tokio::test)]
+async fn numbered_file_urls_reject_missing_file() {
+    let (address, server) = scripted_server(vec![
+        b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\n".to_vec(),
+        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+    ])
+    .await;
+    let template = format!("http://{address}/{{}}.ds");
+
+    let error = timeout(
+        Duration::from_secs(2),
+        FileURLs::from_template(&template, 0, 3, 2),
+    )
+    .await
+    .expect("numbered HEAD requests timed out")
+    .err()
+    .expect("missing numbered file should be rejected");
+    wait_for_scripted_server(server).await;
+    assert!(
+        error.to_string().contains("404 Not Found"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[test(tokio::test)]
 async fn http_provider_rejects_short_range_reads() {
     let error = range_response_error(&[1, 2, 3], "bytes 0-3/8").await;
     assert!(

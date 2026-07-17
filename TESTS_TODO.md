@@ -391,8 +391,8 @@ Target: `shared/data-provider/`.
 - [x] Test HTTP responses larger than declared.
 - [x] Test files shorter than one requested sequence.
 - [x] Test zero-length files.
-- [ ] Test malformed URL templates.
-- [ ] Test numbered URL overflow and missing files.
+- [x] Test malformed URL templates.
+- [x] Test numbered URL overflow and missing files.
 - [ ] Test tokenizer and token-size mismatch.
 - [ ] Test preprocessed manifest missing required fields.
 - [ ] Test preprocessed manifest unknown versions.
