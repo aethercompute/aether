@@ -56,9 +56,41 @@ jobs:
         with:
           torch-version: ${{ env.TORCH_VERSION }}
           torch-index-url: ${{ env.TORCH_INDEX_URL }}
+      - uses: taiki-e/install-action@nextest
       - uses: Swatinem/rust-cache@v2
       - name: Rust workspace tests
-        run: cargo test --workspace
+        run: cargo nextest run --workspace --profile ci
+      - name: Rust doctests
+        run: |
+          python - <<'PY'
+          import re
+          import subprocess
+          import sys
+
+          result = subprocess.run(
+              ["cargo", "test", "--workspace", "--doc", "--color", "never"],
+              check=False,
+              capture_output=True,
+              text=True,
+          )
+          print(result.stdout, end="")
+          print(result.stderr, end="", file=sys.stderr)
+          if result.returncode:
+              raise SystemExit(result.returncode)
+
+          ignored = sum(
+              int(count)
+              for count in re.findall(r"(\d+) ignored", result.stdout + result.stderr)
+          )
+          assert ignored == 3, f"expected exactly 3 ignored doctests, found {ignored}"
+          PY
+      - name: Upload Rust test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-test-results
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: error
 
   python-cpu:
     runs-on: ubuntu-latest

@@ -51,15 +51,15 @@ Current baseline (2026-07-17):
 - [ ] Publish a merged per-crate Rust coverage summary.
 - [ ] Add a changed-lines coverage check for pull requests.
 - [ ] Fail CI when Rust or Python coverage decreases beyond an approved tolerance.
-- [ ] Store machine-readable test results as CI artifacts.
+- [x] Store machine-readable test results as CI artifacts.
 - [x] Add JUnit output for pytest.
-- [ ] Add JUnit output for Rust tests.
+- [x] Add JUnit output for Rust tests.
 - [ ] Track test duration by test case.
 - [ ] Report the slowest 20 Rust and Python tests.
 - [x] Add a required test-discovery job that does not execute tests.
 - [x] Verify every workspace crate is included in the Rust test job.
 - [x] Verify every Python test file is included in pytest discovery.
-- [ ] Run Rust doctests explicitly and account for ignored doctests.
+- [x] Run Rust doctests explicitly and account for ignored doctests.
 - [ ] Document the reason for every ignored or skipped test.
 - [ ] Add a CI check that rejects unannotated `#[ignore]`, `pytest.skip`, and `importorskip` usage.
 - [ ] Add a nightly job for optional features and expensive suites.
