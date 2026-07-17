@@ -1,6 +1,8 @@
 import importlib.util
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+
 
 def load_script():
     path = Path(__file__).parents[2] / "scripts" / "prepare-sft-local.py"
@@ -48,3 +50,20 @@ def test_message_tokens_falls_back_to_last_assistant_span():
         [1, 2, 3, 4],
         [-100, -100, -100, 4],
     )
+
+
+def test_build_messages_example_rejects_all_masked_after_truncation():
+    script = load_script()
+
+    class Tokenizer:
+        pad_token_id = 0
+
+        def apply_chat_template(self, messages, **kwargs):
+            assert kwargs["return_assistant_tokens_mask"]
+            return {
+                "input_ids": [1, 2, 3, 4],
+                "assistant_masks": [0, 0, 0, 1],
+            }
+
+    args = SimpleNamespace(sequence_length=3)
+    assert script.build_messages_example(Tokenizer(), MESSAGES, args) is None
