@@ -763,6 +763,10 @@ impl PreparedTask {
             // Generate tokens until we find "The answer is" pattern or reach limit
             let mut tokens_generated_count = generated_tokens.len();
             while !generation_complete {
+                if generation_token_limit_reached(tokens_generated_count) {
+                    generation_complete = true;
+                    break;
+                }
                 if let Some(cancel) = options.cancel.as_ref() {
                     if cancel.is_cancelled() {
                         // Save progress before cancelling
@@ -815,21 +819,10 @@ impl PreparedTask {
 
                 // Decode all generated tokens together to check for stop tokens
                 if let Ok(generated_text) = tokenizer.decode(&generated_tokens, false) {
-                    // Check if we've hit any stop tokens
-                    for stop_token in stop_tokens {
-                        if generated_text.contains(stop_token) {
-                            generation_complete = true;
-                            break;
-                        }
-                    }
-                    if generation_complete {
+                    if generated_text_contains_stop_token(&generated_text, stop_tokens) {
+                        generation_complete = true;
                         break;
                     }
-                }
-
-                if tokens_generated_count >= GENERATE_UNTIL_MAX_TOKENS {
-                    generation_complete = true;
-                    break;
                 }
             }
 
@@ -883,6 +876,16 @@ impl PreparedTask {
             "acc"
         }
     }
+}
+
+fn generated_text_contains_stop_token(generated_text: &str, stop_tokens: &[String]) -> bool {
+    stop_tokens
+        .iter()
+        .any(|stop_token| generated_text.contains(stop_token))
+}
+
+fn generation_token_limit_reached(tokens_generated: usize) -> bool {
+    tokens_generated >= GENERATE_UNTIL_MAX_TOKENS
 }
 
 fn extract_generated_answer(generated_text: &str, regex: Option<&Regex>) -> Option<usize> {
@@ -1020,8 +1023,9 @@ fn min_reporting_ratio(eval_name: &String) -> Option<f32> {
 mod tests {
     use super::{
         argmax_f32, bos_token_id, cache_generated_tokens, cached_generated_tokens,
-        clear_generated_tokens, extract_generated_answer, min_reporting_ratio,
-        progress_bar_template_with_task, Task, TaskType, TokenizedLLHDocument,
+        clear_generated_tokens, extract_generated_answer, generated_text_contains_stop_token,
+        generation_token_limit_reached, min_reporting_ratio, progress_bar_template_with_task, Task,
+        TaskType, TokenizedLLHDocument, GENERATE_UNTIL_MAX_TOKENS,
     };
     use crate::traits::Document;
     use crate::{ArcChallenge, ArcEasy, BoolQ, Hellaswag, MMLUPro, OpenbookQA, MMLU, MMLUCF, PIQA};
@@ -1171,6 +1175,36 @@ mod tests {
             None,
         );
         assert_eq!(extract_generated_answer("the answer is A", None), None);
+    }
+
+    #[test]
+    fn generation_stops_when_any_configured_stop_token_appears() {
+        let stop_tokens = vec!["Question:".to_string(), "<END>".to_string()];
+
+        assert!(generated_text_contains_stop_token(
+            "final answer\nQuestion:",
+            &stop_tokens,
+        ));
+        assert!(generated_text_contains_stop_token(
+            "result<END>ignored",
+            &stop_tokens,
+        ));
+        assert!(!generated_text_contains_stop_token(
+            "final answer only",
+            &stop_tokens,
+        ));
+        assert!(!generated_text_contains_stop_token("Question:", &[],));
+    }
+
+    #[test]
+    fn generation_token_limit_stops_at_the_exact_boundary() {
+        assert!(!generation_token_limit_reached(
+            GENERATE_UNTIL_MAX_TOKENS - 1,
+        ));
+        assert!(generation_token_limit_reached(GENERATE_UNTIL_MAX_TOKENS));
+        assert!(generation_token_limit_reached(
+            GENERATE_UNTIL_MAX_TOKENS + 1,
+        ));
     }
 
     #[test]

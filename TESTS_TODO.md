@@ -444,8 +444,8 @@ Target: `shared/eval/`.
 - [ ] Test log-likelihood scoring against a toy-model oracle.
 - [ ] Test normalized log-likelihood scoring.
 - [ ] Test accuracy and normalized-accuracy aggregation.
-- [ ] Test generation stop tokens.
-- [ ] Test generation maximum length.
+- [x] Test generation stop tokens.
+- [x] Test generation maximum length.
 - [x] Test answer extraction from generated text.
 - [x] Test empty and malformed generated answers.
 - [ ] Test per-category and overall aggregation.
