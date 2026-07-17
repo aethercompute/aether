@@ -2,6 +2,7 @@
 //!
 //! Pulled in as a `[dev-dependencies]` entry by crates that want:
 //!   - reproducible randomness ([`seeded_rng`]),
+//!   - race-free loopback listeners ([`bind_unused_loopback`]),
 //!   - deterministic tensors and numerical assertions ([`deterministic_tensor`],
 //!     [`assert_tensors_close`], [`assert_tensor_finite`]),
 //!   - one-shot serialization round-trip checks ([`assert_postcard_roundtrip`],
@@ -12,6 +13,7 @@
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
+use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use tch::{Device, Kind, Tensor};
 
 /// A deterministic RNG seeded from a `u64`.
@@ -20,6 +22,16 @@ use tch::{Device, Kind, Tensor};
 /// under `cargo test`) should derive all randomness from a fixed seed via this.
 pub fn seeded_rng(seed: u64) -> ChaCha8Rng {
     ChaCha8Rng::seed_from_u64(seed)
+}
+
+/// Binds an ephemeral loopback port and returns the listener that reserves it.
+///
+/// Keep the listener alive until the test server takes ownership; returning a
+/// bare port number would allow another process to claim it in between.
+pub fn bind_unused_loopback() -> std::io::Result<(TcpListener, SocketAddr)> {
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+    let address = listener.local_addr()?;
+    Ok((listener, address))
 }
 
 /// Builds a CPU tensor containing `0..numel`, reshaped and converted to `kind`.
@@ -123,6 +135,17 @@ mod tests {
         for _ in 0..16 {
             assert_eq!(a.random::<u64>(), b.random::<u64>());
         }
+    }
+
+    #[test]
+    fn loopback_helper_reserves_port_until_listener_is_dropped() {
+        let (listener, address) = bind_unused_loopback().unwrap();
+        assert!(address.ip().is_loopback());
+        assert_ne!(address.port(), 0);
+        assert!(TcpListener::bind(address).is_err());
+
+        drop(listener);
+        TcpListener::bind(address).expect("port should be reusable after listener drop");
     }
 
     #[test]

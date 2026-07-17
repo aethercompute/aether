@@ -83,7 +83,7 @@ Current baseline (2026-07-17):
 - [ ] Add reusable assertions that no background tasks remain after a test.
 - [ ] Add reusable assertions for Postcard and JSON error context.
 - [ ] Add a standard temporary artifact directory layout for model and dataset tests.
-- [ ] Add a test helper for selecting an unused loopback port without races.
+- [x] Add a test helper for selecting an unused loopback port without races.
 - [ ] Add a test helper for deterministic node identities and key pairs.
 - [x] Add a test helper for deterministic tensor construction.
 - [x] Add a test helper for numerical tolerance assertions by dtype.
