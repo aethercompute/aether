@@ -12,6 +12,7 @@ aether-client.workspace = true
 aether-coordinator.workspace = true
 aether-network.workspace = true
 aether-core.workspace = true
+aether-test-support.workspace = true
 tokio-util.workspace = true
 tokio.workspace = true
 bytemuck.workspace = true

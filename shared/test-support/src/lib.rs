@@ -14,6 +14,7 @@
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
+use std::time::Duration;
 use tch::{Device, Kind, Tensor};
 
 /// A deterministic RNG seeded from a `u64`.
@@ -32,6 +33,36 @@ pub fn bind_unused_loopback() -> std::io::Result<(TcpListener, SocketAddr)> {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
     let address = listener.local_addr()?;
     Ok((listener, address))
+}
+
+/// Polls until `operation` returns `expected`, bounded by one total deadline.
+pub async fn assert_eventually_eq<T, F, Fut>(
+    timeout: Duration,
+    interval: Duration,
+    mut operation: F,
+    expected: T,
+) where
+    T: PartialEq + std::fmt::Debug,
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = T>,
+{
+    let deadline = tokio::time::Instant::now() + timeout;
+
+    loop {
+        let result = tokio::time::timeout_at(deadline, operation())
+            .await
+            .unwrap_or_else(|_| panic!("poll operation exceeded its total deadline"));
+        if result == expected {
+            return;
+        }
+
+        let now = tokio::time::Instant::now();
+        assert!(
+            now < deadline,
+            "poll deadline elapsed; got {result:?}, expected {expected:?}"
+        );
+        tokio::time::sleep_until(std::cmp::min(deadline, now + interval)).await;
+    }
 }
 
 /// Builds a CPU tensor containing `0..numel`, reshaped and converted to `kind`.
@@ -146,6 +177,48 @@ mod tests {
 
         drop(listener);
         TcpListener::bind(address).expect("port should be reusable after listener drop");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn eventually_eq_uses_fixed_interval_until_success() {
+        let start = tokio::time::Instant::now();
+        let mut attempts = 0;
+        assert_eventually_eq(
+            Duration::from_secs(1),
+            Duration::from_millis(10),
+            || {
+                attempts += 1;
+                std::future::ready(attempts)
+            },
+            3,
+        )
+        .await;
+        assert_eq!(attempts, 3);
+        assert_eq!(start.elapsed(), Duration::from_millis(20));
+    }
+
+    #[tokio::test(start_paused = true)]
+    #[should_panic(expected = "poll deadline elapsed")]
+    async fn eventually_eq_fails_at_total_deadline() {
+        assert_eventually_eq(
+            Duration::from_millis(25),
+            Duration::from_millis(10),
+            || std::future::ready(false),
+            true,
+        )
+        .await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    #[should_panic(expected = "poll operation exceeded its total deadline")]
+    async fn eventually_eq_bounds_blocked_operations() {
+        assert_eventually_eq(
+            Duration::from_millis(25),
+            Duration::from_millis(10),
+            || std::future::pending::<bool>(),
+            true,
+        )
+        .await;
     }
 
     #[test]

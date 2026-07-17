@@ -135,6 +135,7 @@ dependencies = [
  "aether-coordinator",
  "aether-core",
  "aether-network",
+ "aether-test-support",
  "anyhow",
  "bytemuck",
  "clap",
@@ -439,6 +440,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tch",
+ "tokio",
 ]
 
 [[package]]

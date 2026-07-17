@@ -69,8 +69,8 @@ Current baseline (2026-07-17):
 ## P0: Test Infrastructure
 
 - [ ] Add reusable deterministic clocks for Tokio state-machine tests.
-- [ ] Add reusable bounded polling helpers with fixed total deadlines.
-- [ ] Replace polling helpers whose delay grows with every retry.
+- [x] Add reusable bounded polling helpers with fixed total deadlines.
+- [x] Replace polling helpers whose delay grows with every retry.
 - [ ] Add reusable failure-injection channels for actor tests.
 - [ ] Add reusable fake checkpoint storage with configurable failures.
 - [ ] Add reusable fake model sharing peers with configurable latency and corruption.

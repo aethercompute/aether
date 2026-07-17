@@ -1,4 +1,3 @@
-use std::future::Future;
 use std::time::Duration;
 
 use crate::client::ClientHandle;
@@ -50,33 +49,16 @@ pub async fn spawn_clients_with_training_delay(
 pub async fn assert_with_retries<T, F, Fut>(function: F, y: T)
 where
     T: PartialEq + std::fmt::Debug,
-    Fut: Future<Output = T>,
+    Fut: std::future::Future<Output = T>,
     F: FnMut() -> Fut,
 {
-    let res = with_retries(function, y).await;
-    assert!(res);
-}
-
-pub async fn with_retries<T, F, Fut>(mut function: F, y: T) -> bool
-where
-    T: PartialEq + std::fmt::Debug,
-    Fut: Future<Output = T>,
-    F: FnMut() -> Fut,
-{
-    let retry_attempts: u64 = 100;
-    let mut result;
-    for attempt in 1..=retry_attempts {
-        result = function().await;
-        if result == y {
-            return true;
-        } else if attempt == retry_attempts {
-            eprintln!("assertion failed, got: {result:?} but expected: {y:?}");
-            return false;
-        } else {
-            tokio::time::sleep(Duration::from_millis(10 * attempt)).await;
-        }
-    }
-    false
+    aether_test_support::assert_eventually_eq(
+        Duration::from_secs(50),
+        Duration::from_millis(10),
+        function,
+        y,
+    )
+    .await;
 }
 
 pub fn sample_rand_run_id() -> String {
