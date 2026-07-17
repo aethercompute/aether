@@ -56,9 +56,9 @@ Current baseline (2026-07-17):
 - [ ] Add JUnit output for Rust tests.
 - [ ] Track test duration by test case.
 - [ ] Report the slowest 20 Rust and Python tests.
-- [ ] Add a required test-discovery job that does not execute tests.
-- [ ] Verify every workspace crate is included in the Rust test job.
-- [ ] Verify every Python test file is included in pytest discovery.
+- [x] Add a required test-discovery job that does not execute tests.
+- [x] Verify every workspace crate is included in the Rust test job.
+- [x] Verify every Python test file is included in pytest discovery.
 - [ ] Run Rust doctests explicitly and account for ignored doctests.
 - [ ] Document the reason for every ignored or skipped test.
 - [ ] Add a CI check that rejects unannotated `#[ignore]`, `pytest.skip`, and `importorskip` usage.

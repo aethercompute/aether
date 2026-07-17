@@ -101,6 +101,51 @@ jobs:
             python/htmlcov
           if-no-files-found: error
 
+  test-discovery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-libtorch
+        with:
+          torch-version: ${{ env.TORCH_VERSION }}
+          torch-index-url: ${{ env.TORCH_INDEX_URL }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Discover Rust workspace tests
+        run: cargo test --workspace --no-run
+      - name: Create Python test environment
+        working-directory: python
+        run: |
+          uv venv --system-site-packages
+          uv sync --frozen --extra tests
+      - name: Discover every Python test file
+        working-directory: python
+        run: |
+          uv run --frozen python - <<'PY'
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          result = subprocess.run(
+              [sys.executable, "-m", "pytest", "--collect-only", "-q", "--no-cov"],
+              check=False,
+              capture_output=True,
+              text=True,
+          )
+          print(result.stdout, end="")
+          print(result.stderr, end="", file=sys.stderr)
+          if result.returncode:
+              raise SystemExit(result.returncode)
+
+          expected = {path.as_posix() for path in Path("tests").glob("test_*.py")}
+          collected = {
+              line.split("::", 1)[0]
+              for line in result.stdout.splitlines()
+              if "::" in line
+          }
+          missing = sorted(expected - collected)
+          assert not missing, f"test files missing from pytest discovery: {missing}"
+          PY
+
   coverage:
     runs-on: ubuntu-latest
     steps:
