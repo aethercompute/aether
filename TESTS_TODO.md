@@ -453,7 +453,7 @@ Target: `shared/eval/`.
 - [ ] Test batching produces the same result as single-document execution.
 - [ ] Test cache isolation between tasks and documents.
 - [ ] Test model errors include task and document context.
-- [ ] Strengthen `task_new_is_deterministic_for_seed` with actual state/output comparison.
+- [x] Strengthen `task_new_is_deterministic_for_seed` with actual state/output comparison.
 
 ## P1: Event Sourcing and Persistence
 

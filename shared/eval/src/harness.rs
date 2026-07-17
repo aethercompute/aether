@@ -1027,6 +1027,7 @@ mod tests {
     };
     use crate::traits::Document;
     use crate::{ArcChallenge, ArcEasy, BoolQ, Hellaswag, MMLUPro, OpenbookQA, MMLU, MMLUCF, PIQA};
+    use rand::RngCore;
     use std::collections::HashMap;
     use std::str::FromStr;
     use tokenizers::Tokenizer;
@@ -1141,8 +1142,6 @@ mod tests {
 
     #[test]
     fn task_new_is_deterministic_for_seed() {
-        // Two tasks built from the same seed must hash identically; the
-        // ChaCha8Rng is seeded purely from `random_seed`.
         struct DummyTask;
         impl std::fmt::Display for DummyTask {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1171,13 +1170,64 @@ mod tests {
                 ]
             }
             fn get_fewshot_documents(&self) -> HashMap<String, Vec<Document>> {
-                HashMap::new()
+                let fewshots = (0..8)
+                    .map(|index| Document {
+                        text: format!("example{index}"),
+                        choices: vec![format!("answer{index}")],
+                        answer: 0,
+                        category: None,
+                        cot_content: None,
+                        eval_name: "t".into(),
+                    })
+                    .collect();
+                HashMap::from([("default".into(), fewshots)])
             }
         }
-        let _t1 = Task::new(TaskType::LogLikelihood(Box::new(DummyTask)), 0, 42);
-        let _t2 = Task::new(TaskType::LogLikelihood(Box::new(DummyTask)), 0, 42);
-        // Construction itself is the contract — if the seed math changes we
-        // want a single place that exercises the byte-slice copy.
+
+        let make_task = |seed| Task::new(TaskType::LogLikelihood(Box::new(DummyTask)), 3, seed);
+        let mut first = make_task(42);
+        let mut second = make_task(42);
+        let mut different = make_task(43);
+
+        let first_state = (0..4).map(|_| first.rand.next_u64()).collect::<Vec<_>>();
+        let second_state = (0..4).map(|_| second.rand.next_u64()).collect::<Vec<_>>();
+        let different_state = (0..4)
+            .map(|_| different.rand.next_u64())
+            .collect::<Vec<_>>();
+        assert_eq!(first_state, second_state);
+        assert_ne!(first_state, different_state);
+
+        let tokenizer = tokenizer_with_vocab(&[
+            ("<unk>", 0),
+            ("q", 1),
+            ("a", 2),
+            ("b", 3),
+            ("example0", 4),
+            ("answer0", 5),
+            ("example1", 6),
+            ("answer1", 7),
+            ("example2", 8),
+            ("answer2", 9),
+            ("example3", 10),
+            ("answer3", 11),
+            ("example4", 12),
+            ("answer4", 13),
+            ("example5", 14),
+            ("answer5", 15),
+            ("example6", 16),
+            ("answer6", 17),
+            ("example7", 18),
+            ("answer7", 19),
+        ]);
+        let prepared_requests = |task: Task| match task.prepare(&tokenizer, None).prepared_task_type
+        {
+            super::PreparedTaskType::LogLikelihood { docs } => {
+                docs.into_iter().map(|doc| doc.requests).collect::<Vec<_>>()
+            }
+            super::PreparedTaskType::GenerateUntil { .. } => unreachable!(),
+        };
+
+        assert_eq!(prepared_requests(first), prepared_requests(second));
     }
 
     #[test]
