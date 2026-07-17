@@ -437,7 +437,7 @@ Target: `shared/eval/`.
 - [ ] Test required-column validation for every task.
 - [ ] Test malformed answer indexes for every multiple-choice task.
 - [ ] Test category parsing and normalization.
-- [ ] Test few-shot sampling determinism.
+- [x] Test few-shot sampling determinism.
 - [ ] Test few-shot samples never include the evaluated document.
 - [ ] Test prompt construction against golden text fixtures.
 - [ ] Test tokenizer output against golden token fixtures.
@@ -451,7 +451,7 @@ Target: `shared/eval/`.
 - [ ] Test per-category and overall aggregation.
 - [ ] Test minimum reporting ratio behavior.
 - [ ] Test batching produces the same result as single-document execution.
-- [ ] Test cache isolation between tasks and documents.
+- [x] Test cache isolation between tasks and documents.
 - [ ] Test model errors include task and document context.
 - [x] Strengthen `task_new_is_deterministic_for_seed` with actual state/output comparison.
 

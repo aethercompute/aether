@@ -1251,6 +1251,68 @@ mod tests {
         assert_eq!(cached_generated_tokens(&cache, 2), vec![2, 3]);
     }
 
+    #[test]
+    fn prepared_task_caches_are_isolated_by_task_and_document() {
+        struct DummyTask;
+        impl std::fmt::Display for DummyTask {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "generate")
+            }
+        }
+        impl crate::traits::GenerateUntilTask for DummyTask {
+            fn get_documents(&self) -> Vec<Document> {
+                (0..2)
+                    .map(|index| Document {
+                        text: format!("question {index}"),
+                        choices: vec!["yes".into(), "no".into()],
+                        answer: 0,
+                        category: Some("general".into()),
+                        cot_content: None,
+                        eval_name: "generate".into(),
+                    })
+                    .collect()
+            }
+
+            fn get_fewshot_documents(&self) -> HashMap<String, Vec<Document>> {
+                HashMap::new()
+            }
+
+            fn get_stop_string(&self) -> Vec<String> {
+                vec!["stop".into()]
+            }
+
+            fn get_answer_extraction_regex(&self) -> String {
+                "([A-Z])".into()
+            }
+        }
+
+        let tokenizer = tokenizer_with_vocab(&[("<unk>", 0)]);
+        let prepare = || {
+            Task::new(TaskType::GenerateUntil(Box::new(DummyTask)), 0, 42).prepare(&tokenizer, None)
+        };
+        let first = prepare();
+        let second = prepare();
+        let cache = |task: &super::PreparedTask| match &task.prepared_task_type {
+            super::PreparedTaskType::GenerateUntil { cache, .. } => cache.clone(),
+            super::PreparedTaskType::LogLikelihood { .. } => unreachable!(),
+        };
+        let first_cache = cache(&first);
+        let second_cache = cache(&second);
+
+        assert!(!std::sync::Arc::ptr_eq(&first_cache, &second_cache));
+        cache_generated_tokens(&first_cache, 0, vec![10]);
+        cache_generated_tokens(&first_cache, 1, vec![11]);
+        cache_generated_tokens(&second_cache, 0, vec![20]);
+        assert_eq!(cached_generated_tokens(&first_cache, 0), vec![10]);
+        assert_eq!(cached_generated_tokens(&first_cache, 1), vec![11]);
+        assert_eq!(cached_generated_tokens(&second_cache, 0), vec![20]);
+
+        clear_generated_tokens(&first_cache, 0);
+        assert!(cached_generated_tokens(&first_cache, 0).is_empty());
+        assert_eq!(cached_generated_tokens(&first_cache, 1), vec![11]);
+        assert_eq!(cached_generated_tokens(&second_cache, 0), vec![20]);
+    }
+
     fn sample_document() -> Document {
         // Single-word text/choices so the Whitespace pre-tokenizer in
         // `tokenizer_with_vocab` produces predictable token ids.
