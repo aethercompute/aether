@@ -2,6 +2,8 @@
 //!
 //! Pulled in as a `[dev-dependencies]` entry by crates that want:
 //!   - reproducible randomness ([`seeded_rng`]),
+//!   - deterministic tensors and numerical assertions ([`deterministic_tensor`],
+//!     [`assert_tensors_close`], [`assert_tensor_finite`]),
 //!   - one-shot serialization round-trip checks ([`assert_postcard_roundtrip`],
 //!     [`assert_serde_json_roundtrip`]).
 //!
@@ -10,6 +12,7 @@
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
+use tch::{Device, Kind, Tensor};
 
 /// A deterministic RNG seeded from a `u64`.
 ///
@@ -17,6 +20,48 @@ use rand_chacha::ChaCha8Rng;
 /// under `cargo test`) should derive all randomness from a fixed seed via this.
 pub fn seeded_rng(seed: u64) -> ChaCha8Rng {
     ChaCha8Rng::seed_from_u64(seed)
+}
+
+/// Builds a CPU tensor containing `0..numel`, reshaped and converted to `kind`.
+pub fn deterministic_tensor(shape: &[i64], kind: Kind) -> Tensor {
+    assert!(shape.iter().all(|dimension| *dimension >= 0));
+    let numel = shape
+        .iter()
+        .try_fold(1_i64, |total, dimension| total.checked_mul(*dimension));
+    let numel = numel.expect("tensor shape element count overflowed i64");
+    Tensor::arange(numel, (Kind::Int64, Device::Cpu))
+        .reshape(shape)
+        .to_kind(kind)
+}
+
+/// Returns `(relative, absolute)` tolerances suitable for a floating-point dtype.
+pub fn tensor_tolerances(kind: Kind) -> (f64, f64) {
+    match kind {
+        Kind::Double => (1e-9, 1e-12),
+        Kind::Float => (1e-5, 1e-6),
+        Kind::Half | Kind::BFloat16 => (1e-2, 1e-3),
+        _ => panic!("no numerical tolerance configured for {kind:?}"),
+    }
+}
+
+/// Asserts equal shape and dtype, then compares values with dtype-specific tolerances.
+pub fn assert_tensors_close(actual: &Tensor, expected: &Tensor) {
+    assert_eq!(actual.size(), expected.size(), "tensor shapes differ");
+    assert_eq!(actual.kind(), expected.kind(), "tensor dtypes differ");
+    let (relative, absolute) = tensor_tolerances(actual.kind());
+    assert!(
+        actual.allclose(expected, relative, absolute, false),
+        "tensors differ beyond rtol={relative} and atol={absolute}"
+    );
+}
+
+/// Asserts that every tensor value is finite.
+pub fn assert_tensor_finite(tensor: &Tensor) {
+    assert_eq!(
+        tensor.isfinite().all().int64_value(&[]),
+        1,
+        "tensor contains NaN or infinity"
+    );
 }
 
 /// Serialize `value` with postcard, deserialize it, and return the result.
@@ -77,6 +122,52 @@ mod tests {
         let mut b = seeded_rng(42);
         for _ in 0..16 {
             assert_eq!(a.random::<u64>(), b.random::<u64>());
+        }
+    }
+
+    #[test]
+    fn deterministic_tensor_has_expected_shape_dtype_and_values() {
+        let tensor = deterministic_tensor(&[2, 3], Kind::Float);
+        assert_eq!(tensor.size(), [2, 3]);
+        assert_eq!(tensor.kind(), Kind::Float);
+        assert_eq!(
+            Vec::<f32>::try_from(tensor.view([-1])).unwrap(),
+            [0., 1., 2., 3., 4., 5.]
+        );
+    }
+
+    #[test]
+    fn tensor_tolerances_reflect_dtype_precision() {
+        let (double_relative, double_absolute) = tensor_tolerances(Kind::Double);
+        let (float_relative, float_absolute) = tensor_tolerances(Kind::Float);
+        let (half_relative, half_absolute) = tensor_tolerances(Kind::Half);
+        assert!(double_relative < float_relative && float_relative < half_relative);
+        assert!(double_absolute < float_absolute && float_absolute < half_absolute);
+    }
+
+    #[test]
+    fn tensor_assertions_accept_close_finite_values() {
+        let actual = Tensor::from_slice(&[1.0_f32, 2.0]);
+        let expected = Tensor::from_slice(&[1.0_f32 + 1e-7, 2.0]);
+        assert_tensors_close(&actual, &expected);
+        assert_tensor_finite(&actual);
+    }
+
+    #[test]
+    fn tensor_assertions_reject_large_differences_and_non_finite_values() {
+        let mismatch = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            assert_tensors_close(
+                &Tensor::from_slice(&[1.0_f32]),
+                &Tensor::from_slice(&[2.0_f32]),
+            );
+        }));
+        assert!(mismatch.is_err());
+
+        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                assert_tensor_finite(&Tensor::from_slice(&[value]));
+            }));
+            assert!(result.is_err(), "expected {value:?} to be rejected");
         }
     }
 }

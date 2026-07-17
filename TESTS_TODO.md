@@ -85,9 +85,9 @@ Current baseline (2026-07-17):
 - [ ] Add a standard temporary artifact directory layout for model and dataset tests.
 - [ ] Add a test helper for selecting an unused loopback port without races.
 - [ ] Add a test helper for deterministic node identities and key pairs.
-- [ ] Add a test helper for deterministic tensor construction.
-- [ ] Add a test helper for numerical tolerance assertions by dtype.
-- [ ] Add a test helper for asserting no NaN or infinity in tensors and metrics.
+- [x] Add a test helper for deterministic tensor construction.
+- [x] Add a test helper for numerical tolerance assertions by dtype.
+- [x] Add a test helper for asserting no NaN or infinity in tensors and metrics.
 
 ## P0: Shared Client Orchestration
 
