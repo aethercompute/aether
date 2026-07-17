@@ -18,6 +18,35 @@ const SEED: [u8; 32] = [
     27, 28, 29, 30, 31, 32,
 ];
 
+fn assert_incomplete_file_is_rejected(bytes: &[u8]) {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("data.bin"), bytes).unwrap();
+    let error = LocalDataProvider::new_from_directory(
+        directory.path(),
+        TokenSize::TwoBytes,
+        2,
+        Shuffle::DontShuffle,
+    )
+    .err()
+    .expect("incomplete data file should be rejected");
+    assert!(
+        error
+            .to_string()
+            .contains("contain no complete 4-byte sequences"),
+        "unexpected error: {error:#}"
+    );
+}
+
+#[test]
+fn rejects_file_shorter_than_one_sequence() {
+    assert_incomplete_file_is_rejected(&[1, 2, 3]);
+}
+
+#[test]
+fn rejects_zero_length_file_with_context() {
+    assert_incomplete_file_is_rejected(&[]);
+}
+
 #[tokio::test]
 async fn loads_dolma_subset() {
     let data_dir = test_path(&["resources", "dolma", "data"]);

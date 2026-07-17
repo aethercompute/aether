@@ -389,8 +389,8 @@ Target: `shared/data-provider/`.
 - [ ] Test HTTP range responses with incorrect offsets.
 - [ ] Test HTTP short reads.
 - [ ] Test HTTP responses larger than declared.
-- [ ] Test files shorter than one requested sequence.
-- [ ] Test zero-length files.
+- [x] Test files shorter than one requested sequence.
+- [x] Test zero-length files.
 - [ ] Test malformed URL templates.
 - [ ] Test numbered URL overflow and missing files.
 - [ ] Test tokenizer and token-size mismatch.

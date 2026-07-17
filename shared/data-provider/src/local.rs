@@ -18,6 +18,9 @@ fn is_truthy_env_bool(value: &str) -> bool {
 
 fn mmap_file(p: &std::path::PathBuf) -> Result<Box<dyn AsRef<[u8]> + Send>> {
     let file = std::fs::File::open(p)?;
+    if file.metadata()?.len() == 0 {
+        return Ok(Box::new(Vec::<u8>::new()));
+    }
 
     // Try to mmap first, only falling back to read if allowed.
     // SAFETY: the mmap is read-only and owned by the returned object. Training
@@ -131,6 +134,13 @@ impl LocalDataProvider {
             }
             all_indexes
         };
+
+        if sequences.is_empty() {
+            bail!(
+                "Training data files in {} contain no complete {seq_len_in_bytes}-byte sequences",
+                dir.display()
+            );
+        }
 
         Ok(Self {
             data_files,
