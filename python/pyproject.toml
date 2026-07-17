@@ -23,8 +23,19 @@ torch = { path = "stub/torch" }
 tests = ["pytest"]
 
 [tool.pytest.ini_options]
+addopts = "--strict-markers"
 pythonpath = ["python"]
 testpaths = ["tests"]
+markers = [
+  "unit: isolated tests with no external services or processes",
+  "integration: tests spanning multiple modules or process boundaries",
+  "oracle: correctness tests against an independent reference implementation",
+  "gpu: tests requiring a CUDA-capable GPU",
+  "distributed: tests requiring multiple ranks or processes",
+  "vllm: tests requiring the optional vLLM runtime",
+  "slow: tests excluded from the default fast feedback suite",
+  "regression: tests preserving a specific bug fix",
+]
 
 [build-system]
 requires = ["uv_build<0.9"]

@@ -30,7 +30,7 @@ Current baseline (2026-07-17):
 
 ## P0: CI and Test Enforcement
 
-- [ ] Add `unit`, `integration`, `oracle`, `gpu`, `distributed`, `vllm`, `slow`, and `regression` pytest markers.
+- [x] Add `unit`, `integration`, `oracle`, `gpu`, `distributed`, `vllm`, `slow`, and `regression` pytest markers.
 - [ ] Add equivalent documented Rust test naming and feature conventions.
 - [ ] Split required CPU tests from optional hardware tests in CI.
 - [ ] Add a required Python CPU test job with Torch, Transformers, and PEFT import checks.
