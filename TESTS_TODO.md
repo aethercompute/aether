@@ -517,9 +517,9 @@ Target: `scripts/*.py`.
 - [x] Test SFT common-prefix masking.
 - [x] Test SFT truncation and padding.
 - [x] Test SFT all-masked sample rejection.
-- [ ] Test SFT shard rotation.
-- [ ] Test SFT metadata counts against actual Parquet rows.
-- [ ] Test SFT stale-output cleanup.
+- [x] Test SFT shard rotation.
+- [x] Test SFT metadata counts against actual Parquet rows.
+- [x] Test SFT stale-output cleanup.
 - [ ] Test SFT zero-output failure.
 - [ ] Test SFT deterministic output with a fixed seed.
 - [ ] Test Ultra-FineWeb source parsing.

@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -140,3 +141,81 @@ def test_build_messages_example_rejects_all_masked_after_truncation():
 
     args = SimpleNamespace(sequence_length=3)
     assert script.build_messages_example(Tokenizer(), MESSAGES, args) is None
+
+
+def test_main_rotates_shards_records_actual_rows_and_removes_stale_output(
+    monkeypatch, tmp_path
+):
+    script = load_script()
+
+    class Tokenizer:
+        pad_token_id = 0
+        eos_token_id = 9
+        chat_template = None
+
+        def encode(self, text, *, add_special_tokens):
+            assert add_special_tokens
+            return [1, 2] if text.endswith("\n") else [1, 2, 3, 4]
+
+    class Progress:
+        def update(self, count):
+            assert count == 1
+
+        def close(self):
+            pass
+
+    args = SimpleNamespace(
+        sequence_length=6,
+        shard_size=2,
+        output_dir=str(tmp_path),
+        tokenizer="local-tokenizer",
+        trust_remote_code=False,
+        mode="prompt-response",
+        dataset="local-dataset",
+        subset=None,
+        split="train",
+        num_sequences=None,
+        buffer_docs=0,
+        seed=7,
+        prompt_field="prompt",
+        response_field="response",
+        messages_field="messages",
+        system_prompt=None,
+    )
+    samples = [
+        {"prompt": f"question {index}", "response": f"answer {index}"}
+        for index in range(5)
+    ]
+    stale = tmp_path / "train-99999.parquet"
+    stale.write_bytes(b"stale")
+    monkeypatch.setattr(script, "parse_args", lambda: args)
+    monkeypatch.setattr(
+        script.AutoTokenizer,
+        "from_pretrained",
+        lambda *args, **kwargs: Tokenizer(),
+    )
+    monkeypatch.setattr(script, "iter_samples", lambda args: samples)
+    monkeypatch.setattr(script, "tqdm", lambda **kwargs: Progress())
+
+    script.main()
+
+    shards = sorted(tmp_path.glob("train-*.parquet"))
+    assert [path.name for path in shards] == [
+        "train-00000.parquet",
+        "train-00001.parquet",
+        "train-00002.parquet",
+    ]
+    actual_rows = {
+        path.name: script.pq.read_table(path).num_rows
+        for path in shards
+    }
+    assert actual_rows == {
+        "train-00000.parquet": 2,
+        "train-00001.parquet": 2,
+        "train-00002.parquet": 1,
+    }
+    metadata = json.loads((tmp_path / "subset_metadata.json").read_text())
+    assert metadata["num_sequences"] == 5
+    assert metadata["file_rows"] == actual_rows
+    assert metadata["files"] == list(actual_rows)
+    assert not stale.exists()
