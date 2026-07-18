@@ -586,6 +586,7 @@ impl LocalTrainer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn forward_backward(
         model: &mut dyn CausalLM,
         inputs: Tensor,
@@ -594,8 +595,13 @@ impl LocalTrainer {
         sequence_lengths: Option<Vec<Vec<i32>>>,
         barrier: &Arc<dyn Barrier>,
         loss_scale: Option<f64>,
+        cancel_training: &CancellationToken,
     ) -> Result<Option<Tensor>> {
         let labels = labels.unwrap_or_else(|| inputs.copy());
+        if cancel_training.is_cancelled() {
+            barrier.cancel();
+            return Ok(None);
+        }
         if barrier.wait().is_err() {
             return Ok(None);
         }
@@ -607,8 +613,16 @@ impl LocalTrainer {
             None,
             loss_scale,
         );
+        if cancel_training.is_cancelled() {
+            barrier.cancel();
+            return Ok(None);
+        }
         let loss = loss.ok_or(Error::msg("No loss"))?;
         loss.backward();
+        if cancel_training.is_cancelled() {
+            barrier.cancel();
+            return Ok(None);
+        }
         Ok(Some(loss.detach()))
     }
 
@@ -1116,6 +1130,7 @@ impl LocalTrainer {
                             sequence_lengths,
                             &barrier,
                             Some(loss_scale),
+                            &cancel_training,
                         ) {
                             Ok(Some(batch_loss)) => match loss.as_mut() {
                                 Some(loss) => *loss += batch_loss,

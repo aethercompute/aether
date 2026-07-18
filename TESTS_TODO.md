@@ -278,9 +278,9 @@ Target: `shared/modeling/` and `python/python/aether/models/`.
 - [x] Test ignored-label batches with all labels ignored.
 - [x] Test zero-length and single-token batches.
 - [x] Test uneven microbatch accumulation across more than two splits.
-- [ ] Test cancellation between forward, backward, and optimizer phases.
-- [ ] Test trainer worker panic propagation.
-- [ ] Test repeated train/optimize/extract cycles for state leaks.
+- [x] Test cancellation between forward, backward, and optimizer phases.
+- [x] Test trainer worker panic propagation.
+- [x] Test repeated train/optimize/extract cycles for state leaks.
 - [x] Add parameterized Python HF factory routing tests.
 - [x] Test Python HF `from_pretrained` with a tiny local checkpoint.
 - [x] Test Python HF forward logits against the direct Transformers model.

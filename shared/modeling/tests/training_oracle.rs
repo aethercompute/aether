@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{mpsc, Arc},
+    time::Duration,
+};
 
 use aether_core::{
     BatchId, CancellableBarrier, ClosedInterval, ConstantLR, LearningRateSchedule,
@@ -6,7 +10,7 @@ use aether_core::{
 };
 use aether_modeling::{
     Batch, BatchData, BatchDataCPU, CausalLM, DistroResult, EosToks, LocalTrainer, ParallelModels,
-    StableVarStoreIterator, StableVariableIterator, Trainer,
+    StableVarStoreIterator, StableVariableIterator, Trainer, TrainerThreadCommunicationError,
 };
 use aether_network::{
     distro_results_from_reader, distro_results_to_bytes, SerializedDistroResult,
@@ -28,6 +32,9 @@ struct TinyCausalLm {
     vs: VarStore,
     embed: nn::Embedding,
     lm_head: nn::Linear,
+    panic_on_forward: bool,
+    forward_started: Option<mpsc::SyncSender<()>>,
+    forward_release: Option<mpsc::Receiver<()>>,
 }
 
 // SAFETY: the test model is moved into one trainer-owned worker thread and all
@@ -50,9 +57,31 @@ impl TinyCausalLm {
         );
         let _checkpoint_only = root.var("checkpoint_only", &[1], nn::Init::Const(3.0));
 
-        let model = Self { vs, embed, lm_head };
+        let model = Self {
+            vs,
+            embed,
+            lm_head,
+            panic_on_forward: false,
+            forward_started: None,
+            forward_release: None,
+        };
         model.initialize_weights();
         model
+    }
+
+    fn panicking() -> Self {
+        Self {
+            panic_on_forward: true,
+            ..Self::new()
+        }
+    }
+
+    fn blocking(started: mpsc::SyncSender<()>, release: mpsc::Receiver<()>) -> Self {
+        Self {
+            forward_started: Some(started),
+            forward_release: Some(release),
+            ..Self::new()
+        }
     }
 
     fn from_state(state: &HashMap<String, Tensor>) -> Self {
@@ -91,6 +120,13 @@ impl CausalLM for TinyCausalLm {
         num_logits_to_keep: Option<i64>,
         loss_scale: Option<f64>,
     ) -> (Option<Tensor>, Option<Tensor>) {
+        assert!(!self.panic_on_forward, "injected trainer worker panic");
+        if let (Some(started), Some(release)) = (&self.forward_started, &self.forward_release) {
+            started.send(()).expect("signal blocked forward");
+            release
+                .recv_timeout(Duration::from_secs(2))
+                .expect("release blocked forward within deadline");
+        }
         let (_, t) = x.size2().expect("tiny oracle inputs are [batch, time]");
         let hidden = self.embed.forward(x);
         let hidden = match num_logits_to_keep {
@@ -321,9 +357,17 @@ fn distro_definition() -> OptimizerDefinition {
 }
 
 fn new_trainer(optimizer: OptimizerDefinition, micro_batch_size: usize) -> Trainer {
+    trainer_for_model(TinyCausalLm::new(), optimizer, micro_batch_size)
+}
+
+fn trainer_for_model(
+    model: TinyCausalLm,
+    optimizer: OptimizerDefinition,
+    micro_batch_size: usize,
+) -> Trainer {
     LocalTrainer::new(
         ParallelModels {
-            models: vec![Box::new(TinyCausalLm::new()) as Box<dyn CausalLM>],
+            models: vec![Box::new(model) as Box<dyn CausalLM>],
             barrier: Arc::new(CancellableBarrier::new(1)),
             data_parallel: None,
         },
@@ -898,6 +942,121 @@ fn all_ignored_label_batch_cancels_without_nonfinite_metrics_or_state_changes() 
     assert!(output.loss.is_finite());
     let mut trainer = output.trainer;
     assert_state_close(&extract_state(&mut trainer), &initial, 0.0, 0.0);
+}
+
+#[test]
+fn cancellation_is_observed_before_forward_and_after_a_blocked_forward() {
+    let initial = snapshot_state(&TinyCausalLm::new());
+    let pre_cancelled = CancellationToken::new();
+    pre_cancelled.cancel();
+    let output = new_trainer(adamw_definition(), 2)
+        .train(
+            0,
+            training_batches().remove(0),
+            None,
+            false,
+            vec![],
+            None,
+            pre_cancelled,
+        )
+        .expect("pre-forward cancellation returns a result");
+    assert!(output.cancelled);
+    let mut trainer = output.trainer;
+    assert_state_close(&extract_state(&mut trainer), &initial, 0.0, 0.0);
+
+    let (started_tx, started_rx) = mpsc::sync_channel(1);
+    let (release_tx, release_rx) = mpsc::sync_channel(1);
+    let trainer = trainer_for_model(
+        TinyCausalLm::blocking(started_tx, release_rx),
+        adamw_definition(),
+        4,
+    );
+    let cancellation = CancellationToken::new();
+    let worker_cancellation = cancellation.clone();
+    let handle = std::thread::spawn(move || {
+        trainer.train(
+            0,
+            training_batches().remove(0),
+            None,
+            false,
+            vec![],
+            None,
+            worker_cancellation,
+        )
+    });
+    started_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("forward starts within deadline");
+    cancellation.cancel();
+    release_tx.send(()).expect("release blocked forward");
+    let output = handle
+        .join()
+        .expect("trainer caller thread does not panic")
+        .expect("in-forward cancellation returns a result");
+
+    assert!(output.cancelled);
+    assert_eq!(output.loss, 0.0);
+    let mut trainer = output.trainer;
+    assert_state_close(&extract_state(&mut trainer), &initial, 0.0, 0.0);
+}
+
+#[test]
+fn trainer_worker_panic_propagates_as_channel_error() {
+    let trainer = trainer_for_model(TinyCausalLm::panicking(), adamw_definition(), 4);
+
+    let result = trainer.train(
+        0,
+        training_batches().remove(0),
+        None,
+        false,
+        vec![],
+        None,
+        CancellationToken::new(),
+    );
+
+    assert!(matches!(
+        result,
+        Err(TrainerThreadCommunicationError::RecvResult)
+    ));
+}
+
+#[test]
+fn repeated_train_optimize_extract_cycles_keep_stable_finite_state() {
+    let mut trainer = new_trainer(adamw_definition(), 2);
+    let expected_keys = snapshot_state(&TinyCausalLm::new())
+        .into_keys()
+        .collect::<std::collections::HashSet<_>>();
+
+    for step in 0..12 {
+        let output = trainer
+            .train(
+                step,
+                training_batches().remove(step as usize % training_batches().len()),
+                None,
+                false,
+                vec![],
+                None,
+                CancellationToken::new(),
+            )
+            .expect("repeated train succeeds");
+        assert!(!output.cancelled);
+        assert!(output.loss.is_finite());
+        trainer = output
+            .trainer
+            .optimize(step, None, None)
+            .expect("repeated optimize succeeds");
+        let state = extract_state(&mut trainer);
+        assert_eq!(
+            state
+                .keys()
+                .cloned()
+                .collect::<std::collections::HashSet<_>>(),
+            expected_keys
+        );
+        assert!(state
+            .values()
+            .all(|tensor| tensor.isfinite().all().int64_value(&[]) == 1));
+    }
 }
 
 #[test]
