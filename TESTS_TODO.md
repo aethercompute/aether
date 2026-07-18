@@ -281,7 +281,7 @@ Target: `shared/modeling/` and `python/python/aether/models/`.
 - [ ] Test cancellation between forward, backward, and optimizer phases.
 - [ ] Test trainer worker panic propagation.
 - [ ] Test repeated train/optimize/extract cycles for state leaks.
-- [ ] Add parameterized Python HF factory routing tests.
+- [x] Add parameterized Python HF factory routing tests.
 - [ ] Test Python HF `from_pretrained` with a tiny local checkpoint.
 - [ ] Test Python HF forward logits against the direct Transformers model.
 - [ ] Test Python HF loss against the direct Transformers model.

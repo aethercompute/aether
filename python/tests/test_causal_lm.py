@@ -151,3 +151,77 @@ def test_factory_rejects_lora_for_non_hf_architecture():
             "eager",
             lora_config=LoraConfig(),
         )
+
+
+@pytest.mark.parametrize(
+    ("architecture", "module_name", "class_name", "supports_lora"),
+    [
+        ("HfAuto", "hf_transformers", "HfTransformersAuto", True),
+        ("Torchtitan", "ttitan", "TorchtitanAuto", False),
+    ],
+)
+def test_factory_routes_and_forwards_arguments(
+    monkeypatch, architecture, module_name, class_name, supports_lora
+):
+    import torch
+
+    from aether.models import PretrainedSourceRepoFiles, make_causal_lm
+
+    calls = []
+    sentinel = object()
+    backend_module = types.ModuleType(f"aether.models.{module_name}")
+    backend = type(
+        class_name,
+        (),
+        {
+            "from_pretrained": staticmethod(
+                lambda **kwargs: calls.append(kwargs) or sentinel
+            )
+        },
+    )
+    setattr(backend_module, class_name, backend)
+    monkeypatch.setitem(sys.modules, f"aether.models.{module_name}", backend_module)
+    source = PretrainedSourceRepoFiles(["config.json"])
+    device = torch.device()
+
+    result = make_causal_lm(
+        architecture,
+        source,
+        device,
+        "eager",
+        dp=2,
+        tp=3,
+        override_max_position_embeddings=128,
+        param_dtype="params",
+        reduce_dtype="reduce",
+        fsdp_modules=["layer"],
+    )
+
+    assert result is sentinel
+    assert len(calls) == 1
+    assert calls[0] == {
+        "source": source,
+        "device": device,
+        "attn_implementation": "eager",
+        "dp": 2,
+        "tp": 3,
+        "override_max_position_embeddings": 128,
+        "param_dtype": "params",
+        "reduce_dtype": "reduce",
+        "fsdp_modules": ["layer"],
+        **({"lora_config": None, "adapter_source": None} if supports_lora else {}),
+    }
+
+
+def test_factory_rejects_unknown_architecture():
+    import torch
+
+    from aether.models import PretrainedSourceRepoFiles, make_causal_lm
+
+    with pytest.raises(ValueError, match="Unknown architecture Unsupported"):
+        make_causal_lm(
+            "Unsupported",
+            PretrainedSourceRepoFiles([]),
+            torch.device(),
+            "eager",
+        )
