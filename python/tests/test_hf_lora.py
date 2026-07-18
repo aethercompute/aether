@@ -1,3 +1,4 @@
+import copy
 import sys
 import types
 from types import SimpleNamespace
@@ -121,6 +122,29 @@ def test_lora_state_views_and_exports(hf_module):
         torch.equal(value, wrapped.named_state()[name])
         for name, value in live_before_merge.items()
     )
+
+
+def test_merged_state_matches_direct_peft_merge(hf_module):
+    from aether.models import LoraConfig
+
+    config = LoraConfig(rank=2, alpha=4, init_seed=7)
+    model = hf_module._attach_lora(tiny_model(), config, torch.device("cpu"))
+    with torch.no_grad():
+        for name, parameter in model.named_parameters():
+            if "lora_A" in name:
+                parameter.fill_(0.25)
+            elif "lora_B" in name:
+                parameter.fill_(0.5)
+    wrapped = hf_module.HfTransformersAuto(
+        model, model.config, world_mesh=None, device=torch.device("cpu")
+    )
+    wrapped.lora_config = config
+
+    actual = wrapped.merged_state_dict()
+    expected = copy.deepcopy(model).merge_and_unload().state_dict()
+
+    assert actual.keys() == expected.keys()
+    assert all(torch.equal(actual[name], expected[name]) for name in expected)
 
 
 def test_adapter_state_can_be_restored(hf_module):
