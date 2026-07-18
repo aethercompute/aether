@@ -289,10 +289,10 @@ Target: `shared/modeling/` and `python/python/aether/models/`.
 - [x] Test Python HF device and dtype conversion.
 - [x] Test Python HF LoRA merge output against PEFT.
 - [x] Test Python HF adapter-only save and reload from disk.
-- [ ] Add parameterized Torchtitan config conversion tests for every supported model family.
-- [ ] Test Torchtitan unknown architecture and missing-field errors.
-- [ ] Test Torchtitan state-key prefix normalization.
-- [ ] Add a tiny Torchtitan CPU forward test where supported.
+- [x] Add parameterized Torchtitan config conversion tests for every supported model family.
+- [x] Test Torchtitan unknown architecture and missing-field errors.
+- [x] Test Torchtitan state-key prefix normalization.
+- [x] Add a tiny Torchtitan CPU forward test where supported.
 
 ## P1: Distributed and GPU Modeling
 

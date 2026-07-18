@@ -336,7 +336,8 @@ class TorchtitanAuto(CausalLM):
                 model = train_spec.model_cls(config_tt, PEFT())
             except TypeError:
                 model = train_spec.model_cls(config_tt)
-        torch.cuda.set_device(device)
+        if device.type == "cuda":
+            torch.cuda.set_device(device)
 
         model_param_count, _ = config_tt.get_nparams_and_flops(
             model, config_tt.max_seq_len
@@ -437,7 +438,12 @@ class TorchtitanAuto(CausalLM):
                     if position_ids is not None:
                         position_ids = position_ids.narrow(0, start_row, shard_size)
         try:
-            with self.amp, torch.cuda.device(input_ids.device.index):
+            device_context = (
+                torch.cuda.device(input_ids.device.index)
+                if input_ids.device.type == "cuda"
+                else nullcontext()
+            )
+            with self.amp, device_context:
                 pred = self.model(
                     tokens=input_ids.contiguous(),
                     position_ids=(
