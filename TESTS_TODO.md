@@ -520,7 +520,7 @@ Target: `scripts/*.py`.
 - [x] Test SFT shard rotation.
 - [x] Test SFT metadata counts against actual Parquet rows.
 - [x] Test SFT stale-output cleanup.
-- [ ] Test SFT zero-output failure.
+- [x] Test SFT zero-output failure.
 - [ ] Test SFT deterministic output with a fixed seed.
 - [ ] Test Ultra-FineWeb source parsing.
 - [ ] Test Ultra-FineWeb JSON and CLI precedence.

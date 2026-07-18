@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 
 def load_script():
     path = Path(__file__).parents[2] / "scripts" / "prepare-sft-local.py"
@@ -219,3 +221,53 @@ def test_main_rotates_shards_records_actual_rows_and_removes_stale_output(
     assert metadata["file_rows"] == actual_rows
     assert metadata["files"] == list(actual_rows)
     assert not stale.exists()
+
+
+def test_main_rejects_zero_output_without_writing_artifacts(monkeypatch, tmp_path):
+    script = load_script()
+
+    class Tokenizer:
+        pad_token_id = 0
+        eos_token_id = 9
+        chat_template = None
+
+    class Progress:
+        def update(self, count):
+            raise AssertionError(f"unexpected progress update: {count}")
+
+        def close(self):
+            pass
+
+    args = SimpleNamespace(
+        sequence_length=6,
+        shard_size=2,
+        output_dir=str(tmp_path),
+        tokenizer="local-tokenizer",
+        trust_remote_code=False,
+        mode="prompt-response",
+        dataset="local-dataset",
+        subset=None,
+        split="train",
+        num_sequences=None,
+        buffer_docs=0,
+        seed=7,
+        prompt_field="prompt",
+        response_field="response",
+        messages_field="messages",
+        system_prompt=None,
+    )
+    monkeypatch.setattr(script, "parse_args", lambda: args)
+    monkeypatch.setattr(
+        script.AutoTokenizer,
+        "from_pretrained",
+        lambda *args, **kwargs: Tokenizer(),
+    )
+    monkeypatch.setattr(script, "iter_samples", lambda args: [{"prompt": "   "}])
+    monkeypatch.setattr(script, "tqdm", lambda **kwargs: Progress())
+
+    with pytest.raises(RuntimeError, match="No SFT examples were produced") as error:
+        script.main()
+
+    assert "missing prompt/response text: 1" in str(error.value)
+    assert not (tmp_path / "subset_metadata.json").exists()
+    assert list(tmp_path.glob("*.parquet")) == []
