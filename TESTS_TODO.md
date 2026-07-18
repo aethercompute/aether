@@ -521,7 +521,7 @@ Target: `scripts/*.py`.
 - [x] Test SFT metadata counts against actual Parquet rows.
 - [x] Test SFT stale-output cleanup.
 - [x] Test SFT zero-output failure.
-- [ ] Test SFT deterministic output with a fixed seed.
+- [x] Test SFT deterministic output with a fixed seed.
 - [ ] Test Ultra-FineWeb source parsing.
 - [ ] Test Ultra-FineWeb JSON and CLI precedence.
 - [ ] Test Ultra-FineWeb source weight validation.

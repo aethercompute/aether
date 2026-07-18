@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import random
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -271,3 +272,77 @@ def test_main_rejects_zero_output_without_writing_artifacts(monkeypatch, tmp_pat
     assert "missing prompt/response text: 1" in str(error.value)
     assert not (tmp_path / "subset_metadata.json").exists()
     assert list(tmp_path.glob("*.parquet")) == []
+
+
+def test_main_output_is_byte_deterministic_for_fixed_seed(monkeypatch, tmp_path):
+    script = load_script()
+
+    class Tokenizer:
+        pad_token_id = 0
+        eos_token_id = 9
+        chat_template = None
+
+        def encode(self, text, *, add_special_tokens):
+            assert add_special_tokens
+            value = int(text.split()[-1])
+            return [1, value] if text.endswith("\n") else [1, value, value + 10]
+
+    class Dataset(list):
+        def shuffle(self, *, seed, buffer_size):
+            assert buffer_size == 10
+            shuffled = list(self)
+            random.Random(seed).shuffle(shuffled)
+            return shuffled
+
+    class Progress:
+        def update(self, count):
+            assert count == 1
+
+        def close(self):
+            pass
+
+    first_output = tmp_path / "first"
+    second_output = tmp_path / "second"
+    args = SimpleNamespace(
+        sequence_length=5,
+        shard_size=2,
+        output_dir=str(first_output),
+        tokenizer="local-tokenizer",
+        trust_remote_code=False,
+        mode="prompt-response",
+        dataset="local-dataset",
+        subset=None,
+        split="train",
+        num_sequences=None,
+        buffer_docs=10,
+        seed=123,
+        prompt_field="prompt",
+        response_field="response",
+        messages_field="messages",
+        system_prompt=None,
+    )
+    samples = Dataset(
+        {"prompt": f"question {index}", "response": f"answer {index}"}
+        for index in range(5)
+    )
+    monkeypatch.setattr(script, "parse_args", lambda: args)
+    monkeypatch.setattr(
+        script.AutoTokenizer,
+        "from_pretrained",
+        lambda *args, **kwargs: Tokenizer(),
+    )
+    monkeypatch.setattr(script, "load_dataset", lambda **kwargs: Dataset(samples))
+    monkeypatch.setattr(script, "tqdm", lambda **kwargs: Progress())
+
+    script.main()
+    args.output_dir = str(second_output)
+    script.main()
+
+    def output_bytes(directory):
+        return {
+            path.name: path.read_bytes()
+            for path in sorted(directory.iterdir())
+            if path.is_file()
+        }
+
+    assert output_bytes(first_output) == output_bytes(second_output)
