@@ -288,7 +288,7 @@ Target: `shared/modeling/` and `python/python/aether/models/`.
 - [x] Test Python HF missing, unexpected, and tied parameter handling.
 - [ ] Test Python HF device and dtype conversion.
 - [ ] Test Python HF LoRA merge output against PEFT.
-- [ ] Test Python HF adapter-only save and reload from disk.
+- [x] Test Python HF adapter-only save and reload from disk.
 - [ ] Add parameterized Torchtitan config conversion tests for every supported model family.
 - [ ] Test Torchtitan unknown architecture and missing-field errors.
 - [ ] Test Torchtitan state-key prefix normalization.

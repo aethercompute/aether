@@ -6,6 +6,7 @@ import peft
 import pytest
 import torch
 import transformers
+from safetensors.torch import save_file
 
 
 @pytest.fixture
@@ -139,6 +140,30 @@ def test_adapter_state_can_be_restored(hf_module):
     )
 
     restored_state = peft.get_peft_model_state_dict(restored)
+    assert restored_state.keys() == adapter_state.keys()
+    assert all(torch.equal(restored_state[name], adapter_state[name]) for name in adapter_state)
+
+
+def test_adapter_only_state_can_be_saved_and_reloaded_from_disk(hf_module, tmp_path):
+    from aether.models import LoraConfig, PretrainedSourceRepoFiles
+
+    config = LoraConfig(rank=2, alpha=4, init_seed=7)
+    first = hf_module._attach_lora(tiny_model(), config, torch.device("cpu"))
+    adapter_state = peft.get_peft_model_state_dict(first)
+    for tensor in adapter_state.values():
+        tensor.fill_(0.375)
+    path = tmp_path / "adapter_model.safetensors"
+    save_file(adapter_state, path)
+
+    restored = hf_module._attach_lora(
+        tiny_model(),
+        config,
+        torch.device("cpu"),
+        PretrainedSourceRepoFiles([str(path)]),
+    )
+    restored_state = peft.get_peft_model_state_dict(restored)
+
+    assert adapter_state and all("lora_" in name for name in adapter_state)
     assert restored_state.keys() == adapter_state.keys()
     assert all(torch.equal(restored_state[name], adapter_state[name]) for name in adapter_state)
 
