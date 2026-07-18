@@ -513,9 +513,9 @@ Target: `shared/inference/` and `python/python/aether/vllm/`.
 Target: `scripts/*.py`.
 
 - [x] Test SFT message normalization.
-- [ ] Test SFT prompt and response masking.
-- [ ] Test SFT common-prefix masking.
-- [ ] Test SFT truncation and padding.
+- [x] Test SFT prompt and response masking.
+- [x] Test SFT common-prefix masking.
+- [x] Test SFT truncation and padding.
 - [x] Test SFT all-masked sample rejection.
 - [ ] Test SFT shard rotation.
 - [ ] Test SFT metadata counts against actual Parquet rows.
