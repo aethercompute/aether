@@ -206,6 +206,11 @@ impl<M: LanguageModelForward, C: LanguageModelConfig> CausalLM for CausalLanguag
         loss_scale: Option<f64>,
     ) -> (Option<Tensor>, Option<Tensor>) {
         let (_, t) = x.size2().unwrap();
+        assert!(
+            t as usize <= self.config.max_position_embeddings(),
+            "sequence length {t} exceeds maximum context length {}",
+            self.config.max_position_embeddings()
+        );
         let mut x = self.model.forward(
             x,
             position_ids,

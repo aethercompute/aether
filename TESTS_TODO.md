@@ -254,10 +254,10 @@ Target: `shared/modeling/` and `python/python/aether/models/`.
 - [x] Test tied and untied DeepSeek embeddings.
 - [x] Test DeepSeek safetensors reload equivalence.
 - [x] Test DeepSeek checkpoint missing and extra keys.
-- [ ] Test Llama position IDs and sequence-length handling.
-- [ ] Test Llama `num_logits_to_keep` behavior.
-- [ ] Test Llama loss scaling.
-- [ ] Test Llama maximum-context rejection.
+- [x] Test Llama position IDs and sequence-length handling.
+- [x] Test Llama `num_logits_to_keep` behavior.
+- [x] Test Llama loss scaling.
+- [x] Test Llama maximum-context rejection.
 - [ ] Test attention masks for padded and packed batches.
 - [ ] Test RoPE at position zero, maximum position, and beyond configured limits.
 - [ ] Test RoPE scaling variants against independent formulas.

@@ -602,3 +602,93 @@ fn tiny_tied_llama_safetensors_checkpoint_loads_and_trains_shared_embeddings() {
 
     let _ = std::fs::remove_dir_all(checkpoint_dir);
 }
+
+#[test]
+fn llama_position_ids_and_sequence_metadata_are_handled_explicitly() {
+    let model = new_llama();
+    let tokens = Tensor::from_slice2(&[[0_i64, 2, 4, 6, 8], [1, 3, 5, 7, 9]]);
+    let sequential_positions = Tensor::from_slice2(&[[0_i64, 1, 2, 3, 4], [0, 1, 2, 3, 4]]);
+    let reset_positions = Tensor::from_slice2(&[[0_i64, 1, 0, 1, 2], [0, 1, 0, 1, 2]]);
+    let packed_lengths = vec![vec![2, 3], vec![2, 3]];
+
+    let default_logits = model
+        .forward(&tokens, None, None, None, None, None)
+        .0
+        .expect("default-position logits");
+    let explicit_logits = model
+        .forward(
+            &tokens,
+            None,
+            Some(&sequential_positions),
+            Some(&packed_lengths),
+            None,
+            None,
+        )
+        .0
+        .expect("explicit-position logits");
+    let reset_logits = model
+        .forward(&tokens, None, Some(&reset_positions), None, None, None)
+        .0
+        .expect("reset-position logits");
+
+    assert!(default_logits.allclose(&explicit_logits, 1e-6, 1e-6, false));
+    assert!(
+        !default_logits.allclose(&reset_logits, 1e-6, 1e-6, false),
+        "reset position IDs must change attention output"
+    );
+}
+
+#[test]
+#[should_panic(expected = "sequence length mismatch between x and position_ids")]
+fn llama_rejects_position_ids_with_the_wrong_sequence_length() {
+    let model = new_llama();
+    let tokens = Tensor::zeros([1, 5], (Kind::Int64, Device::Cpu));
+    let position_ids = Tensor::zeros([1, 4], (Kind::Int64, Device::Cpu));
+    let _ = model.forward(&tokens, None, Some(&position_ids), None, None, None);
+}
+
+#[test]
+fn llama_num_logits_to_keep_returns_the_matching_full_logits_suffix() {
+    let model = new_llama();
+    let tokens = Tensor::from_slice2(&[[0_i64, 2, 4, 6, 8], [1, 3, 5, 7, 9]]);
+
+    let full = model
+        .forward(&tokens, None, None, None, None, None)
+        .0
+        .expect("full logits");
+    let retained = model
+        .forward(&tokens, None, None, None, Some(2), None)
+        .0
+        .expect("retained logits");
+
+    assert_eq!(retained.size(), [2, 2, VOCAB_SIZE]);
+    assert!(retained.allclose(&full.slice(1, 3, 5, 1), 0.0, 0.0, false));
+}
+
+#[test]
+fn llama_loss_scale_divides_loss_without_changing_logits() {
+    let model = new_llama();
+    let tokens = Tensor::from_slice2(&[[0_i64, 2, 4, 6, 8], [1, 3, 5, 7, 9]]);
+
+    let (base_logits, base_loss) = model.forward(&tokens, Some(&tokens), None, None, None, None);
+    let (scaled_logits, scaled_loss) =
+        model.forward(&tokens, Some(&tokens), None, None, None, Some(4.0));
+    let base_loss = base_loss.expect("base loss");
+    let scaled_loss = scaled_loss.expect("scaled loss");
+
+    assert!(base_logits.expect("base logits").allclose(
+        &scaled_logits.expect("scaled logits"),
+        0.0,
+        0.0,
+        false
+    ));
+    assert!(scaled_loss.allclose(&(base_loss / 4.0), 1e-7, 1e-7, false));
+}
+
+#[test]
+#[should_panic(expected = "sequence length 17 exceeds maximum context length 16")]
+fn llama_rejects_inputs_beyond_the_configured_context() {
+    let model = new_llama();
+    let tokens = Tensor::zeros([1, 17], (Kind::Int64, Device::Cpu));
+    let _ = model.forward(&tokens, None, None, None, None, None);
+}
