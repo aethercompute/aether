@@ -334,7 +334,9 @@ fn validate_all_clients_participate_in_witness_bloom() {
 
         let server_port = server_handle.server_port;
         let run_id = &server_handle.run_id;
-        let _client_handles = spawn_clients(init_min_clients as usize, server_port, run_id).await;
+        let _client_handles =
+            spawn_clients_with_training_delay(init_min_clients as usize, server_port, run_id, 1)
+                .await;
 
         // assert that we start in the round 0
         assert_with_retries(|| server_handle.get_rounds_head(), 0).await;
