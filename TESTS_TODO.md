@@ -320,17 +320,17 @@ Target: `shared/modeling/` and `python/python/aether/models/`.
 
 Target: `shared/coordinator/` and `architectures/centralized/shared/`.
 
-- [ ] Add property tests for data assignment coverage and non-overlap.
-- [ ] Add property tests for committee selection determinism and membership.
-- [ ] Add property tests for witness quorum boundaries.
-- [ ] Add property tests for ring-buffer indexing across arbitrary heads.
+- [x] Add property tests for data assignment coverage and non-overlap.
+- [x] Add property tests for committee selection determinism and membership.
+- [x] Add property tests for witness quorum boundaries.
+- [x] Add property tests for ring-buffer indexing across arbitrary heads.
 - [ ] Test coordinator restoration at every run state.
 - [ ] Test restoration with a partial final event record.
 - [ ] Test restoration with an unsupported persisted version.
-- [ ] Test duplicate join, ready, witness, and checkpoint messages.
-- [ ] Test stale-round witness submissions.
-- [ ] Test future-round witness submissions.
-- [ ] Test malformed commitment payloads from active clients.
+- [x] Test duplicate join, ready, witness, and checkpoint messages.
+- [x] Test stale-round witness submissions.
+- [x] Test future-round witness submissions.
+- [x] Test malformed commitment payloads from active clients.
 - [ ] Test quorum under simultaneous disconnects.
 - [ ] Test tie-breaking under identical scores and commitments.
 - [ ] Test batch-size ramp overflow boundaries.

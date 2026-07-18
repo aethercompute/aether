@@ -125,6 +125,7 @@ mod tests {
     use crate::{Client, ClientState, CommitteeSelection, Coordinator};
     use aether_core::{FixedVec, NodeIdentity};
     use bytemuck::Zeroable;
+    use proptest::prelude::*;
 
     fn create_test_coordinator(
         num_nodes: usize,
@@ -317,6 +318,46 @@ mod tests {
         );
         let first_start = assignments.keys().next().unwrap().0.start;
         assert_eq!(first_start, 1234);
+    }
+
+    proptest! {
+        #[test]
+        fn prop_assignments_cover_exact_range_without_overlap(
+            num_nodes in 1_usize..64,
+            batch_size in 1_u16..=u16::MAX,
+            data_index in 0_u64..=(u64::MAX - u16::MAX as u64),
+            seed in any::<u64>(),
+        ) {
+            let mut coordinator = create_test_coordinator(num_nodes, batch_size, 10);
+            let round = coordinator.current_round_mut().unwrap();
+            round.data_index = data_index;
+            round.random_seed = seed;
+            let selection = CommitteeSelection::from_coordinator(&coordinator, 0).unwrap();
+            let assignments = assign_data_for_state(&coordinator, &selection);
+            let intervals = assignments.keys().collect::<Vec<_>>();
+
+            prop_assert_eq!(intervals.len(), num_nodes.min(batch_size as usize));
+            prop_assert_eq!(intervals.first().unwrap().0.start, data_index);
+            prop_assert_eq!(
+                intervals.last().unwrap().0.end,
+                data_index + batch_size as u64 - 1
+            );
+            for pair in intervals.windows(2) {
+                prop_assert_eq!(pair[0].0.end + 1, pair[1].0.start);
+            }
+            let covered = intervals
+                .iter()
+                .map(|batch| batch.0.end - batch.0.start + 1)
+                .sum::<u64>();
+            prop_assert_eq!(covered, batch_size as u64);
+
+            let assigned = assignments.values().copied().collect::<std::collections::HashSet<_>>();
+            prop_assert_eq!(assigned.len(), assignments.len());
+            let all_clients_exist = assigned.iter().all(|id| {
+                coordinator.epoch_state.clients.iter().any(|client| client.id == *id)
+            });
+            prop_assert!(all_clients_exist);
+        }
     }
 
     // get_batch_ids_for_round produces the same clean partition as the assignment.

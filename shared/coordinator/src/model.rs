@@ -232,7 +232,7 @@ impl GcsRepo {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, TS)]
+#[derive(Serialize, Deserialize, Clone, Debug, Zeroable, Copy, PartialEq, TS)]
 #[repr(C)]
 pub enum Checkpoint {
     Ephemeral,

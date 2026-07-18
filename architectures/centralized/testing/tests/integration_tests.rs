@@ -99,6 +99,42 @@ fn ready_before_join_is_rejected() {
 }
 
 #[test_log::test]
+fn duplicate_join_and_ready_messages_are_idempotent() {
+    run_test(async {
+        let server = CoordinatorServerHandle::new(2, 4, 1).await;
+        let mut client = TcpClient::<ClientToServerMessage, ServerToClientMessage>::connect(
+            &format!("127.0.0.1:{}", server.server_port),
+            SecretKey::generate(&mut rand::rng()),
+        )
+        .await
+        .unwrap();
+
+        for _ in 0..2 {
+            client
+                .send(ClientToServerMessage::Join {
+                    run_id: server.run_id.clone(),
+                })
+                .await
+                .unwrap();
+        }
+        assert_with_retries(|| server.get_pending_clients_len(), 1).await;
+        assert_eq!(server.get_ready_clients_len().await, 0);
+        assert_eq!(server.get_connected_clients_len().await, 1);
+
+        for _ in 0..2 {
+            client
+                .send(ClientToServerMessage::ReadyForEpoch)
+                .await
+                .unwrap();
+        }
+        assert_with_retries(|| server.get_pending_clients_len(), 0).await;
+        assert_with_retries(|| server.get_ready_clients_len(), 1).await;
+        assert_eq!(server.get_connected_clients_len().await, 1);
+        assert_eq!(server.get_run_state().await, RunState::WaitingForMembers);
+    });
+}
+
+#[test_log::test]
 fn client_exits_when_join_is_rejected() {
     run_test(async {
         let server = CoordinatorServerHandle::new(2, 4, 1).await;

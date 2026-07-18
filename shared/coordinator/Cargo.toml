@@ -14,6 +14,7 @@ ts-rs.workspace = true
 [dev-dependencies]
 aether-test-support.workspace = true
 postcard.workspace = true
+proptest.workspace = true
 
 [lints]
 workspace = true

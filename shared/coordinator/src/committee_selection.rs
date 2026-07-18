@@ -212,6 +212,7 @@ impl std::fmt::Display for Committee {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn test_new_committee_selection() {
@@ -384,5 +385,83 @@ mod tests {
         }
         assert_eq!(tie_breaker_count, 10);
         assert_eq!(trainer_count, 90);
+    }
+
+    proptest! {
+        #[test]
+        fn prop_committee_selection_is_deterministic_and_has_exact_membership(
+            total_nodes in 1_usize..128,
+            raw_tie_breakers in any::<u16>(),
+            verification_percent in 0_u8..=100,
+            seed in any::<u64>(),
+        ) {
+            let tie_breakers = raw_tie_breakers as usize % (total_nodes + 1);
+            let first = CommitteeSelection::new(
+                tie_breakers,
+                0,
+                verification_percent,
+                total_nodes,
+                seed,
+            ).unwrap();
+            let second = CommitteeSelection::new(
+                tie_breakers,
+                0,
+                verification_percent,
+                total_nodes,
+                seed,
+            ).unwrap();
+            let expected_verifiers =
+                (total_nodes - tie_breakers) * verification_percent as usize / 100;
+            let mut counts = [0_usize; 3];
+            let mut positions = std::collections::HashSet::new();
+
+            for index in 0..total_nodes as u64 {
+                let first_proof = first.get_committee(index);
+                let second_proof = second.get_committee(index);
+                prop_assert_eq!(first_proof, second_proof);
+                prop_assert!(positions.insert(first_proof.position));
+                match first_proof.committee {
+                    Committee::TieBreaker => counts[0] += 1,
+                    Committee::Verifier => counts[1] += 1,
+                    Committee::Trainer => counts[2] += 1,
+                }
+            }
+
+            prop_assert_eq!(counts[0], tie_breakers);
+            prop_assert_eq!(counts[1], expected_verifiers);
+            prop_assert_eq!(counts[2], total_nodes - tie_breakers - expected_verifiers);
+            prop_assert_eq!(positions.len(), total_nodes);
+        }
+
+        #[test]
+        fn prop_witness_selection_matches_every_quorum_boundary(
+            total_nodes in 1_usize..128,
+            raw_witnesses in any::<u16>(),
+            seed in any::<u64>(),
+        ) {
+            let witness_nodes = raw_witnesses as usize % (total_nodes + 1);
+            let selection =
+                CommitteeSelection::new(0, witness_nodes, 0, total_nodes, seed).unwrap();
+            let expected_witnesses = if witness_nodes == 0 {
+                total_nodes.min(SOLANA_MAX_NUM_WITNESSES)
+            } else {
+                witness_nodes
+            };
+            let mut count = 0;
+            let mut positions = std::collections::HashSet::new();
+
+            for index in 0..total_nodes as u64 {
+                let proof = selection.get_witness(index);
+                prop_assert!(positions.insert(proof.position));
+                prop_assert_eq!(
+                    proof.witness.is_true(),
+                    proof.position < expected_witnesses as u64
+                );
+                count += usize::from(proof.witness.is_true());
+            }
+
+            prop_assert_eq!(count, expected_witnesses);
+            prop_assert_eq!(positions.len(), total_nodes);
+        }
     }
 }

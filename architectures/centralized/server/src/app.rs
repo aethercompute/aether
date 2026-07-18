@@ -703,7 +703,13 @@ impl App {
                 let state_before = self.coordinator.run_state;
                 if let Err(error) = match *witness {
                     OpportunisticData::WitnessStep(witness, witness_metadata) => {
-                        if witness_metadata.loss.is_finite() {
+                        let result = self.coordinator.witness(
+                            &from_identity,
+                            witness_metadata.step,
+                            witness,
+                            Self::get_timestamp(),
+                        );
+                        if result.is_ok() && witness_metadata.loss.is_finite() {
                             let point = LossPoint {
                                 step: witness_metadata.step,
                                 tokens_processed: self
@@ -716,8 +722,7 @@ impl App {
                             self.log_to_wandb(&point);
                             self.push_loss_point(point);
                         }
-                        self.coordinator
-                            .witness(&from_identity, witness, Self::get_timestamp())
+                        result
                     }
                     OpportunisticData::WarmupStep(witness) => self.coordinator.warmup_witness(
                         &from_identity,
@@ -746,16 +751,22 @@ impl App {
             ClientToServerMessage::Checkpoint(checkpoint) => {
                 match self.find_client_index(&from_identity) {
                     Some(index) => {
-                        if let Err(error) =
-                            self.coordinator
-                                .checkpoint(&from_identity, index as u64, checkpoint)
+                        match self
+                            .coordinator
+                            .checkpoint(&from_identity, index as u64, checkpoint)
                         {
-                            warn!("Error when processing checkpoint: {error}");
+                            Ok(changed) => changed,
+                            Err(error) => {
+                                warn!("Error when processing checkpoint: {error}");
+                                false
+                            }
                         }
                     }
-                    None => warn!("Got checkpoint but could not find {from} in client list"),
+                    None => {
+                        warn!("Got checkpoint but could not find {from} in client list");
+                        false
+                    }
                 }
-                true
             }
         };
         self.post_state_change(broadcast).await;

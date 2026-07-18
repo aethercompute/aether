@@ -40,3 +40,39 @@ pub struct Broadcast {
     pub nonce: u32,
     pub data: BroadcastType,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Serialize)]
+    struct BroadcastWithRawCommitment {
+        step: u32,
+        proof: CommitteeProof,
+        commitment: Vec<u8>,
+        nonce: u32,
+        data: BroadcastType,
+    }
+
+    fn encode_with_commitment_len(len: usize) -> Vec<u8> {
+        postcard::to_allocvec(&BroadcastWithRawCommitment {
+            step: 1,
+            proof: CommitteeProof::default(),
+            commitment: vec![0; len],
+            nonce: 7,
+            data: BroadcastType::Finished(Finished {
+                broadcast_merkle: MerkleRoot::default(),
+                warmup: false,
+            }),
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn broadcast_rejects_malformed_nested_commitments() {
+        for len in [0, 31, 32, 95, 97, 160] {
+            assert!(postcard::from_bytes::<Broadcast>(&encode_with_commitment_len(len)).is_err());
+        }
+        assert!(postcard::from_bytes::<Broadcast>(&encode_with_commitment_len(96)).is_ok());
+    }
+}

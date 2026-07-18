@@ -139,6 +139,9 @@ pub enum CoordinatorError {
     InvalidWithdraw,
     InvalidCommitteeSelection,
     InvalidCommitteeProof,
+    StaleWitness,
+    FutureWitness,
+    InvalidCheckpoint,
 }
 
 pub enum TickResult {
@@ -286,6 +289,9 @@ impl std::fmt::Display for CoordinatorError {
             CoordinatorError::InvalidWithdraw => write!(f, "Invalid withdraw"),
             CoordinatorError::InvalidCommitteeSelection => write!(f, "Invalid committee selection"),
             CoordinatorError::InvalidCommitteeProof => write!(f, "Invalid committee proof"),
+            CoordinatorError::StaleWitness => write!(f, "Stale witness"),
+            CoordinatorError::FutureWitness => write!(f, "Future witness"),
+            CoordinatorError::InvalidCheckpoint => write!(f, "Invalid checkpoint"),
         }
     }
 }
@@ -384,12 +390,25 @@ impl Coordinator {
             return Err(CoordinatorError::InvalidRunState);
         }
 
-        // Everyone can send a witness in the warmup phase so we don't need to check for the committee
+        let witness_index = witness.proof.index as usize;
+        if self
+            .epoch_state
+            .clients
+            .get(witness_index)
+            .map(|client| client.id)
+            != Some(*from)
+        {
+            return Err(CoordinatorError::InvalidWitness);
+        }
+
+        // Everyone can send a witness in the warmup phase, so no committee proof is needed.
         let round = self.current_round().unwrap();
-        for witness in round.witnesses.iter() {
-            if self.epoch_state.clients[witness.proof.index as usize].id == *from {
-                return Err(CoordinatorError::DuplicateWitness);
-            }
+        if round
+            .witnesses
+            .iter()
+            .any(|existing| existing.proof.index == witness.proof.index)
+        {
+            return Err(CoordinatorError::DuplicateWitness);
         }
 
         let round = self.current_round_mut_unchecked();
@@ -413,6 +432,7 @@ impl Coordinator {
     pub fn witness(
         &mut self,
         from: &NodeIdentity,
+        submitted_step: u32,
         witness: Witness,
         unix_timestamp: u64,
     ) -> std::result::Result<(), CoordinatorError> {
@@ -431,6 +451,13 @@ impl Coordinator {
             RunState::RoundWitness | RunState::RoundTrain,
         ) {
             return Err(CoordinatorError::InvalidRunState);
+        }
+
+        if submitted_step < self.progress.step {
+            return Err(CoordinatorError::StaleWitness);
+        }
+        if submitted_step > self.progress.step {
+            return Err(CoordinatorError::FutureWitness);
         }
 
         if !CommitteeSelection::from_coordinator(self, 0)?.verify_witness_for_client(
@@ -500,7 +527,7 @@ impl Coordinator {
         from: &NodeIdentity,
         index: u64,
         checkpoint_repo: Checkpoint,
-    ) -> std::result::Result<(), CoordinatorError> {
+    ) -> std::result::Result<bool, CoordinatorError> {
         let index = index as usize;
         if index >= self.epoch_state.clients.len() || self.epoch_state.clients[index].id != *from {
             return Err(CoordinatorError::InvalidCommitteeProof);
@@ -509,7 +536,19 @@ impl Coordinator {
         // TODO: In the case of more than one checkpointer, this will overwrite the checkpoint
         // with the last checkpointed one. We could instead have a vector of checkpoints to have
         // more download options.
+        let valid_upload = match checkpoint_repo {
+            Checkpoint::Hub(repo) => !repo.repo_id.is_empty(),
+            Checkpoint::Gcs(repo) => !repo.bucket.is_empty(),
+            _ => false,
+        };
+        if !valid_upload {
+            return Err(CoordinatorError::InvalidCheckpoint);
+        }
+
         let Model::LLM(llm) = &mut self.model;
+        let old_checkpoint = llm.checkpoint;
+        let old_training_method = llm.training_method;
+        let mut accepted = true;
         match &mut llm.training_method {
             LLMTrainingMethod::Full => match (&llm.checkpoint, checkpoint_repo) {
                 // If current is P2P, wrap the new checkpoint in P2P
@@ -533,8 +572,7 @@ impl Coordinator {
                 (Checkpoint::P2P(_), Checkpoint::Gcs(gcs_repo)) => {
                     llm.checkpoint = Checkpoint::P2PGcs(gcs_repo);
                 }
-                // Ignore other combinations
-                _ => {}
+                _ => accepted = false,
             },
             LLMTrainingMethod::Lora(config) => {
                 match (&config.adapter_checkpoint, checkpoint_repo) {
@@ -554,12 +592,16 @@ impl Coordinator {
                     | (AdapterCheckpoint::P2PGcs(_), Checkpoint::Gcs(repo)) => {
                         config.adapter_checkpoint = AdapterCheckpoint::P2PGcs(repo);
                     }
-                    _ => {}
+                    _ => accepted = false,
                 }
             }
         }
 
-        Ok(())
+        if !accepted {
+            return Err(CoordinatorError::InvalidCheckpoint);
+        }
+
+        Ok(old_checkpoint != llm.checkpoint || old_training_method != llm.training_method)
     }
 
     pub fn withdraw(&mut self, index: u64) -> std::result::Result<(), CoordinatorError> {
@@ -1281,6 +1323,7 @@ mod tests {
     use crate::model::{GcsRepo, HubRepo, LoraConfig, LLM};
     use aether_core::{sha256, FixedVec, NodeIdentity, OptimizerDefinition};
     use bytemuck::Zeroable;
+    use proptest::prelude::*;
 
     fn identity(n: u8) -> NodeIdentity {
         let mut key = [0u8; 32];
@@ -1303,6 +1346,27 @@ mod tests {
         llm.training_method = training_method;
         coordinator.model = Model::LLM(llm);
         coordinator
+    }
+
+    fn witness_coordinator(run_state: RunState, client_count: u8) -> Coordinator {
+        let mut coordinator = Coordinator::zeroed();
+        coordinator.run_state = run_state;
+        coordinator.progress.step = 10;
+        coordinator.config.witness_nodes = client_count as u16;
+        coordinator.config.min_clients = client_count as u16;
+        coordinator.epoch_state.clients =
+            FixedVec::from_iter((0..client_count).map(|index| Client::new(identity(index + 1))));
+        coordinator.current_round_mut_unchecked().clients_len = client_count as u16;
+        coordinator
+    }
+
+    fn witness_for(coordinator: &Coordinator, index: u64) -> Witness {
+        Witness {
+            proof: CommitteeSelection::from_coordinator(coordinator, 0)
+                .unwrap()
+                .get_witness(index),
+            ..Witness::default()
+        }
     }
 
     #[test]
@@ -1617,6 +1681,35 @@ mod tests {
         assert!(c.previous_previous_round().is_none());
     }
 
+    proptest::proptest! {
+        #[test]
+        fn prop_ring_buffer_indexes_previous_rounds_for_any_head(
+            head in 0_usize..NUM_STORED_ROUNDS,
+            current_height in any::<u32>(),
+            mut heights in any::<[u32; NUM_STORED_ROUNDS]>(),
+        ) {
+            heights[head] = current_height;
+            let coordinator = ring_buf_coordinator(head as u32, heights);
+
+            let expected_previous = if head == 0 && current_height == 0 {
+                None
+            } else {
+                Some(heights[(head + NUM_STORED_ROUNDS - 1) % NUM_STORED_ROUNDS])
+            };
+            let expected_previous_previous = if head == 0 && current_height <= 1 {
+                None
+            } else {
+                Some(heights[(head + NUM_STORED_ROUNDS - 2) % NUM_STORED_ROUNDS])
+            };
+
+            prop_assert_eq!(coordinator.previous_round().map(|round| round.height), expected_previous);
+            prop_assert_eq!(
+                coordinator.previous_previous_round().map(|round| round.height),
+                expected_previous_previous
+            );
+        }
+    }
+
     // ── trainer_healthy_score_by_witnesses ─────────────────────────────────────
     #[test]
     fn health_score_counts_witnesses_containing_id() {
@@ -1864,6 +1957,114 @@ mod tests {
                 ..
             }) if repo == uploaded
         ));
+    }
+
+    #[test]
+    fn duplicate_and_invalid_checkpoint_updates_do_not_mutate_state() {
+        let mut coordinator = checkpoint_coordinator(LLMTrainingMethod::Full);
+        let upload = Checkpoint::Hub(hub_repo("full/upload"));
+
+        assert!(coordinator.checkpoint(&identity(1), 0, upload).unwrap());
+        assert!(!coordinator.checkpoint(&identity(1), 0, upload).unwrap());
+
+        for invalid in [
+            Checkpoint::Ephemeral,
+            Checkpoint::Dummy(HubRepo::dummy()),
+            Checkpoint::Hub(HubRepo::dummy()),
+            Checkpoint::Gcs(GcsRepo::dummy()),
+        ] {
+            assert!(matches!(
+                coordinator.checkpoint(&identity(1), 0, invalid),
+                Err(CoordinatorError::InvalidCheckpoint)
+            ));
+            let Model::LLM(llm) = coordinator.model;
+            assert_eq!(llm.checkpoint, upload);
+        }
+    }
+
+    #[test]
+    fn duplicate_regular_witness_is_rejected_without_mutation() {
+        let mut coordinator = witness_coordinator(RunState::RoundTrain, 2);
+        let witness = witness_for(&coordinator, 0);
+
+        coordinator
+            .witness(&identity(1), coordinator.progress.step, witness, 100)
+            .unwrap();
+        assert!(matches!(
+            coordinator.witness(&identity(1), coordinator.progress.step, witness, 100),
+            Err(CoordinatorError::DuplicateWitness)
+        ));
+        assert_eq!(coordinator.current_round().unwrap().witnesses.len(), 1);
+        assert_eq!(coordinator.run_state, RunState::RoundTrain);
+    }
+
+    #[test]
+    fn duplicate_and_forged_warmup_witnesses_are_rejected_safely() {
+        let mut coordinator = witness_coordinator(RunState::Warmup, 2);
+        let witness = Witness {
+            proof: WitnessProof {
+                index: 0,
+                position: 0,
+                witness: Default::default(),
+            },
+            ..Witness::default()
+        };
+
+        coordinator
+            .warmup_witness(&identity(1), witness, 100, 42)
+            .unwrap();
+        assert!(matches!(
+            coordinator.warmup_witness(&identity(1), witness, 100, 42),
+            Err(CoordinatorError::DuplicateWitness)
+        ));
+
+        for forged_index in [1, 99] {
+            let forged = Witness {
+                proof: WitnessProof {
+                    index: forged_index,
+                    ..witness.proof
+                },
+                ..witness
+            };
+            assert!(matches!(
+                coordinator.warmup_witness(&identity(1), forged, 100, 42),
+                Err(CoordinatorError::InvalidWitness)
+            ));
+        }
+        assert_eq!(coordinator.current_round().unwrap().witnesses.len(), 1);
+    }
+
+    #[test]
+    fn regular_witness_must_match_current_step() {
+        for (submitted_step, expected_error) in [
+            (9, Some(CoordinatorError::StaleWitness)),
+            (10, None),
+            (11, Some(CoordinatorError::FutureWitness)),
+        ] {
+            let mut coordinator = witness_coordinator(RunState::RoundTrain, 1);
+            let witness = witness_for(&coordinator, 0);
+            let result = coordinator.witness(&identity(1), submitted_step, witness, 100);
+
+            match expected_error {
+                Some(CoordinatorError::StaleWitness) => {
+                    assert!(matches!(result, Err(CoordinatorError::StaleWitness)))
+                }
+                Some(CoordinatorError::FutureWitness) => {
+                    assert!(matches!(result, Err(CoordinatorError::FutureWitness)))
+                }
+                None => assert!(result.is_ok()),
+                _ => unreachable!(),
+            }
+
+            if expected_error.is_some() {
+                assert!(coordinator.current_round().unwrap().witnesses.is_empty());
+                assert_eq!(coordinator.run_state, RunState::RoundTrain);
+                assert_eq!(coordinator.progress.step, 10);
+            } else {
+                assert_eq!(coordinator.current_round().unwrap().witnesses.len(), 1);
+                assert_eq!(coordinator.run_state, RunState::RoundWitness);
+            }
+        }
     }
 
     // ── Model::check validator ─────────────────────────────────────────────────
