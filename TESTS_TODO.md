@@ -245,9 +245,9 @@ Target: `python/python/aether/sidecar/`, `python/extension-impl/`, and the Rust/
 
 Target: `shared/modeling/` and `python/python/aether/models/`.
 
-- [ ] Add an independent DeepSeek forward oracle with a tiny deterministic config.
-- [ ] Add an independent DeepSeek loss oracle.
-- [ ] Add a DeepSeek direct-optimizer versus trainer oracle.
+- [x] Add an independent DeepSeek forward oracle with a tiny deterministic config.
+- [x] Add an independent DeepSeek loss oracle.
+- [x] Add a DeepSeek direct-optimizer versus trainer oracle.
 - [x] Test dense DeepSeek configuration loading.
 - [x] Test MoE DeepSeek configuration loading.
 - [x] Test malformed DeepSeek configuration fields.
