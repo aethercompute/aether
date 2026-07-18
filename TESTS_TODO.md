@@ -331,8 +331,8 @@ Target: `shared/coordinator/` and `architectures/centralized/shared/`.
 - [x] Test stale-round witness submissions.
 - [x] Test future-round witness submissions.
 - [x] Test malformed commitment payloads from active clients.
-- [ ] Test quorum under simultaneous disconnects.
-- [ ] Test tie-breaking under identical scores and commitments.
+- [x] Test quorum under simultaneous disconnects.
+- [x] Test tie-breaking under identical scores and commitments.
 - [ ] Test batch-size ramp overflow boundaries.
 - [ ] Test epoch boundaries with the smallest valid configuration.
 - [ ] Test epoch boundaries with uneven global batch sizes.

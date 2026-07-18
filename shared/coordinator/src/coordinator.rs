@@ -743,7 +743,13 @@ impl Coordinator {
             .into_iter()
             .enumerate()
             .filter(|(_, score)| *score >= witness_quorum)
-            .max_by_key(|(_, score)| *score)
+            .max_by(|(left_index, left_score), (right_index, right_score)| {
+                left_score.cmp(right_score).then_with(|| {
+                    commitments[*left_index]
+                        .data_hash
+                        .cmp(&commitments[*right_index].data_hash)
+                })
+            })
             .map(|(index, _)| index)
     }
 
@@ -1537,6 +1543,48 @@ mod tests {
         assert_eq!(coordinator.progress.step, 1);
     }
 
+    #[test]
+    fn witness_quorum_is_stable_during_simultaneous_disconnects() {
+        let mut coordinator = witness_timeout_coordinator(5, 3);
+        coordinator.config.min_clients = 4;
+        let selection = CommitteeSelection::from_coordinator(&coordinator, 0).unwrap();
+        let submitted = (0..5)
+            .filter(|index| selection.get_witness(*index).witness.is_true())
+            .take(2)
+            .collect::<Vec<_>>();
+        assert_eq!(submitted.len(), 2);
+        for &index in &submitted {
+            coordinator
+                .current_round_mut_unchecked()
+                .witnesses
+                .push(Witness {
+                    proof: selection.get_witness(index),
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+
+        let disconnected = (0..5)
+            .filter(|index| !submitted.contains(index))
+            .take(2)
+            .collect::<Vec<_>>();
+        for &index in &disconnected {
+            coordinator.withdraw(index).unwrap();
+        }
+
+        coordinator.tick_round_witness(11, 99).unwrap();
+
+        assert_eq!(coordinator.progress.step, 1);
+        assert_eq!(coordinator.run_state, RunState::Cooldown);
+        assert_eq!(coordinator.epoch_state.clients.len(), 3);
+        assert_eq!(coordinator.epoch_state.exited_clients.len(), 2);
+        assert!(coordinator
+            .epoch_state
+            .exited_clients
+            .iter()
+            .all(|client| client.state == ClientState::Withdrawn));
+    }
+
     // ── RunState <-> usize roundtrip ───────────────────────────────────────────
     #[test]
     fn runstate_usize_roundtrip() {
@@ -1862,6 +1910,35 @@ mod tests {
         assert_eq!(
             Coordinator::select_consensus_commitment_by_witnesses(&commitments, &witnesses, 2),
             Some(1)
+        );
+    }
+
+    #[test]
+    fn consensus_ties_are_deterministic_across_order_and_duplicate_commitments() {
+        let low = commitment_with_hash(1);
+        let high = commitment_with_hash(2);
+        let witnesses = [
+            witness_containing(1),
+            witness_containing(1),
+            witness_containing(2),
+            witness_containing(2),
+        ];
+
+        for commitments in [[low, high], [high, low]] {
+            let selected =
+                Coordinator::select_consensus_commitment_by_witnesses(&commitments, &witnesses, 2)
+                    .unwrap();
+            assert_eq!(commitments[selected].data_hash, high.data_hash);
+        }
+
+        let duplicates = [low, low];
+        assert_eq!(
+            Coordinator::select_consensus_commitment_by_witnesses(
+                &duplicates,
+                &[witness_containing(1), witness_containing(1)],
+                2,
+            ),
+            Some(0)
         );
     }
 
