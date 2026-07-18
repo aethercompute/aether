@@ -320,6 +320,80 @@ mod tests {
         assert_eq!(first_start, 1234);
     }
 
+    #[test]
+    fn ejected_owner_keeps_inflight_assignment_but_gets_no_future_batches() {
+        let mut coordinator = create_test_coordinator(4, 13, 10);
+        coordinator.current_round_mut_unchecked().random_seed = 42;
+        let selection = CommitteeSelection::from_coordinator(&coordinator, 0).unwrap();
+        let inflight = assign_data_for_state(&coordinator, &selection);
+        let ejected = *inflight.values().next().unwrap();
+        coordinator
+            .epoch_state
+            .clients
+            .iter_mut()
+            .find(|client| client.id == ejected)
+            .unwrap()
+            .state = ClientState::Ejected;
+
+        assert_eq!(assign_data_for_state(&coordinator, &selection), inflight);
+
+        coordinator
+            .epoch_state
+            .clients
+            .retain(|client| client.state == ClientState::Healthy);
+        let clients_len = coordinator.epoch_state.clients.len() as u16;
+        coordinator.current_round_mut_unchecked().clients_len = clients_len;
+        let next_selection = CommitteeSelection::from_coordinator(&coordinator, 0).unwrap();
+        let next = assign_data_for_state(&coordinator, &next_selection);
+
+        assert!(!next.values().any(|identity| *identity == ejected));
+        assert_is_clean_partition(&next);
+        assert_eq!(
+            next.keys()
+                .map(|batch| batch.0.end - batch.0.start + 1)
+                .sum::<u64>(),
+            13
+        );
+    }
+
+    #[test]
+    fn replacement_client_assignments_cover_only_current_members() {
+        let mut coordinator = create_test_coordinator(4, 13, 10);
+        coordinator.current_round_mut_unchecked().random_seed = 42;
+        let removed = coordinator.epoch_state.clients.remove(1).unwrap();
+        let mut replacement_key = [0_u8; 32];
+        replacement_key[0] = 250;
+        let replacement = NodeIdentity::from_single_key(replacement_key);
+        coordinator
+            .epoch_state
+            .clients
+            .push(Client {
+                id: replacement,
+                state: ClientState::Healthy,
+                exited_height: 0,
+            })
+            .unwrap();
+        let clients_len = coordinator.epoch_state.clients.len() as u16;
+        coordinator.current_round_mut_unchecked().clients_len = clients_len;
+
+        let selection = CommitteeSelection::from_coordinator(&coordinator, 0).unwrap();
+        let assignments = assign_data_for_state(&coordinator, &selection);
+        assert_is_clean_partition(&assignments);
+        assert_eq!(
+            assignments
+                .keys()
+                .map(|batch| batch.0.end - batch.0.start + 1)
+                .sum::<u64>(),
+            13
+        );
+        assert!(!assignments.values().any(|identity| *identity == removed.id));
+        assert!(assignments.values().all(|identity| coordinator
+            .epoch_state
+            .clients
+            .iter()
+            .any(|client| client.id == *identity)));
+    }
+
     proptest! {
         #[test]
         fn prop_assignments_cover_exact_range_without_overlap(

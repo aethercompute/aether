@@ -333,11 +333,11 @@ Target: `shared/coordinator/` and `architectures/centralized/shared/`.
 - [x] Test malformed commitment payloads from active clients.
 - [x] Test quorum under simultaneous disconnects.
 - [x] Test tie-breaking under identical scores and commitments.
-- [ ] Test batch-size ramp overflow boundaries.
-- [ ] Test epoch boundaries with the smallest valid configuration.
-- [ ] Test epoch boundaries with uneven global batch sizes.
-- [ ] Test client ejection while it owns assigned batches.
-- [ ] Test replacement client assignment invariants.
+- [x] Test batch-size ramp overflow boundaries.
+- [x] Test epoch boundaries with the smallest valid configuration.
+- [x] Test epoch boundaries with uneven global batch sizes.
+- [x] Test client ejection while it owns assigned batches.
+- [x] Test replacement client assignment invariants.
 - [ ] Test checkpoint updates racing with round completion.
 - [ ] Test LoRA base and adapter checkpoint version compatibility.
 - [ ] Test invalid model updates do not mutate coordinator state.

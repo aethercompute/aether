@@ -1307,12 +1307,11 @@ impl CoordinatorConfig {
         if total_tokens_processed >= self.global_batch_size_warmup_tokens {
             self.global_batch_size_end
         } else {
-            let progress =
-                total_tokens_processed as f64 / self.global_batch_size_warmup_tokens as f64;
-            (self.global_batch_size_start as f64
-                + (self.global_batch_size_end as f64 - self.global_batch_size_start as f64)
-                    * progress)
-                .round() as u16
+            let delta = (self.global_batch_size_end - self.global_batch_size_start) as u128;
+            let progress = total_tokens_processed as u128;
+            let warmup = self.global_batch_size_warmup_tokens as u128;
+            let rounded_increase = (delta * progress + warmup / 2) / warmup;
+            self.global_batch_size_start + rounded_increase as u16
         }
     }
 }
@@ -1667,6 +1666,71 @@ mod tests {
             assert!(b >= prev, "batch size decreased at {tokens}: {prev} -> {b}");
             prev = b;
         }
+    }
+
+    #[test]
+    fn batch_size_ramp_handles_u64_boundaries_without_precision_loss() {
+        let cfg = ramp_config(1, u16::MAX, u64::MAX);
+        assert_eq!(cfg.get_batch_size(0), 1);
+        assert_eq!(cfg.get_batch_size(u64::MAX / 2), 32_768);
+        assert_eq!(cfg.get_batch_size(u64::MAX - 1), u16::MAX);
+        assert_eq!(cfg.get_batch_size(u64::MAX), u16::MAX);
+
+        let immediate = ramp_config(1, u16::MAX, 0);
+        assert_eq!(immediate.get_batch_size(0), u16::MAX);
+        assert_eq!(immediate.get_batch_size(u64::MAX), u16::MAX);
+    }
+
+    fn cooldown_boundary_coordinator(client_count: u8, batch_size: u16) -> Coordinator {
+        let mut coordinator = Coordinator::zeroed();
+        coordinator.run_state = RunState::Cooldown;
+        coordinator.run_state_start_unix_timestamp = 10;
+        coordinator.progress.step = 1;
+        coordinator.config = CoordinatorConfig {
+            epoch_time: 2,
+            warmup_time: 0,
+            max_round_train_time: 1,
+            round_witness_time: 1,
+            min_clients: client_count as u16,
+            init_min_clients: client_count as u16,
+            global_batch_size_start: batch_size,
+            global_batch_size_end: batch_size,
+            total_steps: 100,
+            witness_nodes: 1,
+            cooldown_time: 1,
+            waiting_for_members_extra_time: 1,
+            ..CoordinatorConfig::zeroed()
+        };
+        coordinator.epoch_state.clients =
+            FixedVec::from_iter((0..client_count).map(|index| Client::new(identity(index + 1))));
+        coordinator
+    }
+
+    #[test]
+    fn epoch_boundary_accepts_smallest_valid_configuration() {
+        let mut coordinator = cooldown_boundary_coordinator(1, 1);
+        coordinator.config.total_steps = 2;
+        assert!(coordinator.config.check());
+
+        coordinator.tick_cooldown(11).unwrap();
+
+        assert_eq!(coordinator.progress.epoch, 1);
+        assert_eq!(coordinator.progress.epoch_start_data_index, 1);
+        assert_eq!(coordinator.run_state, RunState::WaitingForMembers);
+        assert_eq!(coordinator.epoch_state.clients.len(), 1);
+    }
+
+    #[test]
+    fn epoch_boundary_advances_by_uneven_global_batch_size() {
+        let mut coordinator = cooldown_boundary_coordinator(3, 5);
+        coordinator.current_round_mut_unchecked().data_index = 13;
+
+        coordinator.tick_cooldown(11).unwrap();
+
+        assert_eq!(coordinator.progress.epoch, 1);
+        assert_eq!(coordinator.progress.epoch_start_data_index, 18);
+        assert_eq!(coordinator.run_state, RunState::WaitingForMembers);
+        assert_eq!(coordinator.epoch_state.clients.len(), 3);
     }
 
     // ── ring buffer: previous_round / previous_previous_round ──────────────────
