@@ -268,3 +268,29 @@ impl CausalSelfAttention {
         self.o_proj.forward(&y)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn packed_causal_mask_has_exact_segment_and_padding_boundaries() {
+        let mask = packed_causal_mask(&[vec![2, 1]], 1, 4, Kind::Float, Device::Cpu);
+        let values = Vec::<f32>::try_from(mask.view([-1])).expect("read mask values");
+        let allowed = [
+            true, false, false, false, true, true, false, false, false, false, true, false, false,
+            false, false, true,
+        ];
+
+        for (index, (value, allowed)) in values.into_iter().zip(allowed).enumerate() {
+            if allowed {
+                assert_eq!(value, 0.0, "mask entry {index} should be allowed");
+            } else {
+                assert!(
+                    value.is_infinite() && value.is_sign_negative(),
+                    "mask entry {index} should be negative infinity"
+                );
+            }
+        }
+    }
+}

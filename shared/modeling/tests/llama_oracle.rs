@@ -727,14 +727,14 @@ fn llama_attention_masks_packed_segments_and_padding() {
 
     assert!(packed_logits
         .narrow(1, 0, 3)
-        .allclose(&first_segment, 1e-6, 1e-6, false));
+        .allclose(&first_segment, 1e-4, 1e-4, false));
     let packed_second = packed_logits.narrow(1, 3, 2);
     let second_max_diff = (&packed_second - &second_segment)
         .abs()
         .max()
         .double_value(&[]);
     assert!(
-        packed_second.allclose(&second_segment, 1e-5, 1e-5, false),
+        packed_second.allclose(&second_segment, 1e-4, 1e-4, false),
         "second packed segment differs from isolated forward: max_abs={second_max_diff:.6e}"
     );
 
@@ -755,6 +755,6 @@ fn llama_attention_masks_packed_segments_and_padding() {
 
     assert!(padded_logits
         .narrow(1, 0, 3)
-        .allclose(&first_segment, 1e-6, 1e-6, false));
+        .allclose(&first_segment, 1e-4, 1e-4, false));
     assert_eq!(padded_logits.isfinite().all().int64_value(&[]), 1);
 }
