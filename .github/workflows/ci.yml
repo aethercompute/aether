@@ -171,7 +171,7 @@ jobs:
 
           suite = ET.parse("test-results.xml").getroot().find("testsuite")
           assert suite is not None, "pytest JUnit report has no testsuite"
-          assert int(suite.get("tests", 0)) == 60, "expected exactly 60 Python tests"
+          assert int(suite.get("tests", 0)) == 61, "expected exactly 61 Python tests"
           assert int(suite.get("skipped", 0)) == 0, "required Python tests must not skip"
           PY
       - name: Upload Python test results

@@ -21,6 +21,32 @@ MESSAGES = [
 ]
 
 
+def test_normalized_messages_cleans_content_and_rejects_malformed_values():
+    script = load_script()
+    sample = {
+        "conversation": [
+            {"role": "user", "content": "  question  "},
+            {"role": "assistant", "content": "   "},
+            {"role": "assistant", "content": " answer\n"},
+        ]
+    }
+    assert script.normalized_messages(sample, "conversation") == [
+        {"role": "user", "content": "question"},
+        {"role": "assistant", "content": "answer"},
+    ]
+
+    malformed = [
+        {},
+        {"conversation": "not a list"},
+        {"conversation": ["not a mapping"]},
+        {"conversation": [{"role": 1, "content": "text"}]},
+        {"conversation": [{"role": "user", "content": None}]},
+        {"conversation": [{"role": "user", "content": "   "}]},
+    ]
+    for value in malformed:
+        assert script.normalized_messages(value, "conversation") is None
+
+
 def test_message_tokens_supervises_all_tokenizer_identified_assistant_spans():
     script = load_script()
 
