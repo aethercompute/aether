@@ -285,7 +285,7 @@ Target: `shared/modeling/` and `python/python/aether/models/`.
 - [ ] Test Python HF `from_pretrained` with a tiny local checkpoint.
 - [ ] Test Python HF forward logits against the direct Transformers model.
 - [ ] Test Python HF loss against the direct Transformers model.
-- [ ] Test Python HF missing, unexpected, and tied parameter handling.
+- [x] Test Python HF missing, unexpected, and tied parameter handling.
 - [ ] Test Python HF device and dtype conversion.
 - [ ] Test Python HF LoRA merge output against PEFT.
 - [ ] Test Python HF adapter-only save and reload from disk.

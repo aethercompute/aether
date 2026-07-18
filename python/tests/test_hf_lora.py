@@ -1,5 +1,6 @@
 import sys
 import types
+from types import SimpleNamespace
 
 import peft
 import pytest
@@ -186,3 +187,25 @@ def test_lora_rejects_distributed_modes_before_loading(hf_module):
             dp=2,
             lora_config=LoraConfig(),
         )
+
+
+def test_checkpoint_key_validation_handles_missing_unexpected_and_tied_keys(hf_module):
+    untied = SimpleNamespace(tie_word_embeddings=False)
+    tied = SimpleNamespace(tie_word_embeddings=True)
+    expected = {"transformer.weight", "lm_head.weight"}
+
+    with pytest.raises(RuntimeError, match="Missing parameter.*transformer.weight"):
+        hf_module._validate_checkpoint_keys(expected, {"lm_head.weight"}, untied)
+    with pytest.raises(RuntimeError, match="Unexpected parameter.*extra.weight"):
+        hf_module._validate_checkpoint_keys(
+            expected,
+            {"transformer.weight", "lm_head.weight", "extra.weight"},
+            untied,
+        )
+
+    hf_module._validate_checkpoint_keys(expected, {"transformer.weight"}, tied)
+    hf_module._validate_checkpoint_keys(
+        expected,
+        {"transformer.weight", "lm_head.weight"},
+        tied,
+    )

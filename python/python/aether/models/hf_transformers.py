@@ -110,6 +110,21 @@ def missing_tied_lm_head(name: str, config) -> bool:
     return name == "lm_head.weight" and getattr(config, "tie_word_embeddings", False)
 
 
+def _validate_checkpoint_keys(model_keys, checkpoint_keys, config) -> None:
+    expected = set(model_keys)
+    provided = set(checkpoint_keys)
+    missing = expected - provided
+    if getattr(config, "tie_word_embeddings", False):
+        missing.discard("lm_head.weight")
+    if missing:
+        raise RuntimeError(f"Missing parameter(s) in base checkpoint: {sorted(missing)}")
+    unexpected = provided - expected
+    if unexpected:
+        raise RuntimeError(
+            f"Unexpected parameter(s) in base checkpoint: {sorted(unexpected)}"
+        )
+
+
 def _attach_lora(
     model: torch.nn.Module,
     lora_config: LoraConfig,
@@ -355,7 +370,9 @@ class HfTransformersAuto(CausalLM):
         # for super large models, loading the entire model in RAM nproc times can CPU OOM
         # TODO: switch to use torch.distributed.checkpoint.state_dict_loader.load()
 
-        for name, dest in model.state_dict().items():
+        model_state = model.state_dict()
+        _validate_checkpoint_keys(model_state, state_dict, config)
+        for name, dest in model_state.items():
             source: Optional[torch.Tensor] = state_dict.get(name)
             if source is None:
                 if missing_tied_lm_head(name, config):
@@ -369,16 +386,6 @@ class HfTransformersAuto(CausalLM):
                 )
 
             dest.copy_(source)
-
-        if lora_config is not None:
-            expected = set(model.state_dict())
-            if getattr(config, "tie_word_embeddings", False):
-                expected.discard("lm_head.weight")
-            unexpected = set(state_dict) - expected
-            if unexpected:
-                raise RuntimeError(
-                    f"Unexpected parameter(s) in base checkpoint: {sorted(unexpected)}"
-                )
 
         if getattr(config, "tie_word_embeddings", False):
             model.tie_weights()
