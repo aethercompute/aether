@@ -99,29 +99,32 @@ impl<T: serde::Serialize + Clone + serde::de::DeserializeOwned> PretrainedSource
                 load_safetensors_into_variables(variables, repo_files)?
             }
             PretrainedSource::ConfigAndTensors(_, parameters) => {
-                let mut unmatched = variables
+                let expected = variables
                     .variables()
                     .keys()
                     .cloned()
                     .collect::<HashSet<_>>();
+                let provided = parameters.keys().cloned().collect::<HashSet<_>>();
+                let mismatched = expected
+                    .symmetric_difference(&provided)
+                    .cloned()
+                    .collect::<HashSet<_>>();
+                if !mismatched.is_empty() {
+                    return Err(ModelLoadError::LoadTensorError(mismatched));
+                }
 
                 let _no_grad = tch::no_grad_guard();
                 let mut variables = variables.variables_.lock().unwrap();
                 let shards = variables.shards.clone();
                 for (name, var) in variables.named_variables.iter_mut() {
-                    let tensor = parameters.get(name).unwrap();
+                    let tensor = &parameters[name];
                     if let Some(shard) = shards.get(name) {
                         let tensor = tensor_shard(tensor, shard);
                         var.f_copy_(&tensor)?;
                     } else {
                         var.f_copy_(tensor)?
                     };
-
-                    unmatched.remove(name);
                 }
-                if !unmatched.is_empty() {
-                    return Err(ModelLoadError::LoadTensorError(unmatched));
-                };
             }
         };
         Ok(())

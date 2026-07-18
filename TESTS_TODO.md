@@ -248,12 +248,12 @@ Target: `shared/modeling/` and `python/python/aether/models/`.
 - [ ] Add an independent DeepSeek forward oracle with a tiny deterministic config.
 - [ ] Add an independent DeepSeek loss oracle.
 - [ ] Add a DeepSeek direct-optimizer versus trainer oracle.
-- [ ] Test dense DeepSeek configuration loading.
-- [ ] Test MoE DeepSeek configuration loading.
-- [ ] Test malformed DeepSeek configuration fields.
-- [ ] Test tied and untied DeepSeek embeddings.
-- [ ] Test DeepSeek safetensors reload equivalence.
-- [ ] Test DeepSeek checkpoint missing and extra keys.
+- [x] Test dense DeepSeek configuration loading.
+- [x] Test MoE DeepSeek configuration loading.
+- [x] Test malformed DeepSeek configuration fields.
+- [x] Test tied and untied DeepSeek embeddings.
+- [x] Test DeepSeek safetensors reload equivalence.
+- [x] Test DeepSeek checkpoint missing and extra keys.
 - [ ] Test Llama position IDs and sequence-length handling.
 - [ ] Test Llama `num_logits_to_keep` behavior.
 - [ ] Test Llama loss scaling.
