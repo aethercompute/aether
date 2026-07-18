@@ -1139,19 +1139,24 @@ impl LocalTrainer {
                         }
                         trace!(micro_batch = index, "Finished micro batch forward/backward");
                     }
-                    if !cancelled {
-                        if let Some(batch_loss) = &loss {
-                            let loss_value = batch_loss.double_value(&[]);
-                            if !loss_value.is_finite() {
-                                cancelled = true;
-                                barrier.cancel();
-                                warn!(
-                                    step = step,
-                                    loss = loss_value,
-                                    "Aborting training due to non-finite loss"
-                                );
-                            }
-                        }
+                    if !cancelled
+                        && loss
+                            .as_ref()
+                            .is_some_and(|batch_loss| !batch_loss.double_value(&[]).is_finite())
+                    {
+                        let loss_value = loss
+                            .as_ref()
+                            .expect("non-finite loss was present")
+                            .double_value(&[]);
+                        cancelled = true;
+                        barrier.cancel();
+                        warn!(
+                            step = step,
+                            loss = loss_value,
+                            "Aborting training due to non-finite loss"
+                        );
+                        // Never propagate NaN/inf into trainer metrics.
+                        loss = None;
                     }
                     if let Some(grad_accum) = &mut grad_accum {
                         grad_accum.apply_accumulation();

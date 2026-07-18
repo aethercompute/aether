@@ -206,6 +206,11 @@ impl<M: LanguageModelForward, C: LanguageModelConfig> CausalLM for CausalLanguag
         loss_scale: Option<f64>,
     ) -> (Option<Tensor>, Option<Tensor>) {
         let (_, t) = x.size2().unwrap();
+        assert!(t > 0, "input sequence length must be greater than zero");
+        assert!(
+            labels.is_none() || t >= 2,
+            "labeled sequences must contain at least two tokens"
+        );
         assert!(
             t as usize <= self.config.max_position_embeddings(),
             "sequence length {t} exceeds maximum context length {}",

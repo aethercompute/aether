@@ -551,6 +551,14 @@ fn ignored_label_training_batches() -> Vec<Batch> {
     ]
 }
 
+fn all_ignored_label_batch() -> Batch {
+    batch_from_rows_and_labels(&[
+        ([0, 1, 2, 3, 4], [-100; SEQ_LEN]),
+        ([4, 5, 6, 0, 1], [-100; SEQ_LEN]),
+        ([1, 3, 5, 0, 2], [-100; SEQ_LEN]),
+    ])
+}
+
 fn distro_worker_batches() -> Vec<Batch> {
     vec![
         batch_from_rows(&[[0, 1, 2, 3, 4], [4, 5, 6, 0, 1]]),
@@ -846,12 +854,13 @@ fn adamw_microbatch_accumulation_matches_full_batch_reference() {
 }
 
 #[test]
-fn adamw_uneven_microbatch_accumulation_matches_full_batch_reference() {
+fn adamw_uneven_accumulation_across_three_splits_matches_full_batch_reference() {
     let initial = snapshot_state(&TinyCausalLm::new());
     let mut reference = DirectAdamW::new();
     let mut trainer = new_trainer(adamw_definition(), 2);
 
     for (step, batch) in uneven_training_batches().into_iter().enumerate() {
+        assert_eq!(batch.data.size().div_ceil(2), 3);
         let expected_loss = reference.train_step(step as u32, &batch);
         let (next_trainer, actual_loss) = run_adamw_trainer_step(trainer, step as u32, batch);
         trainer = next_trainer;
@@ -865,6 +874,30 @@ fn adamw_uneven_microbatch_accumulation_matches_full_batch_reference() {
     let expected = reference.state();
     assert_state_close(&actual, &expected, 1e-6, 1e-6);
     assert_state_changed(&initial, &actual);
+}
+
+#[test]
+fn all_ignored_label_batch_cancels_without_nonfinite_metrics_or_state_changes() {
+    let initial = snapshot_state(&TinyCausalLm::new());
+    let trainer = new_trainer(adamw_definition(), 2);
+
+    let output = trainer
+        .train(
+            0,
+            all_ignored_label_batch(),
+            None,
+            false,
+            vec![],
+            None,
+            CancellationToken::new(),
+        )
+        .expect("all-ignored batch returns a trainer result");
+
+    assert!(output.cancelled);
+    assert_eq!(output.loss, 0.0);
+    assert!(output.loss.is_finite());
+    let mut trainer = output.trainer;
+    assert_state_close(&extract_state(&mut trainer), &initial, 0.0, 0.0);
 }
 
 #[test]

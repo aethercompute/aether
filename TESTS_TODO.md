@@ -275,9 +275,9 @@ Target: `shared/modeling/` and `python/python/aether/models/`.
 - [ ] Test optimizer state mismatch errors.
 - [x] Test gradient clipping against an independent norm calculation.
 - [x] Test no-trainable-parameter behavior.
-- [ ] Test ignored-label batches with all labels ignored.
-- [ ] Test zero-length and single-token batches.
-- [ ] Test uneven microbatch accumulation across more than two splits.
+- [x] Test ignored-label batches with all labels ignored.
+- [x] Test zero-length and single-token batches.
+- [x] Test uneven microbatch accumulation across more than two splits.
 - [ ] Test cancellation between forward, backward, and optimizer phases.
 - [ ] Test trainer worker panic propagation.
 - [ ] Test repeated train/optimize/extract cycles for state leaks.

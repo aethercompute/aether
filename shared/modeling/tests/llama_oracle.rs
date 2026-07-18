@@ -810,3 +810,33 @@ fn llama_gradient_clipping_matches_independent_global_l2_norm() {
     }
     assert!((clipped_norm_sq.sqrt() - max_norm).abs() < 1e-5);
 }
+
+#[test]
+fn llama_single_token_inference_returns_one_logit_position() {
+    let model = new_llama();
+    let tokens = Tensor::from_slice2(&[[3_i64]]);
+
+    let (logits, loss) = model.forward(&tokens, None, None, None, None, None);
+
+    assert_eq!(
+        logits.expect("single-token logits").size(),
+        [1, 1, VOCAB_SIZE]
+    );
+    assert!(loss.is_none());
+}
+
+#[test]
+#[should_panic(expected = "input sequence length must be greater than zero")]
+fn llama_rejects_zero_length_inputs() {
+    let model = new_llama();
+    let tokens = Tensor::zeros([1, 0], (Kind::Int64, Device::Cpu));
+    let _ = model.forward(&tokens, None, None, None, None, None);
+}
+
+#[test]
+#[should_panic(expected = "labeled sequences must contain at least two tokens")]
+fn llama_rejects_single_token_training_batches() {
+    let model = new_llama();
+    let tokens = Tensor::from_slice2(&[[3_i64]]);
+    let _ = model.forward(&tokens, Some(&tokens), None, None, None, None);
+}
