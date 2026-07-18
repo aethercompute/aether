@@ -41,6 +41,109 @@ def tiny_model():
     return transformers.GPT2LMHeadModel(config)
 
 
+def tiny_llama_model():
+    config = transformers.LlamaConfig(
+        hidden_size=8,
+        intermediate_size=16,
+        num_hidden_layers=1,
+        num_attention_heads=1,
+        num_key_value_heads=1,
+        max_position_embeddings=16,
+        vocab_size=16,
+        bos_token_id=0,
+        eos_token_id=1,
+    )
+    return transformers.LlamaForCausalLM(config)
+
+
+@pytest.fixture
+def local_hf_model_pair(hf_module, monkeypatch, tmp_path):
+    from aether.models import PretrainedSourceRepoFiles
+
+    torch.manual_seed(17)
+    direct = tiny_llama_model()
+    direct.save_pretrained(tmp_path, safe_serialization=True)
+    direct = transformers.AutoModelForCausalLM.from_pretrained(
+        tmp_path, attn_implementation="eager"
+    )
+    monkeypatch.setattr(hf_module, "maybe_compile_loss_function", lambda model: None)
+    wrapped = hf_module.HfTransformersAuto.from_pretrained(
+        PretrainedSourceRepoFiles([str(path) for path in sorted(tmp_path.iterdir())]),
+        torch.device("cpu"),
+        "eager",
+        param_dtype=torch.float32,
+    )
+    direct.eval()
+    wrapped.model.eval()
+    return direct, wrapped
+
+
+def test_from_pretrained_loads_tiny_local_checkpoint(local_hf_model_pair):
+    direct, wrapped = local_hf_model_pair
+
+    assert wrapped.config.model_type == direct.config.model_type
+    assert wrapped.config.num_hidden_layers == direct.config.num_hidden_layers
+    assert wrapped.config.hidden_size == direct.config.hidden_size
+    assert wrapped.config.vocab_size == direct.config.vocab_size
+    assert wrapped.named_state().keys() == direct.state_dict().keys()
+    assert all(
+        torch.equal(wrapped.named_state()[name], tensor)
+        for name, tensor in direct.state_dict().items()
+    )
+
+
+@pytest.mark.oracle
+def test_forward_logits_match_direct_transformers_model(local_hf_model_pair):
+    direct, wrapped = local_hf_model_pair
+    input_ids = torch.tensor([[0, 3, 5, 7], [2, 4, 6, 8]], dtype=torch.long)
+
+    with torch.no_grad():
+        expected = direct(input_ids, use_cache=False, return_dict=True).logits
+        actual, loss = wrapped.forward(input_ids, labels=None)
+
+    assert loss is None
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
+@pytest.mark.oracle
+def test_forward_loss_matches_direct_transformers_model(local_hf_model_pair):
+    direct, wrapped = local_hf_model_pair
+    input_ids = torch.tensor([[0, 3, 5, 7], [2, 4, 6, 8]], dtype=torch.long)
+    labels = torch.tensor([[0, 3, 5, 7], [2, 4, -100, 8]], dtype=torch.long)
+
+    with torch.no_grad():
+        expected = direct(
+            input_ids,
+            labels=labels,
+            use_cache=False,
+            return_dict=True,
+        ).loss
+        _, actual = wrapped.forward(input_ids, labels=labels)
+
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
+def test_from_pretrained_honors_cpu_device_and_parameter_dtype(
+    hf_module, monkeypatch, tmp_path
+):
+    from aether.models import PretrainedSourceRepoFiles
+
+    torch.manual_seed(23)
+    tiny_llama_model().save_pretrained(tmp_path, safe_serialization=True)
+    monkeypatch.setattr(hf_module, "maybe_compile_loss_function", lambda model: None)
+    wrapped = hf_module.HfTransformersAuto.from_pretrained(
+        PretrainedSourceRepoFiles([str(path) for path in sorted(tmp_path.iterdir())]),
+        torch.device("cpu"),
+        "eager",
+        param_dtype=torch.bfloat16,
+    )
+
+    parameters = list(wrapped.model.parameters())
+    assert parameters
+    assert all(parameter.device == torch.device("cpu") for parameter in parameters)
+    assert all(parameter.dtype == torch.bfloat16 for parameter in parameters)
+
+
 def test_attach_lora_is_scoped_deterministic_and_freezes_base(hf_module):
     from aether.models import LoraConfig
 

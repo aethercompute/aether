@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import sys
+from contextlib import nullcontext
 
 from .causal_lm import (
     CausalLM,
@@ -241,7 +242,8 @@ class HfTransformersAuto(CausalLM):
                 config,
                 attn_implementation=attn_implementation,
             )
-        torch.cuda.set_device(device)
+        if device.type == "cuda":
+            torch.cuda.set_device(device)
 
         world_mesh = None
         if tp != 1 or dp != 1:
@@ -445,7 +447,12 @@ class HfTransformersAuto(CausalLM):
 
         # need to wrap in a device context or get triton errors when using liger
         # see https://github.com/linkedin/Liger-Kernel/issues/593#issuecomment-2770160474
-        with torch.cuda.device(input_ids.device.index):
+        device_context = (
+            torch.cuda.device(input_ids.device.index)
+            if input_ids.device.type == "cuda"
+            else nullcontext()
+        )
+        with device_context:
             try:
                 ret = self.model(
                     input_ids.contiguous(),

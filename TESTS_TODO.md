@@ -282,11 +282,11 @@ Target: `shared/modeling/` and `python/python/aether/models/`.
 - [ ] Test trainer worker panic propagation.
 - [ ] Test repeated train/optimize/extract cycles for state leaks.
 - [x] Add parameterized Python HF factory routing tests.
-- [ ] Test Python HF `from_pretrained` with a tiny local checkpoint.
-- [ ] Test Python HF forward logits against the direct Transformers model.
-- [ ] Test Python HF loss against the direct Transformers model.
+- [x] Test Python HF `from_pretrained` with a tiny local checkpoint.
+- [x] Test Python HF forward logits against the direct Transformers model.
+- [x] Test Python HF loss against the direct Transformers model.
 - [x] Test Python HF missing, unexpected, and tied parameter handling.
-- [ ] Test Python HF device and dtype conversion.
+- [x] Test Python HF device and dtype conversion.
 - [x] Test Python HF LoRA merge output against PEFT.
 - [x] Test Python HF adapter-only save and reload from disk.
 - [ ] Add parameterized Torchtitan config conversion tests for every supported model family.
