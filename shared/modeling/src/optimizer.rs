@@ -22,6 +22,9 @@ pub enum Optimizer {
 
 impl Optimizer {
     pub fn new(definition: OptimizerDefinition, model: &dyn CausalLM) -> Self {
+        if model.trainable_variables().next().is_none() {
+            return Self::Null;
+        }
         match definition {
             OptimizerDefinition::AdamW {
                 betas,
@@ -95,5 +98,80 @@ impl Optimizer {
             },
             OptimizerDefinition::Dummy => Self::Null,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Communicator, EosToks, StableVariableIterator};
+    use std::{collections::HashMap, sync::Arc};
+    use tch::{Device, Tensor};
+
+    struct EmptyModel;
+
+    impl CausalLM for EmptyModel {
+        fn forward(
+            &self,
+            _x: &Tensor,
+            _labels: Option<&Tensor>,
+            _position_ids: Option<&Tensor>,
+            _sequence_lengths: Option<&Vec<Vec<i32>>>,
+            _num_logits_to_keep: Option<i64>,
+            _loss_scale: Option<f64>,
+        ) -> (Option<Tensor>, Option<Tensor>) {
+            (None, None)
+        }
+
+        fn bos_token_id(&self) -> Option<i64> {
+            None
+        }
+
+        fn eos_token_ids(&self) -> Option<EosToks> {
+            None
+        }
+
+        fn device(&self) -> Device {
+            Device::Cpu
+        }
+
+        fn max_context_length(&self) -> usize {
+            1
+        }
+
+        fn trainable_variables(&self) -> StableVariableIterator {
+            Box::new(std::iter::empty())
+        }
+
+        fn state_variables(&self) -> StableVariableIterator {
+            Box::new(std::iter::empty())
+        }
+
+        fn communicator(&self) -> Option<Arc<Communicator>> {
+            None
+        }
+
+        fn prepare_for_training(&self) {}
+
+        fn clip_grad_norm(&self, _max_grad_norm: f64) {}
+
+        fn convert(&self, state_dict: Option<HashMap<String, Tensor>>) -> HashMap<String, Tensor> {
+            state_dict.unwrap_or_default()
+        }
+    }
+
+    #[test]
+    fn no_trainable_parameters_use_null_optimizer() {
+        let optimizer = Optimizer::new(
+            OptimizerDefinition::AdamW {
+                betas: [0.9, 0.95],
+                weight_decay: 0.01,
+                eps: 1e-8,
+                clip_grad_norm: Some(1.0),
+            },
+            &EmptyModel,
+        );
+
+        assert!(matches!(optimizer, Optimizer::Null));
     }
 }

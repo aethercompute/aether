@@ -273,8 +273,8 @@ Target: `shared/modeling/` and `python/python/aether/models/`.
 - [x] Test FP32 gradient accumulator with missing gradients.
 - [ ] Test optimizer state restoration.
 - [ ] Test optimizer state mismatch errors.
-- [ ] Test gradient clipping against an independent norm calculation.
-- [ ] Test no-trainable-parameter behavior.
+- [x] Test gradient clipping against an independent norm calculation.
+- [x] Test no-trainable-parameter behavior.
 - [ ] Test ignored-label batches with all labels ignored.
 - [ ] Test zero-length and single-token batches.
 - [ ] Test uneven microbatch accumulation across more than two splits.

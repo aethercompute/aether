@@ -758,3 +758,55 @@ fn llama_attention_masks_packed_segments_and_padding() {
         .allclose(&first_segment, 1e-4, 1e-4, false));
     assert_eq!(padded_logits.isfinite().all().int64_value(&[]), 1);
 }
+
+#[test]
+fn llama_gradient_clipping_matches_independent_global_l2_norm() {
+    let model = new_llama();
+    let tokens = Tensor::from_slice2(&[[0_i64, 2, 4, 6, 8], [1, 3, 5, 7, 9]]);
+    let (_, loss) = model.forward(&tokens, Some(&tokens), None, None, None, None);
+    loss.expect("training loss").backward();
+
+    let gradients = model
+        .trainable_variables()
+        .filter_map(|variable| {
+            let gradient = variable.logical_tensor().grad();
+            gradient
+                .defined()
+                .then(|| (variable.name().to_string(), gradient.copy()))
+        })
+        .collect::<HashMap<_, _>>();
+    let total_norm = gradients
+        .values()
+        .map(|gradient| {
+            gradient
+                .to_kind(Kind::Double)
+                .pow_tensor_scalar(2)
+                .sum(Kind::Double)
+                .double_value(&[])
+        })
+        .sum::<f64>()
+        .sqrt();
+    let max_norm = total_norm / 3.0;
+    let expected_scale = max_norm / (total_norm + 1e-6);
+
+    model.clip_grad_norm(max_norm);
+
+    let mut clipped_norm_sq = 0.0;
+    for variable in model.trainable_variables() {
+        let actual = variable.logical_tensor().grad();
+        if let Some(original) = gradients.get(variable.name()) {
+            let expected = original * expected_scale;
+            assert!(
+                actual.allclose(&expected, 1e-6, 1e-6, false),
+                "clipped gradient differs for {}",
+                variable.name()
+            );
+            clipped_norm_sq += actual
+                .to_kind(Kind::Double)
+                .pow_tensor_scalar(2)
+                .sum(Kind::Double)
+                .double_value(&[]);
+        }
+    }
+    assert!((clipped_norm_sq.sqrt() - max_norm).abs() < 1e-5);
+}
