@@ -268,9 +268,9 @@ Target: `shared/modeling/` and `python/python/aether/models/`.
 - [x] Test token output stream UTF-8 boundaries.
 - [x] Test token output stream stop-token behavior.
 - [x] Test token output stream incomplete byte sequences.
-- [ ] Test FP32 gradient accumulator accumulation and reset.
-- [ ] Test FP32 gradient accumulator dtype conversion.
-- [ ] Test FP32 gradient accumulator with missing gradients.
+- [x] Test FP32 gradient accumulator accumulation and reset.
+- [x] Test FP32 gradient accumulator dtype conversion.
+- [x] Test FP32 gradient accumulator with missing gradients.
 - [ ] Test optimizer state restoration.
 - [ ] Test optimizer state mismatch errors.
 - [ ] Test gradient clipping against an independent norm calculation.
