@@ -2,7 +2,7 @@ use crate::{
     AttentionImplementation, ColumnParallelLinear, Communicator, RoPECache, RowParallelLinear,
 };
 use std::sync::Arc;
-use tch::{nn::Module, Device, Tensor};
+use tch::{nn::Module, Device, Kind, Tensor};
 
 fn repeat_kv(hidden_states: &Tensor, n_rep: i64) -> Tensor {
     let (batch, num_key_value_heads, slen, head_dim) = hidden_states.size4().unwrap();
@@ -41,6 +41,48 @@ pub fn create_cu_seqlens(lengths: &[Vec<i32>], device: Device) -> (Tensor, i32) 
     }
 
     (Tensor::from_slice(&cum).to(device), max)
+}
+
+fn packed_causal_mask(
+    lengths: &[Vec<i32>],
+    batch: i64,
+    time: i64,
+    kind: Kind,
+    device: Device,
+) -> Tensor {
+    assert_eq!(
+        lengths.len() as i64,
+        batch,
+        "sequence_lengths batch mismatch"
+    );
+    let mut mask = vec![f32::NEG_INFINITY; (batch * time * time) as usize];
+    for (batch_index, segments) in lengths.iter().enumerate() {
+        let mut offset = 0_i64;
+        for &length in segments {
+            assert!(length > 0, "sequence lengths must be positive");
+            let length = length as i64;
+            assert!(
+                offset + length <= time,
+                "sequence lengths exceed input width"
+            );
+            for query in offset..offset + length {
+                for key in offset..=query {
+                    let index = (batch_index as i64 * time * time + query * time + key) as usize;
+                    mask[index] = 0.0;
+                }
+            }
+            offset += length;
+        }
+        // Keep padding queries finite without allowing them to read real tokens.
+        for position in offset..time {
+            let index = (batch_index as i64 * time * time + position * time + position) as usize;
+            mask[index] = 0.0;
+        }
+    }
+    Tensor::from_slice(&mask)
+        .reshape([batch, 1, time, time])
+        .to_kind(kind)
+        .to(device)
 }
 
 #[allow(dead_code)]
@@ -111,7 +153,7 @@ impl CausalSelfAttention {
         &self,
         x: &Tensor,
         position_ids: Option<&Tensor>,
-        sequence_lengths: Option<&(Tensor, i32)>,
+        sequence_lengths: Option<&[Vec<i32>]>,
         cache: &RoPECache,
     ) -> Tensor {
         let (b, t, c) = x.size3().unwrap();
@@ -149,7 +191,8 @@ impl CausalSelfAttention {
         let y = match self.attn_implementation {
             #[cfg(feature = "parallelism")]
             AttentionImplementation::FlashAttention2 => {
-                let (cum_seq, max_len) = match sequence_lengths {
+                let packed = sequence_lengths.map(|lengths| create_cu_seqlens(lengths, x.device()));
+                let (cum_seq, max_len) = match &packed {
                     Some((cum_seq, max_len)) => (Some(cum_seq), *max_len as i64),
                     None => (None, t),
                 };
@@ -187,14 +230,16 @@ impl CausalSelfAttention {
                     .reshape([b, t, local_n_head * self.head_dim])
             }
             AttentionImplementation::Sdpa => {
-                assert!(sequence_lengths.is_none());
+                let mask = sequence_lengths
+                    .map(|lengths| packed_causal_mask(lengths, b, t, kind, self.device));
+                let is_causal = mask.is_none() && t > 1;
                 let att = Tensor::scaled_dot_product_attention::<Tensor>(
                     &q,
                     &k,
                     &v,
-                    None,
+                    mask,
                     0.0,
-                    t > 1,
+                    is_causal,
                     Some(scale),
                     false,
                 );
@@ -203,12 +248,16 @@ impl CausalSelfAttention {
                     .reshape([b, t, local_n_head * self.head_dim])
             }
             AttentionImplementation::Eager => {
-                assert!(sequence_lengths.is_none());
                 let att = q.matmul(&k.transpose(-2, -1)) * scale;
-                let mask = Tensor::ones([t, t], (kind, self.device))
-                    .tril(0)
-                    .reshape([1, 1, t, t]);
-                let att = att.masked_fill(&mask.eq(0.), f64::NEG_INFINITY);
+                let att = match sequence_lengths {
+                    Some(lengths) => att + packed_causal_mask(lengths, b, t, kind, self.device),
+                    None => {
+                        let mask = Tensor::ones([t, t], (kind, self.device))
+                            .tril(0)
+                            .reshape([1, 1, t, t]);
+                        att.masked_fill(&mask.eq(0.), f64::NEG_INFINITY)
+                    }
+                };
                 let y = att.softmax(-1, kind).matmul(&v);
                 y.transpose(1, 2)
                     .contiguous()

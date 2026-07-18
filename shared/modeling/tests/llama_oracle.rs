@@ -609,21 +609,13 @@ fn llama_position_ids_and_sequence_metadata_are_handled_explicitly() {
     let tokens = Tensor::from_slice2(&[[0_i64, 2, 4, 6, 8], [1, 3, 5, 7, 9]]);
     let sequential_positions = Tensor::from_slice2(&[[0_i64, 1, 2, 3, 4], [0, 1, 2, 3, 4]]);
     let reset_positions = Tensor::from_slice2(&[[0_i64, 1, 0, 1, 2], [0, 1, 0, 1, 2]]);
-    let packed_lengths = vec![vec![2, 3], vec![2, 3]];
 
     let default_logits = model
         .forward(&tokens, None, None, None, None, None)
         .0
         .expect("default-position logits");
     let explicit_logits = model
-        .forward(
-            &tokens,
-            None,
-            Some(&sequential_positions),
-            Some(&packed_lengths),
-            None,
-            None,
-        )
+        .forward(&tokens, None, Some(&sequential_positions), None, None, None)
         .0
         .expect("explicit-position logits");
     let reset_logits = model
@@ -691,4 +683,78 @@ fn llama_rejects_inputs_beyond_the_configured_context() {
     let model = new_llama();
     let tokens = Tensor::zeros([1, 17], (Kind::Int64, Device::Cpu));
     let _ = model.forward(&tokens, None, None, None, None, None);
+}
+
+#[test]
+fn llama_attention_masks_packed_segments_and_padding() {
+    let model = new_llama();
+    let packed_tokens = Tensor::from_slice2(&[[0_i64, 2, 4, 1, 3]]);
+    let packed_positions = Tensor::from_slice2(&[[0_i64, 1, 2, 0, 1]]);
+    let packed_lengths = vec![vec![3, 2]];
+    let packed_logits = model
+        .forward(
+            &packed_tokens,
+            None,
+            Some(&packed_positions),
+            Some(&packed_lengths),
+            None,
+            None,
+        )
+        .0
+        .expect("packed logits");
+    let first_segment = model
+        .forward(
+            &Tensor::from_slice2(&[[0_i64, 2, 4]]),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .0
+        .expect("first segment logits");
+    let second_segment = model
+        .forward(
+            &Tensor::from_slice2(&[[1_i64, 3]]),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .0
+        .expect("second segment logits");
+
+    assert!(packed_logits
+        .narrow(1, 0, 3)
+        .allclose(&first_segment, 1e-6, 1e-6, false));
+    let packed_second = packed_logits.narrow(1, 3, 2);
+    let second_max_diff = (&packed_second - &second_segment)
+        .abs()
+        .max()
+        .double_value(&[]);
+    assert!(
+        packed_second.allclose(&second_segment, 1e-5, 1e-5, false),
+        "second packed segment differs from isolated forward: max_abs={second_max_diff:.6e}"
+    );
+
+    let padded_tokens = Tensor::from_slice2(&[[0_i64, 2, 4, 10, 10]]);
+    let padded_positions = Tensor::from_slice2(&[[0_i64, 1, 2, 0, 0]]);
+    let padded_lengths = vec![vec![3]];
+    let padded_logits = model
+        .forward(
+            &padded_tokens,
+            None,
+            Some(&padded_positions),
+            Some(&padded_lengths),
+            None,
+            None,
+        )
+        .0
+        .expect("padded logits");
+
+    assert!(padded_logits
+        .narrow(1, 0, 3)
+        .allclose(&first_segment, 1e-6, 1e-6, false));
+    assert_eq!(padded_logits.isfinite().all().int64_value(&[]), 1);
 }

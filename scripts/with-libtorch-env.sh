@@ -47,6 +47,14 @@ print(torch_lib + ((":" + python_lib) if python_lib else ""))
 PY
 )"
 
+torch_site_packages="$(LD_LIBRARY_PATH= "$python_bin" <<'PY'
+from pathlib import Path
+import torch
+
+print(Path(torch.__file__).resolve().parent.parent)
+PY
+)"
+
 python_libdir="$(LD_LIBRARY_PATH= "$python_bin" <<'PY'
 import sysconfig
 
@@ -86,6 +94,7 @@ fi
 export LIBTORCH_USE_PYTORCH="${LIBTORCH_USE_PYTORCH:-1}"
 export PYO3_PYTHON="${PYO3_PYTHON:-$python_bin}"
 export PYO3_USE_ABI3_FORWARD_COMPATIBILITY="${PYO3_USE_ABI3_FORWARD_COMPATIBILITY:-1}"
+export PYTHONPATH="$torch_site_packages${PYTHONPATH:+:${PYTHONPATH}}"
 
 # Drop stale torch library paths from other Python installs. Keeping them in
 # LD_LIBRARY_PATH can make test binaries load mismatched torch shared objects.

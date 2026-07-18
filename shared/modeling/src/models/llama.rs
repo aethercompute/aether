@@ -9,7 +9,6 @@ use tch::{
     nn::{self, Module},
     Device, Kind, Tensor,
 };
-use tracing::warn;
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct LlamaConfig {
@@ -158,7 +157,7 @@ impl Block {
         &self,
         x: &Tensor,
         position_ids: Option<&Tensor>,
-        sequence_lengths: Option<&(Tensor, i32)>,
+        sequence_lengths: Option<&[Vec<i32>]>,
         cache: &RoPECache,
     ) -> Tensor {
         let x = self.attn.forward(
@@ -238,30 +237,12 @@ impl LanguageModelForward for Llama {
         sequence_lengths: Option<&Vec<Vec<i32>>>,
         _training: bool,
     ) -> Tensor {
-        let sequence_lengths = sequence_lengths.and_then(|sequence_lengths| {
-            #[cfg(feature = "parallelism")]
-            {
-                if self.attn_implementation == AttentionImplementation::FlashAttention2 {
-                    Some(crate::attention::create_cu_seqlens(sequence_lengths, x.device()))
-                } else {
-                    warn!("ignoring sequence_lengths because they are only supported for FlashAttention2");
-                    None
-                }
-            }
-
-            #[cfg(not(feature = "parallelism"))]
-            {
-                warn!("ignoring sequence_lengths because FlashAttention2 requires the parallelism feature");
-                None
-            }
-        });
-
         let mut x = self.wte.forward(x);
         for block in &self.blocks {
             x = block.forward(
                 &x,
                 position_ids,
-                sequence_lengths.as_ref(),
+                sequence_lengths.map(Vec::as_slice),
                 &self.rope_cache,
             );
         }

@@ -33,7 +33,7 @@ run_job fmt cargo fmt --all --check
 run_job deny cargo deny --workspace check
 run_job training-oracle env CARGO_TARGET_DIR=target/ci-local/training-oracle bash scripts/with-libtorch-env.sh cargo test -p aether-modeling --test training_oracle --test llama_oracle -- --nocapture
 run_job clippy env CARGO_TARGET_DIR=target/ci-local/clippy bash scripts/with-libtorch-env.sh cargo clippy --workspace --all-targets -- -D warnings
-run_job test bash -c 'CARGO_TARGET_DIR=target/ci-local/test bash scripts/with-libtorch-env.sh cargo test --workspace && cd python && uv run --frozen --extra tests pytest'
+run_job test bash scripts/with-libtorch-env.sh bash -c 'CARGO_TARGET_DIR=target/ci-local/test cargo test --workspace && cd python && uv run --frozen --extra tests pytest'
 
 failed=0
 for name in fmt deny training-oracle clippy test; do

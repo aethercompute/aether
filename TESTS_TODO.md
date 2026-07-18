@@ -258,9 +258,9 @@ Target: `shared/modeling/` and `python/python/aether/models/`.
 - [x] Test Llama `num_logits_to_keep` behavior.
 - [x] Test Llama loss scaling.
 - [x] Test Llama maximum-context rejection.
-- [ ] Test attention masks for padded and packed batches.
-- [ ] Test RoPE at position zero, maximum position, and beyond configured limits.
-- [ ] Test RoPE scaling variants against independent formulas.
+- [x] Test attention masks for padded and packed batches.
+- [x] Test RoPE at position zero, maximum position, and beyond configured limits.
+- [x] Test RoPE scaling variants against independent formulas.
 - [ ] Test sampling greedy behavior.
 - [ ] Test sampling temperature behavior with a fixed RNG.
 - [ ] Test top-k and top-p boundaries.
