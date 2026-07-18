@@ -261,13 +261,13 @@ Target: `shared/modeling/` and `python/python/aether/models/`.
 - [x] Test attention masks for padded and packed batches.
 - [x] Test RoPE at position zero, maximum position, and beyond configured limits.
 - [x] Test RoPE scaling variants against independent formulas.
-- [ ] Test sampling greedy behavior.
-- [ ] Test sampling temperature behavior with a fixed RNG.
-- [ ] Test top-k and top-p boundaries.
-- [ ] Test invalid sampling parameters.
-- [ ] Test token output stream UTF-8 boundaries.
-- [ ] Test token output stream stop-token behavior.
-- [ ] Test token output stream incomplete byte sequences.
+- [x] Test sampling greedy behavior.
+- [x] Test sampling temperature behavior with a fixed RNG.
+- [x] Test top-k and top-p boundaries.
+- [x] Test invalid sampling parameters.
+- [x] Test token output stream UTF-8 boundaries.
+- [x] Test token output stream stop-token behavior.
+- [x] Test token output stream incomplete byte sequences.
 - [ ] Test FP32 gradient accumulator accumulation and reset.
 - [ ] Test FP32 gradient accumulator dtype conversion.
 - [ ] Test FP32 gradient accumulator with missing gradients.

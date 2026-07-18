@@ -86,3 +86,76 @@ impl TokenOutputStream {
         self.current_index = 0;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use tokenizers::{
+        decoders::byte_fallback::ByteFallback, models::bpe::BPE, AddedToken, Tokenizer,
+    };
+
+    fn byte_tokenizer() -> Tokenizer {
+        let vocab = HashMap::from([
+            ("<0x61>".to_string(), 0),
+            ("<0xC3>".to_string(), 1),
+            ("<0xA9>".to_string(), 2),
+            ("<0xF0>".to_string(), 3),
+            ("<0x9F>".to_string(), 4),
+            ("<0x98>".to_string(), 5),
+            ("<0x80>".to_string(), 6),
+            ("<unk>".to_string(), 7),
+        ]);
+        let model = BPE::builder()
+            .vocab_and_merges(vocab, vec![])
+            .unk_token("<unk>".into())
+            .byte_fallback(true)
+            .build()
+            .expect("build byte tokenizer");
+        let mut tokenizer = Tokenizer::new(model);
+        tokenizer.with_decoder(Some(ByteFallback::default()));
+        tokenizer.add_special_tokens(&[AddedToken::from("<eos>", true)]);
+        tokenizer
+    }
+
+    #[test]
+    fn stream_waits_for_complete_utf8_before_emitting_alphanumeric_text() {
+        let mut stream = TokenOutputStream::new(byte_tokenizer());
+
+        assert_eq!(stream.next_token(1).unwrap(), None);
+        assert_eq!(stream.next_token(2).unwrap(), Some("é".into()));
+        assert_eq!(stream.decode_all().unwrap(), "é");
+    }
+
+    #[test]
+    fn stream_buffers_non_alphanumeric_utf8_across_byte_boundaries() {
+        let mut stream = TokenOutputStream::new(byte_tokenizer());
+
+        for token in [3, 4, 5, 6] {
+            assert_eq!(stream.next_token(token).unwrap(), None);
+        }
+        assert_eq!(stream.decode_rest().unwrap(), Some("😀".into()));
+        assert_eq!(stream.decode_all().unwrap(), "😀");
+    }
+
+    #[test]
+    fn stream_handles_incomplete_byte_sequences_without_panicking() {
+        let mut stream = TokenOutputStream::new(byte_tokenizer());
+
+        assert_eq!(stream.next_token(3).unwrap(), None);
+        assert_eq!(stream.next_token(4).unwrap(), None);
+        assert_eq!(stream.decode_rest().unwrap(), Some("��".into()));
+    }
+
+    #[test]
+    fn special_stop_token_produces_no_streamed_or_decoded_text() {
+        let tokenizer = byte_tokenizer();
+        let stop = tokenizer.token_to_id("<eos>").expect("stop token ID");
+        let mut stream = TokenOutputStream::new(tokenizer);
+
+        assert_eq!(stream.next_token(0).unwrap(), Some("a".into()));
+        assert_eq!(stream.next_token(stop).unwrap(), None);
+        assert_eq!(stream.next_token(0).unwrap(), Some("a".into()));
+        assert_eq!(stream.decode_all().unwrap(), "aa");
+    }
+}

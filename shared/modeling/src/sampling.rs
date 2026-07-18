@@ -1,4 +1,4 @@
-use anyhow::{Error, Result};
+use anyhow::{bail, Error, Result};
 use rand::{
     distr::{weighted::WeightedIndex, Distribution},
     SeedableRng,
@@ -28,7 +28,13 @@ impl LogitsProcessor {
     }
 
     pub fn new(seed: u64, temperature: Option<f64>, top_p: Option<f64>) -> Self {
-        let temperature = temperature.and_then(|v| if v < 1e-7 { None } else { Some(v) });
+        let temperature = temperature.and_then(|v| {
+            if (0.0..1e-7).contains(&v) {
+                None
+            } else {
+                Some(v)
+            }
+        });
         let sampling = match temperature {
             None => Sampling::ArgMax,
             Some(temperature) => match top_p {
@@ -117,6 +123,39 @@ impl LogitsProcessor {
     }
 
     pub fn sample_f(&mut self, logits: &Tensor, f: impl FnOnce(&mut [f32])) -> Result<u32> {
+        if logits.dim() != 1 {
+            bail!("sampling logits must be one-dimensional");
+        }
+        if logits.numel() == 0 {
+            bail!("sampling logits must not be empty");
+        }
+        if logits.isfinite().all().int64_value(&[]) == 0 {
+            bail!("sampling logits must be finite");
+        }
+        match &self.sampling {
+            Sampling::ArgMax => {}
+            Sampling::All { temperature }
+            | Sampling::TopK { temperature, .. }
+            | Sampling::TopP { temperature, .. }
+            | Sampling::TopKThenTopP { temperature, .. }
+                if !temperature.is_finite() || *temperature <= 0.0 =>
+            {
+                bail!("sampling temperature must be finite and greater than zero");
+            }
+            _ => {}
+        }
+        match &self.sampling {
+            Sampling::TopK { k: 0, .. } | Sampling::TopKThenTopP { k: 0, .. } => {
+                bail!("top-k must be greater than zero");
+            }
+            Sampling::TopP { p, .. } | Sampling::TopKThenTopP { p, .. }
+                if !(p.is_finite() && 0.0 < *p && *p <= 1.0) =>
+            {
+                bail!("top-p must be finite and in the interval (0, 1]");
+            }
+            _ => {}
+        }
+
         let logits = logits.to_kind(Kind::Float);
         let prs = |temperature: f64| -> Result<Vec<f32>> {
             let logits = &logits / temperature;
@@ -152,5 +191,141 @@ impl LogitsProcessor {
             }
         };
         Ok(next_token)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tch::{Device, Kind};
+
+    fn logits() -> Tensor {
+        Tensor::from_slice(&[-1.0_f32, 0.5, 2.0, 1.0])
+    }
+
+    fn samples(sampling: Sampling, seed: u64, count: usize) -> Vec<u32> {
+        let mut processor = LogitsProcessor::from_sampling(seed, sampling);
+        (0..count)
+            .map(|_| processor.sample(&logits()).expect("valid sample"))
+            .collect()
+    }
+
+    #[test]
+    fn greedy_sampling_always_selects_the_largest_logit() {
+        let mut processor = LogitsProcessor::from_sampling(7, Sampling::ArgMax);
+        for _ in 0..8 {
+            assert_eq!(processor.sample(&logits()).unwrap(), 2);
+        }
+    }
+
+    #[test]
+    fn temperature_sampling_is_seeded_and_changes_distribution_sharpness() {
+        let cold = samples(Sampling::All { temperature: 0.01 }, 19, 64);
+        let cold_repeat = samples(Sampling::All { temperature: 0.01 }, 19, 64);
+        let hot = samples(Sampling::All { temperature: 100.0 }, 19, 64);
+
+        assert_eq!(cold, cold_repeat);
+        assert!(cold.iter().all(|&token| token == 2));
+        assert!(hot.iter().any(|&token| token != 2));
+    }
+
+    #[test]
+    fn top_k_and_top_p_boundaries_select_the_expected_candidate_sets() {
+        let top_one = samples(
+            Sampling::TopK {
+                k: 1,
+                temperature: 1.0,
+            },
+            23,
+            32,
+        );
+        assert!(top_one.iter().all(|&token| token == 2));
+
+        let all = samples(Sampling::All { temperature: 1.0 }, 29, 32);
+        let top_k_vocab = samples(
+            Sampling::TopK {
+                k: 4,
+                temperature: 1.0,
+            },
+            29,
+            32,
+        );
+        let top_p_one = samples(
+            Sampling::TopP {
+                p: 1.0,
+                temperature: 1.0,
+            },
+            29,
+            32,
+        );
+        assert_eq!(top_k_vocab, all);
+        assert_eq!(top_p_one, all);
+
+        let nucleus = samples(
+            Sampling::TopP {
+                p: 0.01,
+                temperature: 1.0,
+            },
+            31,
+            32,
+        );
+        assert!(nucleus.iter().all(|&token| token == 2));
+
+        let combined = samples(
+            Sampling::TopKThenTopP {
+                k: 2,
+                p: 1.0,
+                temperature: 1.0,
+            },
+            37,
+            64,
+        );
+        assert!(combined.iter().all(|&token| token == 2 || token == 3));
+    }
+
+    #[test]
+    fn invalid_sampling_parameters_and_logits_return_errors() {
+        let invalid_samplings = [
+            Sampling::All { temperature: 0.0 },
+            Sampling::All {
+                temperature: f64::NAN,
+            },
+            Sampling::TopK {
+                k: 0,
+                temperature: 1.0,
+            },
+            Sampling::TopP {
+                p: 0.0,
+                temperature: 1.0,
+            },
+            Sampling::TopP {
+                p: 1.1,
+                temperature: 1.0,
+            },
+            Sampling::TopKThenTopP {
+                k: 2,
+                p: f64::NAN,
+                temperature: 1.0,
+            },
+        ];
+        for sampling in invalid_samplings {
+            assert!(LogitsProcessor::from_sampling(1, sampling)
+                .sample(&logits())
+                .is_err());
+        }
+
+        let mut processor = LogitsProcessor::from_sampling(1, Sampling::ArgMax);
+        assert!(processor
+            .sample(&Tensor::zeros([0], (Kind::Float, Device::Cpu)))
+            .is_err());
+        assert!(processor
+            .sample(&Tensor::zeros([1, 4], (Kind::Float, Device::Cpu)))
+            .is_err());
+        assert!(processor
+            .sample(&Tensor::from_slice(&[0.0_f32, f32::INFINITY]))
+            .is_err());
+
+        let mut negative_temperature = LogitsProcessor::new(1, Some(-1.0), None);
+        assert!(negative_temperature.sample(&logits()).is_err());
     }
 }
