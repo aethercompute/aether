@@ -68,10 +68,10 @@ Current baseline (2026-07-17):
 
 ## P0: Test Infrastructure
 
-- [ ] Add reusable deterministic clocks for Tokio state-machine tests.
+- [x] Add reusable deterministic clocks for Tokio state-machine tests.
 - [x] Add reusable bounded polling helpers with fixed total deadlines.
 - [x] Replace polling helpers whose delay grows with every retry.
-- [ ] Add reusable failure-injection channels for actor tests.
+- [x] Add reusable failure-injection channels for actor tests.
 - [ ] Add reusable fake checkpoint storage with configurable failures.
 - [ ] Add reusable fake model sharing peers with configurable latency and corruption.
 - [ ] Add reusable fake data providers for success, partial read, corruption, and timeout cases.
@@ -79,8 +79,8 @@ Current baseline (2026-07-17):
 - [ ] Add reusable Python fake store and process-group fixtures.
 - [ ] Add reusable tiny deterministic model fixtures for Rust and Python.
 - [ ] Add reusable golden-fixture loaders with explicit fixture versions.
-- [ ] Add reusable assertions for actor shutdown and task cancellation.
-- [ ] Add reusable assertions that no background tasks remain after a test.
+- [x] Add reusable assertions for actor shutdown and task cancellation.
+- [x] Add reusable assertions that no background tasks remain after a test.
 - [ ] Add reusable assertions for Postcard and JSON error context.
 - [ ] Add a standard temporary artifact directory layout for model and dataset tests.
 - [x] Add a test helper for selecting an unused loopback port without races.

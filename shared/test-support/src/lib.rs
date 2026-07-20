@@ -5,6 +5,8 @@
 //!   - race-free loopback listeners ([`bind_unused_loopback`]),
 //!   - deterministic tensors and numerical assertions ([`deterministic_tensor`],
 //!     [`assert_tensors_close`], [`assert_tensor_finite`]),
+//!   - paused Tokio time ([`DeterministicClock`]) and actor/task shutdown
+//!     assertions,
 //!   - one-shot serialization round-trip checks ([`assert_postcard_roundtrip`],
 //!     [`assert_serde_json_roundtrip`]).
 //!
@@ -13,9 +15,13 @@
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
+use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::time::Duration;
 use tch::{Device, Kind, Tensor};
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 /// A deterministic RNG seeded from a `u64`.
 ///
@@ -63,6 +69,167 @@ pub async fn assert_eventually_eq<T, F, Fut>(
         );
         tokio::time::sleep_until(std::cmp::min(deadline, now + interval)).await;
     }
+}
+
+/// Handle for tests that run Tokio with paused time.
+///
+/// Construct it with [`DeterministicClock::pause`] inside a `#[tokio::test]`, or
+/// [`DeterministicClock::current`] when the test already uses
+/// `#[tokio::test(start_paused = true)]`.
+#[derive(Clone, Copy, Debug)]
+pub struct DeterministicClock {
+    start: tokio::time::Instant,
+}
+
+impl DeterministicClock {
+    /// Pause Tokio time and remember the current instant as the test origin.
+    pub fn pause() -> Self {
+        tokio::time::pause();
+        Self::current()
+    }
+
+    /// Use the currently configured Tokio time source.
+    pub fn current() -> Self {
+        Self {
+            start: tokio::time::Instant::now(),
+        }
+    }
+
+    pub fn start(&self) -> tokio::time::Instant {
+        self.start
+    }
+
+    pub fn now(&self) -> tokio::time::Instant {
+        tokio::time::Instant::now()
+    }
+
+    pub fn elapsed(&self) -> Duration {
+        self.start.elapsed()
+    }
+
+    pub async fn advance(&self, duration: Duration) {
+        tokio::time::advance(duration).await;
+    }
+
+    pub async fn sleep(&self, duration: Duration) {
+        tokio::time::sleep(duration).await;
+    }
+}
+
+/// Error emitted by [`FailureReceiver`] when a test injects a failure or drops
+/// every sender.
+#[derive(Debug, PartialEq, Eq)]
+pub enum FailureChannelError<E> {
+    Injected(E),
+    Closed,
+}
+
+/// Sender half of a test channel that can emit values or injected failures.
+#[derive(Debug)]
+pub struct FailureSender<T, E> {
+    tx: mpsc::UnboundedSender<Result<T, E>>,
+}
+
+/// Receiver half of a test channel that surfaces injected failures as errors.
+#[derive(Debug)]
+pub struct FailureReceiver<T, E> {
+    rx: mpsc::UnboundedReceiver<Result<T, E>>,
+}
+
+pub fn failure_channel<T, E>() -> (FailureSender<T, E>, FailureReceiver<T, E>) {
+    let (tx, rx) = mpsc::unbounded_channel();
+    (FailureSender { tx }, FailureReceiver { rx })
+}
+
+impl<T, E> Clone for FailureSender<T, E> {
+    fn clone(&self) -> Self {
+        Self {
+            tx: self.tx.clone(),
+        }
+    }
+}
+
+impl<T, E> FailureSender<T, E> {
+    pub fn send(&self, value: T) -> Result<(), mpsc::error::SendError<Result<T, E>>> {
+        self.tx.send(Ok(value))
+    }
+
+    pub fn fail(&self, error: E) -> Result<(), mpsc::error::SendError<Result<T, E>>> {
+        self.tx.send(Err(error))
+    }
+}
+
+impl<T, E> FailureReceiver<T, E> {
+    pub async fn recv(&mut self) -> Result<T, FailureChannelError<E>> {
+        match self.rx.recv().await {
+            Some(Ok(value)) => Ok(value),
+            Some(Err(error)) => Err(FailureChannelError::Injected(error)),
+            None => Err(FailureChannelError::Closed),
+        }
+    }
+
+    pub async fn recv_with_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<T, FailureChannelError<E>> {
+        tokio::time::timeout(timeout, self.recv())
+            .await
+            .expect("failure channel receive exceeded timeout")
+    }
+}
+
+/// Await a spawned task under one total deadline and fail on panic or timeout.
+pub async fn assert_task_finishes<T>(handle: JoinHandle<T>, timeout: Duration) -> T {
+    match tokio::time::timeout(timeout, handle).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => panic!("task did not finish cleanly: {error}"),
+        Err(_) => panic!("task did not finish within {timeout:?}"),
+    }
+}
+
+/// Abort a task and assert Tokio reports it as cancelled under a fixed deadline.
+pub async fn abort_and_assert_cancelled<T>(handle: JoinHandle<T>, timeout: Duration) {
+    handle.abort();
+    assert_task_cancelled(handle, timeout).await;
+}
+
+/// Assert a task has already been cancelled or observes cancellation after its
+/// token is cancelled.
+pub async fn cancel_and_assert_task_stops<T>(
+    token: &CancellationToken,
+    handle: JoinHandle<T>,
+    timeout: Duration,
+) -> T {
+    token.cancel();
+    assert_task_finishes(handle, timeout).await
+}
+
+pub async fn assert_task_cancelled<T>(handle: JoinHandle<T>, timeout: Duration) {
+    match tokio::time::timeout(timeout, handle).await {
+        Ok(Err(error)) if error.is_cancelled() => {}
+        Ok(Err(error)) => panic!("task failed instead of being cancelled: {error}"),
+        Ok(Ok(_)) => panic!("task completed instead of being cancelled"),
+        Err(_) => panic!("task cancellation was not observed within {timeout:?}"),
+    }
+}
+
+/// Assert that every tracked background task has exited before the deadline.
+pub async fn assert_no_background_tasks<T>(handles: Vec<JoinHandle<T>>, timeout: Duration) {
+    let deadline = tokio::time::Instant::now() + timeout;
+    for handle in handles {
+        match tokio::time::timeout_at(deadline, handle).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => panic!("background task failed: {error}"),
+            Err(_) => panic!("background task remained after {timeout:?}"),
+        }
+    }
+}
+
+/// Run `future` and fail if it does not complete before the timeout.
+pub async fn assert_completes<T>(timeout: Duration, future: impl Future<Output = T>) -> T {
+    tokio::time::timeout(timeout, future)
+        .await
+        .expect("future did not complete within timeout")
 }
 
 /// Builds a CPU tensor containing `0..numel`, reshaped and converted to `kind`.
@@ -219,6 +386,89 @@ mod tests {
             true,
         )
         .await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn deterministic_clock_advances_paused_time() {
+        let clock = DeterministicClock::current();
+        let sleeper = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            11
+        });
+
+        tokio::task::yield_now().await;
+        assert!(!sleeper.is_finished());
+        assert_eq!(clock.start(), clock.now());
+
+        clock.advance(Duration::from_secs(3)).await;
+
+        assert_eq!(
+            assert_task_finishes(sleeper, Duration::from_secs(1)).await,
+            11
+        );
+        assert_eq!(clock.elapsed(), Duration::from_secs(3));
+    }
+
+    #[tokio::test]
+    async fn failure_channel_emits_values_and_injected_failures() {
+        let (tx, mut rx) = failure_channel::<u8, &'static str>();
+
+        tx.send(7).unwrap();
+        tx.fail("boom").unwrap();
+
+        assert_eq!(rx.recv_with_timeout(Duration::from_secs(1)).await, Ok(7));
+        assert_eq!(rx.recv().await, Err(FailureChannelError::Injected("boom")));
+        drop(tx);
+        assert_eq!(rx.recv().await, Err(FailureChannelError::Closed));
+    }
+
+    #[tokio::test]
+    async fn task_shutdown_helpers_detect_completion_cancellation_and_leaks() {
+        let finished = tokio::spawn(async { 5_u8 });
+        assert_eq!(
+            assert_task_finishes(finished, Duration::from_secs(1)).await,
+            5
+        );
+
+        let blocked = tokio::spawn(std::future::pending::<()>());
+        abort_and_assert_cancelled(blocked, Duration::from_secs(1)).await;
+
+        let token = CancellationToken::new();
+        let observed = tokio::spawn({
+            let token = token.clone();
+            async move {
+                token.cancelled().await;
+                "stopped"
+            }
+        });
+        assert_eq!(
+            cancel_and_assert_task_stops(&token, observed, Duration::from_secs(1)).await,
+            "stopped"
+        );
+
+        assert_no_background_tasks(
+            vec![tokio::spawn(async {}), tokio::spawn(async {})],
+            Duration::from_secs(1),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "background task remained")]
+    async fn no_background_tasks_fails_for_leaked_task() {
+        assert_no_background_tasks(
+            vec![tokio::spawn(std::future::pending::<()>())],
+            Duration::from_millis(1),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn assert_completes_returns_future_output() {
+        assert_eq!(
+            assert_completes(Duration::from_secs(1), async { 9 }).await,
+            9
+        );
     }
 
     #[test]
