@@ -48,9 +48,9 @@ Current baseline (2026-07-17):
 - [x] Add a Rust function coverage threshold.
 - [ ] Document how inline Rust test modules affect the coverage total.
 - [x] Exclude generated code, vendored code, examples, and test fixtures from coverage totals.
-- [ ] Publish a merged per-crate Rust coverage summary.
-- [ ] Add a changed-lines coverage check for pull requests.
-- [ ] Fail CI when Rust or Python coverage decreases beyond an approved tolerance.
+- [x] Publish a merged per-crate Rust coverage summary.
+- [x] Add a changed-lines coverage check for pull requests.
+- [x] Fail CI when Rust or Python coverage decreases beyond an approved tolerance.
 - [x] Store machine-readable test results as CI artifacts.
 - [x] Add JUnit output for pytest.
 - [x] Add JUnit output for Rust tests.

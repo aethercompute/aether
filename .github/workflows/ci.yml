@@ -18,6 +18,8 @@ env:
   RUSTFLAGS: "-C debuginfo=0"
   TORCH_VERSION: "2.9.1"
   TORCH_INDEX_URL: https://download.pytorch.org/whl/cpu
+  COVERAGE_TOLERANCE_PERCENT: "0"
+  CHANGED_LINES_COVERAGE_MIN: "60"
 
 jobs:
   fmt:
@@ -151,6 +153,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup-libtorch
         with:
           torch-version: ${{ env.TORCH_VERSION }}
@@ -169,10 +173,18 @@ jobs:
           uv run --frozen pytest -m "not (gpu or distributed or vllm or slow)" \
             --junitxml=test-results.xml \
             --cov --cov-report=term --cov-report=xml:coverage.xml \
-            --cov-report=html:htmlcov --cov-fail-under=19.5 \
+            --cov-report=html:htmlcov \
             --durations=20 --durations-min=0
           uv run --frozen python ../scripts/junit_summary.py test-results.xml \
-            --label "Python CPU required" --expected-tests 88 --forbid-skips
+            --label "Python CPU required" --expected-tests 95 --forbid-skips
+          uv run --frozen python ../scripts/coverage_ci.py check-baseline \
+            --coverage coverage.xml --workspace .. --label Python \
+            --min-line-rate 19.5 --tolerance "$COVERAGE_TOLERANCE_PERCENT"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            uv run --frozen python ../scripts/coverage_ci.py changed-lines \
+              --coverage coverage.xml --workspace .. --base-ref "origin/${{ github.base_ref }}" \
+              --label Python --threshold "$CHANGED_LINES_COVERAGE_MIN" --extension .py
+          fi
       - name: Upload Python test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -303,6 +315,8 @@ jobs:
       RUST_COVERAGE_IGNORE_REGEX: '(^|/)(vendor|examples|fixtures|test-data|test_data)(/|$)|(^|/)generated([^/]*)(/|$)'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup-libtorch
         with:
           torch-version: ${{ env.TORCH_VERSION }}
@@ -321,6 +335,17 @@ jobs:
           cargo llvm-cov --workspace --no-report
           cargo llvm-cov report --ignore-filename-regex "$RUST_COVERAGE_IGNORE_REGEX" \
             --cobertura --output-path ./coverage/cobertura.xml
+          python scripts/coverage_ci.py check-baseline \
+            --coverage ./coverage/cobertura.xml --workspace . --label Rust \
+            --min-line-rate 60.68 --tolerance "$COVERAGE_TOLERANCE_PERCENT"
+          python scripts/coverage_ci.py crate-summary \
+            --coverage ./coverage/cobertura.xml --workspace . \
+            --output ./coverage/rust-crate-summary.md
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python scripts/coverage_ci.py changed-lines \
+              --coverage ./coverage/cobertura.xml --workspace . --base-ref "origin/${{ github.base_ref }}" \
+              --label Rust --threshold "$CHANGED_LINES_COVERAGE_MIN" --extension .rs
+          fi
           cargo llvm-cov report --ignore-filename-regex "$RUST_COVERAGE_IGNORE_REGEX" \
             --html --output-dir ./coverage
           cargo llvm-cov report --ignore-filename-regex "$RUST_COVERAGE_IGNORE_REGEX" \
