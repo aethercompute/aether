@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 3 * * *"
   workflow_dispatch:
 
 # Cancel superseded runs on the same ref.
@@ -94,6 +96,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Rust workspace tests
         run: cargo nextest run --workspace --profile ci
+      - name: Validate Rust required test summary
+        run: python scripts/junit_summary.py target/nextest/ci/junit.xml --label "Rust required" --forbid-skips
       - name: Report slowest Rust tests
         run: |
           python - <<'PY'
@@ -162,18 +166,13 @@ jobs:
       - name: Python CPU tests
         working-directory: python
         run: |
-          uv run --frozen pytest --junitxml=test-results.xml \
+          uv run --frozen pytest -m "not (gpu or distributed or vllm or slow)" \
+            --junitxml=test-results.xml \
             --cov --cov-report=term --cov-report=xml:coverage.xml \
             --cov-report=html:htmlcov --cov-fail-under=19.5 \
             --durations=20 --durations-min=0
-          uv run --frozen python - <<'PY'
-          import xml.etree.ElementTree as ET
-
-          suite = ET.parse("test-results.xml").getroot().find("testsuite")
-          assert suite is not None, "pytest JUnit report has no testsuite"
-          assert int(suite.get("tests", 0)) == 88, "expected exactly 88 Python tests"
-          assert int(suite.get("skipped", 0)) == 0, "required Python tests must not skip"
-          PY
+          uv run --frozen python ../scripts/junit_summary.py test-results.xml \
+            --label "Python CPU required" --expected-tests 88 --forbid-skips
       - name: Upload Python test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -183,6 +182,74 @@ jobs:
             python/test-results.xml
             python/coverage.xml
             python/htmlcov
+          if-no-files-found: error
+
+  optional-suites:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-libtorch
+        with:
+          torch-version: ${{ env.TORCH_VERSION }}
+          torch-index-url: ${{ env.TORCH_INDEX_URL }}
+      - uses: taiki-e/install-action@nextest
+      - uses: Swatinem/rust-cache@v2
+      - name: Create Python test environment
+        working-directory: python
+        run: |
+          uv venv --system-site-packages
+          uv sync --frozen --extra tests
+      - name: Python optional tests
+        working-directory: python
+        run: |
+          set +e
+          uv run --frozen pytest -m "gpu or distributed or vllm or slow" \
+            --junitxml=optional-test-results.xml --no-cov \
+            --durations=20 --durations-min=0
+          status=$?
+          set -e
+          if [ "$status" -eq 5 ]; then
+            uv run --frozen python ../scripts/write_junit_skip.py \
+              --path optional-test-results.xml \
+              --classname ci.optional.python \
+              --name no_optional_python_tests \
+              --message "no Python tests are marked gpu, distributed, vllm, or slow"
+          elif [ "$status" -ne 0 ]; then
+            exit "$status"
+          fi
+          uv run --frozen python ../scripts/junit_summary.py optional-test-results.xml \
+            --label "Python optional"
+      - name: Rust optional vLLM tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/python/python
+        run: |
+          if python - <<'PY'
+          import importlib.util
+          has_vllm = importlib.util.find_spec("vllm") is not None
+          has_bridge = importlib.util.find_spec("aether.vllm.rust_bridge") is not None
+          raise SystemExit(0 if has_vllm and has_bridge else 1)
+          PY
+          then
+            cargo nextest run -p aether-inference --features vllm-tests --profile ci
+            cp target/nextest/ci/junit.xml target/nextest/optional-vllm-junit.xml
+          else
+            python scripts/write_junit_skip.py \
+              --path target/nextest/optional-vllm-junit.xml \
+              --classname ci.optional.rust \
+              --name aether_inference_vllm_tests \
+              --message "vLLM is not installed on this runner"
+          fi
+          python scripts/junit_summary.py target/nextest/optional-vllm-junit.xml \
+            --label "Rust optional vLLM"
+      - name: Upload optional test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: optional-test-artifacts
+          path: |
+            python/optional-test-results.xml
+            target/nextest/optional-vllm-junit.xml
           if-no-files-found: error
 
   test-discovery:

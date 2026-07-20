@@ -32,14 +32,14 @@ Current baseline (2026-07-17):
 
 - [x] Add `unit`, `integration`, `oracle`, `gpu`, `distributed`, `vllm`, `slow`, and `regression` pytest markers.
 - [ ] Add equivalent documented Rust test naming and feature conventions.
-- [ ] Split required CPU tests from optional hardware tests in CI.
+- [x] Split required CPU tests from optional hardware tests in CI.
 - [x] Add a required Python CPU test job with Torch, Transformers, and PEFT import checks.
 - [x] Add PyArrow and Datasets to the Python test dependencies.
 - [x] Make the HF LoRA test module fail, not skip, in the required CPU job.
 - [x] Make SFT preparation tests fail, not skip, in the required CPU job.
 - [x] Add a CI assertion that the expected Python test count was collected.
 - [x] Add a CI assertion that required jobs contain zero skips.
-- [ ] Print a separate summary for allowed optional skips.
+- [x] Print a separate summary for allowed optional skips.
 - [x] Add `pytest-cov` with line and branch coverage.
 - [x] Publish Python HTML, XML, and terminal coverage reports.
 - [x] Add a Python coverage threshold at the measured baseline.
@@ -62,7 +62,7 @@ Current baseline (2026-07-17):
 - [x] Run Rust doctests explicitly and account for ignored doctests.
 - [x] Document the reason for every ignored or skipped test.
 - [x] Add a CI check that rejects unannotated `#[ignore]`, `pytest.skip`, and `importorskip` usage.
-- [ ] Add a nightly job for optional features and expensive suites.
+- [x] Add a nightly job for optional features and expensive suites.
 - [ ] Add a scheduled job that repeats async integration tests to detect flakes.
 - [ ] Add a release-blocking test checklist to the release process.
 
