@@ -78,11 +78,11 @@ Current baseline (2026-07-17):
 - [ ] Add reusable loopback TCP server helpers that always shut down cleanly.
 - [ ] Add reusable Python fake store and process-group fixtures.
 - [ ] Add reusable tiny deterministic model fixtures for Rust and Python.
-- [ ] Add reusable golden-fixture loaders with explicit fixture versions.
+- [x] Add reusable golden-fixture loaders with explicit fixture versions.
 - [x] Add reusable assertions for actor shutdown and task cancellation.
 - [x] Add reusable assertions that no background tasks remain after a test.
-- [ ] Add reusable assertions for Postcard and JSON error context.
-- [ ] Add a standard temporary artifact directory layout for model and dataset tests.
+- [x] Add reusable assertions for Postcard and JSON error context.
+- [x] Add a standard temporary artifact directory layout for model and dataset tests.
 - [x] Add a test helper for selecting an unused loopback port without races.
 - [ ] Add a test helper for deterministic node identities and key pairs.
 - [x] Add a test helper for deterministic tensor construction.

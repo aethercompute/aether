@@ -5,6 +5,8 @@
 //!   - race-free loopback listeners ([`bind_unused_loopback`]),
 //!   - deterministic tensors and numerical assertions ([`deterministic_tensor`],
 //!     [`assert_tensors_close`], [`assert_tensor_finite`]),
+//!   - versioned golden fixtures ([`GoldenFixtures`]) and standard temporary
+//!     artifact directories ([`TempArtifacts`]),
 //!   - paused Tokio time ([`DeterministicClock`]) and actor/task shutdown
 //!     assertions,
 //!   - one-shot serialization round-trip checks ([`assert_postcard_roundtrip`],
@@ -15,10 +17,13 @@
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
+use std::fmt::Display;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tch::{Device, Kind, Tensor};
+use tempfile::TempDir;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -29,6 +34,19 @@ use tokio_util::sync::CancellationToken;
 /// under `cargo test`) should derive all randomness from a fixed seed via this.
 pub fn seeded_rng(seed: u64) -> ChaCha8Rng {
     ChaCha8Rng::seed_from_u64(seed)
+}
+
+/// Deterministic 32-byte test key material derived from a small integer.
+///
+/// Consumers can pass the output to domain-specific identity constructors
+/// without pulling those domain crates into `aether-test-support`.
+pub fn deterministic_key_bytes(index: u64) -> [u8; 32] {
+    let mut key = [0_u8; 32];
+    key[..8].copy_from_slice(&index.to_le_bytes());
+    key[8..16].copy_from_slice(&index.rotate_left(17).to_le_bytes());
+    key[16..24].copy_from_slice(&(!index).to_le_bytes());
+    key[24..].copy_from_slice(&index.wrapping_mul(0x9e37_79b9_7f4a_7c15).to_le_bytes());
+    key
 }
 
 /// Binds an ephemeral loopback port and returns the listener that reserves it.
@@ -232,6 +250,107 @@ pub async fn assert_completes<T>(timeout: Duration, future: impl Future<Output =
         .expect("future did not complete within timeout")
 }
 
+/// Standard temporary artifact tree for model, checkpoint, dataset, and fixture tests.
+pub struct TempArtifacts {
+    root: TempDir,
+}
+
+impl TempArtifacts {
+    pub fn new() -> std::io::Result<Self> {
+        let root = tempfile::Builder::new().prefix("aether-test-").tempdir()?;
+        let artifacts = Self { root };
+        for directory in [
+            artifacts.checkpoints(),
+            artifacts.models(),
+            artifacts.datasets(),
+            artifacts.fixtures(),
+            artifacts.scratch(),
+        ] {
+            std::fs::create_dir_all(directory)?;
+        }
+        Ok(artifacts)
+    }
+
+    pub fn root(&self) -> &Path {
+        self.root.path()
+    }
+
+    pub fn checkpoints(&self) -> PathBuf {
+        self.root().join("checkpoints")
+    }
+
+    pub fn models(&self) -> PathBuf {
+        self.root().join("models")
+    }
+
+    pub fn datasets(&self) -> PathBuf {
+        self.root().join("datasets")
+    }
+
+    pub fn fixtures(&self) -> PathBuf {
+        self.root().join("fixtures")
+    }
+
+    pub fn scratch(&self) -> PathBuf {
+        self.root().join("scratch")
+    }
+}
+
+/// Loader for golden fixtures under an explicit fixture version directory.
+#[derive(Clone, Debug)]
+pub struct GoldenFixtures {
+    root: PathBuf,
+    version: String,
+}
+
+impl GoldenFixtures {
+    pub fn new(root: impl Into<PathBuf>, version: impl Into<String>) -> Self {
+        let version = version.into();
+        assert!(!version.is_empty(), "fixture version must not be empty");
+        assert!(
+            !version.contains('/') && !version.contains('\\') && version != "..",
+            "fixture version must be one path segment"
+        );
+        Self {
+            root: root.into(),
+            version,
+        }
+    }
+
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    pub fn version_dir(&self) -> PathBuf {
+        self.root.join(&self.version)
+    }
+
+    pub fn path(&self, name: &str) -> PathBuf {
+        assert_fixture_name(name);
+        self.version_dir().join(name)
+    }
+
+    pub fn read(&self, name: &str) -> std::io::Result<Vec<u8>> {
+        std::fs::read(self.path(name))
+    }
+
+    pub fn read_to_string(&self, name: &str) -> std::io::Result<String> {
+        std::fs::read_to_string(self.path(name))
+    }
+}
+
+fn assert_fixture_name(name: &str) {
+    let path = Path::new(name);
+    assert!(!name.is_empty(), "fixture name must not be empty");
+    assert!(
+        path.is_relative()
+            && path
+                .components()
+                .all(|component| matches!(component, std::path::Component::Normal(_))),
+        "fixture name must be a relative path without traversal"
+    );
+}
+
 /// Builds a CPU tensor containing `0..numel`, reshaped and converted to `kind`.
 pub fn deterministic_tensor(shape: &[i64], kind: Kind) -> Tensor {
     assert!(shape.iter().all(|dimension| *dimension >= 0));
@@ -291,6 +410,20 @@ where
     postcard::from_bytes(&bytes).expect("postcard deserialize")
 }
 
+/// Assert postcard deserialization fails and its error string includes context.
+pub fn assert_postcard_error_contains<T>(bytes: &[u8], expected: impl Display)
+where
+    T: serde::de::DeserializeOwned + std::fmt::Debug,
+{
+    let error = postcard::from_bytes::<T>(bytes).expect_err("postcard should reject bytes");
+    let message = error.to_string();
+    let expected = expected.to_string();
+    assert!(
+        message.contains(&expected),
+        "postcard error {message:?} did not contain {expected:?}"
+    );
+}
+
 /// Serialize `value` with postcard, deserialize it, and assert the result equals
 /// the original.
 pub fn assert_postcard_roundtrip<T>(value: &T)
@@ -311,6 +444,20 @@ where
     assert_eq!(*value, back, "serde_json round-trip changed the value");
 }
 
+/// Assert JSON deserialization fails and its error string includes context.
+pub fn assert_serde_json_error_contains<T>(input: &str, expected: impl Display)
+where
+    T: serde::de::DeserializeOwned + std::fmt::Debug,
+{
+    let error = serde_json::from_str::<T>(input).expect_err("JSON should be rejected");
+    let message = error.to_string();
+    let expected = expected.to_string();
+    assert!(
+        message.contains(&expected),
+        "JSON error {message:?} did not contain {expected:?}"
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use rand::Rng;
@@ -327,12 +474,25 @@ mod tests {
     }
 
     #[test]
+    fn serialization_error_assertions_check_error_context() {
+        assert_postcard_error_contains::<Pair>(&[], "end of buffer");
+        assert_serde_json_error_contains::<Pair>("{}", "expected tuple struct Pair");
+    }
+
+    #[test]
     fn seeded_rng_is_deterministic() {
         let mut a = seeded_rng(42);
         let mut b = seeded_rng(42);
         for _ in 0..16 {
             assert_eq!(a.random::<u64>(), b.random::<u64>());
         }
+    }
+
+    #[test]
+    fn deterministic_key_bytes_are_stable_and_distinct() {
+        assert_eq!(deterministic_key_bytes(7), deterministic_key_bytes(7));
+        assert_ne!(deterministic_key_bytes(7), deterministic_key_bytes(8));
+        assert_eq!(&deterministic_key_bytes(7)[..8], &7_u64.to_le_bytes());
     }
 
     #[test]
@@ -469,6 +629,48 @@ mod tests {
             assert_completes(Duration::from_secs(1), async { 9 }).await,
             9
         );
+    }
+
+    #[test]
+    fn temp_artifacts_create_standard_directories() {
+        let artifacts = TempArtifacts::new().unwrap();
+
+        for directory in [
+            artifacts.checkpoints(),
+            artifacts.models(),
+            artifacts.datasets(),
+            artifacts.fixtures(),
+            artifacts.scratch(),
+        ] {
+            assert!(directory.is_dir(), "missing {directory:?}");
+            assert!(directory.starts_with(artifacts.root()));
+        }
+    }
+
+    #[test]
+    fn golden_fixture_loader_requires_version_and_rejects_traversal() {
+        let artifacts = TempArtifacts::new().unwrap();
+        let version_dir = artifacts.fixtures().join("v1");
+        std::fs::create_dir_all(version_dir.join("protocol")).unwrap();
+        std::fs::write(version_dir.join("protocol/message.bin"), [1_u8, 2, 3]).unwrap();
+        std::fs::write(version_dir.join("config.json"), "{\"version\":1}").unwrap();
+
+        let fixtures = GoldenFixtures::new(artifacts.fixtures(), "v1");
+
+        assert_eq!(fixtures.version(), "v1");
+        assert_eq!(fixtures.read("protocol/message.bin").unwrap(), [1, 2, 3]);
+        assert_eq!(
+            fixtures.read_to_string("config.json").unwrap(),
+            "{\"version\":1}"
+        );
+
+        for bad_name in ["", "../secret", "/absolute", "nested/../secret"] {
+            let result = std::panic::catch_unwind(|| fixtures.path(bad_name));
+            assert!(result.is_err(), "expected {bad_name:?} to be rejected");
+        }
+
+        let bad_version = std::panic::catch_unwind(|| GoldenFixtures::new("fixtures", "../v1"));
+        assert!(bad_version.is_err());
     }
 
     #[test]
