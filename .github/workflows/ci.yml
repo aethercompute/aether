@@ -332,7 +332,7 @@ jobs:
       - name: Generate coverage
         run: |
           mkdir -p ./coverage
-          cargo llvm-cov --workspace --no-report
+          cargo llvm-cov --workspace --no-report -- --test-threads=1
           cargo llvm-cov report --ignore-filename-regex "$RUST_COVERAGE_IGNORE_REGEX" \
             --cobertura --output-path ./coverage/cobertura.xml
           python scripts/coverage_ci.py check-baseline \
