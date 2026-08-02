@@ -1207,6 +1207,7 @@ impl App {
         }
         self.sync_checkpoint_gate();
         if self.coordinator.run_state == RunState::Cooldown
+            && requires_hosted_checkpoint(&self.coordinator)
             && !self.checkpoint_gate.is_some_and(|gate| gate.published)
         {
             self.post_state_change(false).await;
