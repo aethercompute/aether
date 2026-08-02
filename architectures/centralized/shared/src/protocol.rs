@@ -34,7 +34,7 @@ pub enum ServerErrorCode {
     JoinRequired,
     LateJoinUnsupported,
     SingleClientOptimizer,
-    CheckpointUploadRequired,
+    CheckpointPublisherAlreadyAssigned,
 }
 
 #[cfg(test)]
@@ -118,7 +118,7 @@ mod tests {
         for code in [
             ServerErrorCode::LateJoinUnsupported,
             ServerErrorCode::SingleClientOptimizer,
-            ServerErrorCode::CheckpointUploadRequired,
+            ServerErrorCode::CheckpointPublisherAlreadyAssigned,
         ] {
             let msg = ServerToClientMessage::Error {
                 code,

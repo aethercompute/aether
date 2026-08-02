@@ -164,16 +164,6 @@ fn checkpoint_destination_matches(coordinator: &Coordinator, checkpoint: Checkpo
     }
 }
 
-fn elect_checkpoint_publisher(coordinator: &Coordinator) -> Option<NodeIdentity> {
-    coordinator
-        .epoch_state
-        .clients
-        .iter()
-        .filter(|client| client.state == ClientState::Healthy)
-        .min_by(|left, right| left.id.signer().cmp(right.id.signer()))
-        .map(|client| client.id)
-}
-
 fn checkpoint_update_authorized(
     gate: Option<CheckpointGate>,
     run_state: RunState,
@@ -255,6 +245,7 @@ pub struct App {
     admission_allowlist: Option<HashSet<NodeIdentity>>,
     adamw_owner: Option<NodeIdentity>,
     checkpoint_gate: Option<CheckpointGate>,
+    checkpoint_uploader: Option<NodeIdentity>,
     pending_losses: BTreeMap<u32, PendingLossStep>,
 }
 
@@ -604,6 +595,7 @@ impl App {
                 admission_allowlist,
                 adamw_owner: None,
                 checkpoint_gate: None,
+                checkpoint_uploader: None,
                 pending_losses: BTreeMap::new(),
             })
         }.instrument(info_span!("App::new")).await
@@ -752,7 +744,13 @@ impl App {
     }
 
     fn elected_checkpoint_publisher(&self) -> Option<NodeIdentity> {
-        elect_checkpoint_publisher(&self.coordinator)
+        self.checkpoint_uploader.filter(|identity| {
+            self.coordinator
+                .epoch_state
+                .clients
+                .iter()
+                .any(|client| client.id == *identity && client.state == ClientState::Healthy)
+        })
     }
 
     fn sync_checkpoint_gate(&mut self) {
@@ -955,6 +953,12 @@ impl App {
         {
             self.adamw_owner = None;
         }
+        if removed_pending
+            && self.initial_admission_open()
+            && self.checkpoint_uploader == Some(from_identity)
+        {
+            self.checkpoint_uploader = None;
+        }
 
         if self.withdraw_on_disconnect || self.coordinator.active() {
             if let Some(index) = self.find_client_index(&from_identity) {
@@ -1012,11 +1016,15 @@ impl App {
                         "late joining is disabled because the server cannot prove model-state equality; restart the run to change membership".to_string(),
                     )
                     .await;
-                } else if requires_hosted_checkpoint(&self.coordinator) && !checkpoint_upload {
+                } else if checkpoint_upload
+                    && self
+                        .checkpoint_uploader
+                        .is_some_and(|publisher| publisher != from_identity)
+                {
                     self.reject_client(
                         from,
-                        ServerErrorCode::CheckpointUploadRequired,
-                        "every client in a hosted-checkpoint run must be able to publish the elected epoch checkpoint".to_string(),
+                        ServerErrorCode::CheckpointPublisherAlreadyAssigned,
+                        "this run already has a checkpoint publisher; join as a normal volunteer without checkpoint upload flags".to_string(),
                     )
                     .await;
                 } else if self.uses_adamw() && !adamw_join_allowed(self.adamw_owner, from_identity)
@@ -1030,6 +1038,9 @@ impl App {
                 } else {
                     if self.uses_adamw() {
                         self.adamw_owner.get_or_insert(from_identity);
+                    }
+                    if checkpoint_upload {
+                        self.checkpoint_uploader.get_or_insert(from_identity);
                     }
                     info!("added pending client {from}");
                     if !self.backend.ready_clients.contains(&from_identity)
@@ -1180,7 +1191,16 @@ impl App {
         // Initial clients are admitted only after loading the same base
         // checkpoint. New identities are rejected after training starts until
         // an exact model-revision synchronization protocol exists.
-        let admission_iter: Vec<&NodeIdentity> = self.backend.ready_clients.iter().collect();
+        let checkpoint_publisher_ready = !requires_hosted_checkpoint(&self.coordinator)
+            || self
+                .checkpoint_uploader
+                .is_some_and(|publisher| self.backend.ready_clients.contains(&publisher));
+        let admission_iter: Vec<&NodeIdentity> = if checkpoint_publisher_ready {
+            self.backend.ready_clients.iter().collect()
+        } else {
+            debug!("waiting for the checkpoint publisher to become ready");
+            Vec::new()
+        };
         let admission_count = admission_iter.len();
 
         let now = Self::get_timestamp();
@@ -1351,6 +1371,7 @@ impl App {
         self.loss_history.clear();
         self.pending_losses.clear();
         self.checkpoint_gate = None;
+        self.checkpoint_uploader = None;
         self.adamw_owner = None;
         self.last_admission_change_unix_timestamp = Self::get_timestamp();
         self.backend.pending_clients.clear();
@@ -1472,10 +1493,10 @@ async fn init_wandb(run_id: &str) -> Option<(Arc<wandb::Run>, WandbInfo)> {
 mod tests {
     use super::{
         adamw_join_allowed, admission_allowed, aggregate_loss_observations,
-        checkpoint_update_authorized, elect_checkpoint_publisher, initial_admission_open,
-        ChannelCoordinatorBackend, CheckpointGate, LossObservation,
+        checkpoint_update_authorized, initial_admission_open, ChannelCoordinatorBackend,
+        CheckpointGate, LossObservation,
     };
-    use aether_coordinator::{Client, ClientState, Coordinator, RunState};
+    use aether_coordinator::{Coordinator, RunState};
     use aether_core::NodeIdentity;
     use aether_watcher::Backend;
     use bytemuck::Zeroable;
@@ -1521,27 +1542,6 @@ mod tests {
         coordinator.run_state = RunState::WaitingForMembers;
         coordinator.progress.step = 2;
         assert!(!initial_admission_open(&coordinator));
-    }
-
-    #[test]
-    fn checkpoint_publisher_is_deterministic_and_healthy() {
-        let mut coordinator = Coordinator::zeroed();
-        let low = NodeIdentity::from_single_key([1; 32]);
-        let high = NodeIdentity::from_single_key([2; 32]);
-        coordinator
-            .epoch_state
-            .clients
-            .push(Client::new(high))
-            .unwrap();
-        coordinator
-            .epoch_state
-            .clients
-            .push(Client::new(low))
-            .unwrap();
-        assert_eq!(elect_checkpoint_publisher(&coordinator), Some(low));
-
-        coordinator.epoch_state.clients[1].state = ClientState::Dropped;
-        assert_eq!(elect_checkpoint_publisher(&coordinator), Some(high));
     }
 
     #[test]

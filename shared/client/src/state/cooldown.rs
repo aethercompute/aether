@@ -1,9 +1,8 @@
 use crate::UploadInfo;
 use aether_coordinator::{
     model::{self, LLMTrainingMethod},
-    ClientState, Coordinator,
+    Coordinator,
 };
-use aether_core::NodeIdentity;
 use aether_data_provider::{upload_to_gcs, upload_to_hub, GcsManifestMetadata, UploadError};
 use aether_event_sourcing::event;
 #[cfg(feature = "python")]
@@ -44,7 +43,6 @@ pub enum CooldownError {
 }
 
 pub struct CooldownStepMetadata {
-    identity: NodeIdentity,
     tx_checkpoint: mpsc::UnboundedSender<model::CheckpointUpdate>,
     tx_model: mpsc::UnboundedSender<HashMap<String, Tensor>>,
     checkpoint_info: Option<CheckpointConfig>,
@@ -63,7 +61,6 @@ pub struct CooldownStepMetadata {
 
 impl CooldownStepMetadata {
     pub fn new(
-        identity: NodeIdentity,
         tx_checkpoint: mpsc::UnboundedSender<model::CheckpointUpdate>,
         tx_model: mpsc::UnboundedSender<HashMap<String, Tensor>>,
         checkpoint_info: Option<CheckpointConfig>,
@@ -71,7 +68,6 @@ impl CooldownStepMetadata {
         model_task_runner: ModelTaskRunner,
     ) -> Self {
         Self {
-            identity,
             tx_checkpoint,
             tx_model,
             checkpoint_info,
@@ -149,22 +145,10 @@ impl CooldownStepMetadata {
         let run_id = String::from(&state.run_id);
         let epoch = state.progress.epoch;
         let checkpoint_extra_files = self.checkpoint_extra_files.clone();
-        let checkpoint_publisher = state
-            .epoch_state
-            .clients
-            .iter()
-            .filter(|client| client.state == ClientState::Healthy)
-            .min_by_key(|client| client.id.signer())
-            .map(|client| client.id);
-        let checkpoint_info = if checkpoint_publisher == Some(self.identity) {
-            self.checkpoint_info.clone()
-        } else {
-            info!(
-                publisher = ?checkpoint_publisher,
-                "skipping hosted checkpoint; another client is the elected publisher"
-            );
-            None
-        };
+        let checkpoint_info = self
+            .checkpoint_info
+            .clone()
+            .filter(|config| config.upload_info.is_some());
         let tx_checkpoint = self.tx_checkpoint.clone();
         let tx_model = self.tx_model.clone();
         let model_task_runner = self.model_task_runner.clone();

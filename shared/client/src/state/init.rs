@@ -1382,7 +1382,6 @@ impl RunInitConfigAndIO {
         };
 
         let cooldown = CooldownStepMetadata::new(
-            init_config.identity,
             tx_checkpoint,
             tx_model,
             init_config.checkpoint_config,
