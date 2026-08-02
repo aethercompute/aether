@@ -1,6 +1,6 @@
 [server]
-state_path = "config/lfm2.5-1.2b-reasoning-lora/state_distro.toml"
-data_config = "config/lfm2.5-1.2b-reasoning-lora/data.toml"
+state_path = "config/aether0-50m/state.toml"
+data_config = "config/aether0-50m/data.toml"
 experiment_path = "config/experiment-run.toml"
 experiment_enabled = false
 server_port = 39405
@@ -9,28 +9,33 @@ tui = false
 
 [dataset]
 enabled = true
-objective = "sft"
-script = "scripts/prepare-sft-local.py"
-output_dir = "data/reasoning-v1-20m-first-6k-lfm2.5-1.2b-sft-16384"
-sequence_length = 16384
-num_sequences = 6000
-shard_size = 256
-dataset = "glaiveai/reasoning-v1-20m"
-split = "train"
-tokenizer = "LiquidAI/LFM2.5-1.2B-Instruct"
+objective = "pretraining"
+script = "scripts/prepare-ultra-fineweb-local.py"
+output_dir = "data/aether0-50m-mistral-1024-bin"
+sequence_length = 1024
+num_sequences = 4882944
+shard_size = 8192
+token_bytes = 2
+dataset = "openbmb/Ultra-FineWeb"
+split = "en"
+text_field = "content"
+tokenizer = "mistralai/Mistral-7B-v0.1"
 seed = 1337
-buffer_docs = 0
+buffer_docs = 10000
 trust_remote_code = false
-sft_mode = "chat"
-prompt_field = "prompt"
-response_field = "response"
 
 [model]
-enabled = false
+enabled = true
+script = "scripts/push-new-model-hf.py"
+config = "config/aether0-50m/model-config.json"
+repo = "aethercompute/aether0-50m"
+tokenizer = "mistralai/Mistral-7B-v0.1"
+private = false
+dtype = "bfloat16"
 
 [checkpoint]
 dir = "checkpoints/{run_id}"
-hub_repo = "aethercompute/lfm25-1.2b-reasoning-lora-adapter"
+hub_repo = "aethercompute/aether0-50m"
 gcs_bucket = ""
 gcs_prefix = ""
 delete_old_steps = true

@@ -1,0 +1,47 @@
+run_id = "aether0-50m-5b"
+run_state = "WaitingForMembers"
+
+[config]
+warmup_time = 120
+cooldown_time = 5
+epoch_time = 480
+max_round_train_time = 120
+round_witness_time = 14
+min_clients = 1
+init_min_clients = 1
+
+# 512 sequences * 1,024 tokens = 524,288 tokens/step.
+# 9,537 steps consume 4,882,944 sequences = 5,000,134,656 tokens.
+global_batch_size_start = 512
+global_batch_size_end = 512
+global_batch_size_warmup_tokens = 0
+
+verification_percent = 0
+witness_nodes = 1
+total_steps = 9537
+waiting_for_members_extra_time = 120
+
+[model.LLM]
+architecture = "HfLlama"
+data_type = "Pretraining"
+max_seq_len = 1024
+cold_start_warmup_steps = 0
+
+[model.LLM.data_location]
+Server = "127.0.0.1:39406"
+
+[model.LLM.checkpoint.Hub]
+repo_id = "aethercompute/aether0-50m"
+
+[model.LLM.lr_schedule.Cosine]
+base_lr = 2.0e-3
+warmup_steps = 191
+warmup_init_lr = 0.0
+total_steps = 9537
+final_lr = 2.0e-4
+
+[model.LLM.optimizer.AdamW]
+betas = [0.9, 0.95]
+weight_decay = 0.1
+eps = 1.0e-8
+clip_grad_norm = 1.0
