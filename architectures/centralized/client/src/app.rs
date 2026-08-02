@@ -29,7 +29,7 @@ pub enum ToSend {
     Witness(Box<OpportunisticData>),
     HealthCheck(HealthChecks),
     Checkpoint(model::CheckpointUpdate),
-    ReadyForEpoch,
+    ReadyForEpoch(model::CheckpointRevision),
 }
 
 struct Backend {
@@ -70,8 +70,8 @@ impl WatcherBackend for Backend {
         Ok(())
     }
 
-    async fn send_ready_for_epoch(&mut self) -> Result<()> {
-        self.tx.send(ToSend::ReadyForEpoch)?;
+    async fn send_ready_for_epoch(&mut self, revision: model::CheckpointRevision) -> Result<()> {
+        self.tx.send(ToSend::ReadyForEpoch(revision))?;
         Ok(())
     }
 }
@@ -247,7 +247,7 @@ impl App {
                         }
                         ToSend::HealthCheck(hc) => (ClientToServerMessage::HealthCheck(hc), RpcCallType::HealthCheck),
                         ToSend::Checkpoint(cp) => (ClientToServerMessage::Checkpoint(cp), RpcCallType::Checkpoint),
-                        ToSend::ReadyForEpoch => (ClientToServerMessage::ReadyForEpoch, RpcCallType::Join),
+                        ToSend::ReadyForEpoch(revision) => (ClientToServerMessage::ReadyForEpoch(revision), RpcCallType::Join),
                     };
                     event!(coordinator::RpcCallSubmitted { call_type });
                     match self.server_conn.send(msg).await {

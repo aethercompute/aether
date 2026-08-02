@@ -568,9 +568,9 @@ impl Client {
                         Some(checkpoint) = rx_checkpoint.recv() => {
                             watcher.backend_mut().send_checkpoint(checkpoint).await?;
                         }
-                        Some(()) = rx_ready_for_epoch.recv() => {
+                        Some(revision) = rx_ready_for_epoch.recv() => {
                             info!("Checkpoint loaded — notifying server that we're ready for the next epoch");
-                            watcher.backend_mut().send_ready_for_epoch().await?;
+                            watcher.backend_mut().send_ready_for_epoch(revision).await?;
                         }
                         Some(model) = rx_model.recv() => {
                             sharable_model.update_parameters(model)?;

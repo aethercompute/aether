@@ -147,6 +147,15 @@ fn requires_hosted_checkpoint(coordinator: &Coordinator) -> bool {
     matches!(llm.checkpoint, Checkpoint::Hub(_) | Checkpoint::Gcs(_))
 }
 
+fn checkpoint_revision(coordinator: &Coordinator) -> model::CheckpointRevision {
+    let Model::LLM(llm) = coordinator.model;
+    model::CheckpointRevision {
+        epoch: coordinator.progress.epoch,
+        checkpoint: llm.checkpoint,
+        training_method: llm.training_method,
+    }
+}
+
 fn checkpoint_destination_matches(coordinator: &Coordinator, checkpoint: Checkpoint) -> bool {
     let Model::LLM(llm) = coordinator.model;
     match (llm.training_method, llm.checkpoint, checkpoint) {
@@ -1008,12 +1017,15 @@ impl App {
                         "client identity is not in the admission allowlist".to_string(),
                     )
                     .await;
-                } else if !self.has_joined(&from_identity) && !self.initial_admission_open() {
-                    warn!(client = %from, "rejecting late join after training initialization");
+                } else if self.uses_adamw()
+                    && !self.has_joined(&from_identity)
+                    && !self.initial_admission_open()
+                {
+                    warn!(client = %from, "rejecting late join for single-client AdamW run");
                     self.reject_client(
                         from,
                         ServerErrorCode::LateJoinUnsupported,
-                        "late joining is disabled because the server cannot prove model-state equality; restart the run to change membership".to_string(),
+                        "AdamW optimizer state cannot be synchronized to a late client".to_string(),
                     )
                     .await;
                 } else if checkpoint_upload
@@ -1051,18 +1063,21 @@ impl App {
                 }
                 false
             }
-            ClientToServerMessage::ReadyForEpoch => {
+            ClientToServerMessage::ReadyForEpoch(revision) => {
                 // The client has finished downloading/loading the checkpoint.
-                // Readiness is valid only before initial training starts.
+                // Admit it only while waiting and only for the exact model
+                // revision that is currently authoritative.
                 let mut changed = false;
                 if self.backend.ready_clients.contains(&from_identity) {
-                    // Idempotent duplicate from an already-ready initial client.
-                } else if !self.initial_admission_open() {
+                    // Idempotent duplicate from an already-ready client.
+                } else if self.coordinator.run_state != RunState::WaitingForMembers
+                    || revision != checkpoint_revision(&self.coordinator)
+                {
                     self.backend.pending_clients.remove(&from_identity);
                     self.reject_client(
                         from,
-                        ServerErrorCode::LateJoinUnsupported,
-                        "checkpoint loading completed after the initial admission window closed"
+                        ServerErrorCode::StaleCheckpoint,
+                        "loaded checkpoint is no longer the authoritative revision for admission"
                             .to_string(),
                     )
                     .await;

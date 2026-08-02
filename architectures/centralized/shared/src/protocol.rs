@@ -9,10 +9,9 @@ pub enum ClientToServerMessage {
         checkpoint_upload: bool,
     },
     /// Sent by a client after it has finished downloading and loading the
-    /// initial checkpoint. The server admits ready clients only before the
-    /// first epoch; late admission is rejected until exact state synchronization
-    /// is supported.
-    ReadyForEpoch,
+    /// authoritative checkpoint. The revision is checked before admission so a
+    /// late client cannot join with stale model state.
+    ReadyForEpoch(model::CheckpointRevision),
     Witness(Box<OpportunisticData>),
     HealthCheck(HealthChecks),
     Checkpoint(model::CheckpointUpdate),
@@ -35,6 +34,7 @@ pub enum ServerErrorCode {
     LateJoinUnsupported,
     SingleClientOptimizer,
     CheckpointPublisherAlreadyAssigned,
+    StaleCheckpoint,
 }
 
 #[cfg(test)]
@@ -56,9 +56,13 @@ mod tests {
 
     #[test]
     fn client_to_server_ready_for_epoch_roundtrip() {
-        let msg = ClientToServerMessage::ReadyForEpoch;
+        let msg = ClientToServerMessage::ReadyForEpoch(model::CheckpointRevision {
+            epoch: 1,
+            checkpoint: model::Checkpoint::Ephemeral,
+            training_method: model::LLMTrainingMethod::Full,
+        });
         let back = aether_test_support::postcard_roundtrip(&msg);
-        assert!(matches!(back, ClientToServerMessage::ReadyForEpoch));
+        assert!(matches!(back, ClientToServerMessage::ReadyForEpoch(_)));
     }
 
     #[test]
@@ -119,6 +123,7 @@ mod tests {
             ServerErrorCode::LateJoinUnsupported,
             ServerErrorCode::SingleClientOptimizer,
             ServerErrorCode::CheckpointPublisherAlreadyAssigned,
+            ServerErrorCode::StaleCheckpoint,
         ] {
             let msg = ServerToClientMessage::Error {
                 code,

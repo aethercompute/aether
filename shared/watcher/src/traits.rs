@@ -33,7 +33,7 @@ pub trait Backend: Send + Sync {
     ///
     /// Default no-op: architectures that handle admission differently (e.g.
     /// on-chain coordinators) can ignore this.
-    async fn send_ready_for_epoch(&mut self) -> Result<()> {
+    async fn send_ready_for_epoch(&mut self, _revision: model::CheckpointRevision) -> Result<()> {
         Ok(())
     }
 }

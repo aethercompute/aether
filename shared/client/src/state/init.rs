@@ -596,7 +596,7 @@ pub struct RunInitConfigAndIO {
     /// Fired once after the checkpoint has been downloaded and the model loaded,
     /// signalling to the server that this client is ready to be admitted into
     /// the next epoch.
-    pub tx_ready_for_epoch: UnboundedSender<()>,
+    pub tx_ready_for_epoch: UnboundedSender<model::CheckpointRevision>,
 
     pub metrics: Arc<ClientMetrics>,
 }
@@ -1389,11 +1389,15 @@ impl RunInitConfigAndIO {
             model_task_runner,
         );
 
-        // Signal that the initial checkpoint is fully loaded. Centralized runs
-        // reject new identities after training starts because this message does
-        // not carry a model revision.
+        // Signal exactly which checkpoint was loaded so centralized admission
+        // can reject stale initialization safely.
         info!("Checkpoint loaded — signalling readiness to server");
-        let _ = tx_ready_for_epoch.send(());
+        let model::Model::LLM(llm) = state.model;
+        let _ = tx_ready_for_epoch.send(model::CheckpointRevision {
+            epoch: state.progress.epoch,
+            checkpoint: llm.checkpoint,
+            training_method: llm.training_method,
+        });
 
         Ok(StepStateMachine::new(
             init_config.identity,

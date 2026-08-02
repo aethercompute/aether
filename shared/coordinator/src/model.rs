@@ -250,6 +250,13 @@ pub struct CheckpointUpdate {
     pub checkpoint: Checkpoint,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, Copy, PartialEq, TS)]
+pub struct CheckpointRevision {
+    pub epoch: u16,
+    pub checkpoint: Checkpoint,
+    pub training_method: LLMTrainingMethod,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, TS)]
 pub struct CheckpointMetadata {
     pub run_id: String,
