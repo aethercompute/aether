@@ -113,17 +113,7 @@ impl RunInitConfig {
         }
 
         if let Some(checkpoint_config) = &mut self.checkpoint_config {
-            if let Some(crate::state::UploadInfo::Hub(hub_info)) =
-                &mut checkpoint_config.upload_info
-            {
-                hub_info.hub_repo = hub_info.hub_repo.replace("{run_id}", run_id);
-            }
-            checkpoint_config.checkpoint_dir = PathBuf::from(
-                checkpoint_config
-                    .checkpoint_dir
-                    .to_string_lossy()
-                    .replace("{run_id}", run_id),
-            );
+            checkpoint_config.apply_run_templates(run_id);
         }
     }
 }

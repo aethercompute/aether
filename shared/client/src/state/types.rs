@@ -25,6 +25,19 @@ pub struct CheckpointConfig {
     pub epoch_interval: u32,
 }
 
+impl CheckpointConfig {
+    pub fn apply_run_templates(&mut self, run_id: &str) {
+        if let Some(UploadInfo::Hub(hub_info)) = &mut self.upload_info {
+            hub_info.hub_repo = hub_info.hub_repo.replace("{run_id}", run_id);
+        }
+        self.checkpoint_dir = PathBuf::from(
+            self.checkpoint_dir
+                .to_string_lossy()
+                .replace("{run_id}", run_id),
+        );
+    }
+}
+
 #[derive(Debug)]
 pub enum PayloadState {
     Downloading((NodeIdentity, BatchId, BlobTicket)),
