@@ -1,4 +1,4 @@
-run_id = "aether0-50m-5b"
+run_id = "aether0-50m"
 run_state = "WaitingForMembers"
 
 [config]

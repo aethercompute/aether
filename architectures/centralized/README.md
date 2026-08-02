@@ -84,7 +84,7 @@ Run a training client:
 bash scripts/with-libtorch-env.sh cargo run -p aether-centralized-client -- \
   train \
   --server-addr 127.0.0.1:39405 \
-  --run-id aether0-50m-5b \
+  --run-id aether0-50m \
   --identity-secret-key-path .aethercompute/identity.key
 ```
 
