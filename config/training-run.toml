@@ -21,7 +21,7 @@ split = "en"
 text_field = "content"
 tokenizer = "mistralai/Mistral-7B-v0.1"
 seed = 1337
-buffer_docs = 10000
+buffer_docs = 1000
 trust_remote_code = false
 
 [model]
