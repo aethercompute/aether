@@ -12,7 +12,6 @@ use google_cloud_storage::http::objects::{
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::runtime::Runtime;
-use tokio::sync::mpsc;
 use tracing::info;
 
 /// Checkpoint manifest.json uploaded to GCS alongside safetensors files.
@@ -332,8 +331,7 @@ pub async fn upload_to_gcs(
     manifest_metadata: GcsManifestMetadata,
     local: Vec<PathBuf>,
     step: u64,
-    tx_checkpoint: mpsc::UnboundedSender<model::Checkpoint>,
-) -> Result<(), UploadError> {
+) -> Result<model::Checkpoint, UploadError> {
     let GcsUploadInfo {
         gcs_bucket,
         gcs_prefix,
@@ -440,14 +438,10 @@ pub async fn upload_to_gcs(
         gcs_prefix.as_deref().unwrap_or("")
     );
 
-    tx_checkpoint
-        .send(model::Checkpoint::Gcs(GcsRepo {
-            bucket: FixedString::from_str_truncated(&gcs_bucket),
-            prefix: gcs_prefix.map(|p| FixedString::from_str_truncated(&p)),
-        }))
-        .map_err(|_| UploadError::SendCheckpoint)?;
-
-    Ok(())
+    Ok(model::Checkpoint::Gcs(GcsRepo {
+        bucket: FixedString::from_str_truncated(&gcs_bucket),
+        prefix: gcs_prefix.map(|p| FixedString::from_str_truncated(&p)),
+    }))
 }
 
 #[cfg(test)]

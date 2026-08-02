@@ -687,6 +687,9 @@ impl Coordinator {
     }
 
     pub fn witness_quorum(&self, num_witnesses: u16) -> u16 {
+        if self.config.witness_nodes == 0 {
+            return num_witnesses;
+        }
         let witness_nodes = match self.config.witness_nodes {
             0 => num_witnesses,
             witness_nodes => witness_nodes,
@@ -1602,21 +1605,20 @@ mod tests {
     }
 
     // ── witness_quorum table ───────────────────────────────────────────────────
-    // Quorum is the 2/3 ratio with small-N special cases. A bug here either
-    // stalls consensus (quorum too high) or accepts forged results (too low).
+    // `witness_nodes = 0` means every elected witness is required. Explicit
+    // witness counts retain the 2/3 quorum and small-N special cases.
     #[test]
     fn witness_quorum_special_cases_and_ratio() {
         let mut c = Coordinator::zeroed();
-        // config.witness_nodes == 0 -> use the passed num_witnesses.
+        // config.witness_nodes == 0 -> require every passed witness.
         c.config.witness_nodes = 0;
         assert_eq!(c.witness_quorum(1), 1);
         assert_eq!(c.witness_quorum(2), 2);
-        assert_eq!(c.witness_quorum(3), 2);
-        // floor(n * 2/3) for n >= 4
-        assert_eq!(c.witness_quorum(4), 2); // 2.66 -> 2
-        assert_eq!(c.witness_quorum(6), 4); // 4.0
-        assert_eq!(c.witness_quorum(9), 6); // 6.0
-        assert_eq!(c.witness_quorum(12), 8); // 8.0
+        assert_eq!(c.witness_quorum(3), 3);
+        assert_eq!(c.witness_quorum(4), 4);
+        assert_eq!(c.witness_quorum(6), 6);
+        assert_eq!(c.witness_quorum(9), 9);
+        assert_eq!(c.witness_quorum(12), 12);
     }
 
     #[test]
@@ -1631,11 +1633,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn witness_quorum_zero_panics() {
+    fn witness_quorum_zero_is_zero() {
         let mut c = Coordinator::zeroed();
         c.config.witness_nodes = 0;
-        c.witness_quorum(0);
+        assert_eq!(c.witness_quorum(0), 0);
     }
 
     // ── batch-size ramp (CoordinatorConfig::get_batch_size) ────────────────────

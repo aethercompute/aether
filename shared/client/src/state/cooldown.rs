@@ -1,8 +1,9 @@
 use crate::UploadInfo;
 use aether_coordinator::{
     model::{self, LLMTrainingMethod},
-    Coordinator,
+    ClientState, Coordinator,
 };
+use aether_core::NodeIdentity;
 use aether_data_provider::{upload_to_gcs, upload_to_hub, GcsManifestMetadata, UploadError};
 use aether_event_sourcing::event;
 #[cfg(feature = "python")]
@@ -43,7 +44,8 @@ pub enum CooldownError {
 }
 
 pub struct CooldownStepMetadata {
-    tx_checkpoint: mpsc::UnboundedSender<model::Checkpoint>,
+    identity: NodeIdentity,
+    tx_checkpoint: mpsc::UnboundedSender<model::CheckpointUpdate>,
     tx_model: mpsc::UnboundedSender<HashMap<String, Tensor>>,
     checkpoint_info: Option<CheckpointConfig>,
     checkpoint_extra_files: Vec<PathBuf>,
@@ -61,13 +63,15 @@ pub struct CooldownStepMetadata {
 
 impl CooldownStepMetadata {
     pub fn new(
-        tx_checkpoint: mpsc::UnboundedSender<model::Checkpoint>,
+        identity: NodeIdentity,
+        tx_checkpoint: mpsc::UnboundedSender<model::CheckpointUpdate>,
         tx_model: mpsc::UnboundedSender<HashMap<String, Tensor>>,
         checkpoint_info: Option<CheckpointConfig>,
         checkpoint_extra_files: Vec<PathBuf>,
         model_task_runner: ModelTaskRunner,
     ) -> Self {
         Self {
+            identity,
             tx_checkpoint,
             tx_model,
             checkpoint_info,
@@ -95,6 +99,9 @@ pub enum CheckpointError {
 
     #[error("Writing extra file to disk failed: {0}")]
     WriteExtraFile(#[from] tokio::io::Error),
+
+    #[error("Serializing checkpoint metadata failed: {0}")]
+    SerializeMetadata(#[from] serde_json::Error),
 
     #[error("Couldn't upload model to huggingface or GCS: {0}")]
     UploadError(#[from] UploadError),
@@ -140,9 +147,24 @@ impl CooldownStepMetadata {
 
         let step = state.progress.step - 1;
         let run_id = String::from(&state.run_id);
-        let epoch = state.progress.epoch as u32;
+        let epoch = state.progress.epoch;
         let checkpoint_extra_files = self.checkpoint_extra_files.clone();
-        let checkpoint_info = self.checkpoint_info.clone();
+        let checkpoint_publisher = state
+            .epoch_state
+            .clients
+            .iter()
+            .filter(|client| client.state == ClientState::Healthy)
+            .min_by_key(|client| client.id.signer())
+            .map(|client| client.id);
+        let checkpoint_info = if checkpoint_publisher == Some(self.identity) {
+            self.checkpoint_info.clone()
+        } else {
+            info!(
+                publisher = ?checkpoint_publisher,
+                "skipping hosted checkpoint; another client is the elected publisher"
+            );
+            None
+        };
         let tx_checkpoint = self.tx_checkpoint.clone();
         let tx_model = self.tx_model.clone();
         let model_task_runner = self.model_task_runner.clone();
@@ -239,7 +261,7 @@ impl CooldownStepMetadata {
                 // Throttle checkpointing to every N epochs. The P2P model share
                 // above still happens every epoch; only the local save + HF/GCS
                 // upload is skipped on off-interval epochs.
-                if epoch_interval > 1 && !epoch.is_multiple_of(epoch_interval) {
+                if epoch_interval > 1 && !(epoch as u32).is_multiple_of(epoch_interval) {
                     return Ok((evals, None));
                 }
 
@@ -253,7 +275,7 @@ impl CooldownStepMetadata {
                             training_method,
                             base_model_identity,
                             run_id: run_id.clone(),
-                            epoch,
+                            epoch: epoch as u32,
                             step,
                             trainable_manifest_digest,
                         },
@@ -262,7 +284,7 @@ impl CooldownStepMetadata {
 
                     if let Some(upload_info) = upload_info {
                         let manifest_metadata = GcsManifestMetadata {
-                            epoch,
+                            epoch: epoch as u32,
                             run_id: run_id.clone(),
                         };
                         upload_checkpoint(
@@ -270,6 +292,7 @@ impl CooldownStepMetadata {
                             manifest_metadata,
                             local.clone(),
                             step as u64,
+                            epoch,
                             tx_checkpoint,
                         )
                         .await?;
@@ -322,6 +345,16 @@ async fn save_checkpoint_locally(
         step,
         trainable_manifest_digest,
     } = context;
+    let checkpoint_metadata = model::CheckpointMetadata {
+        run_id: run_id.clone(),
+        epoch: epoch as u16,
+        step,
+        trainable_manifest_digest: trainable_manifest_digest
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    };
+    let adapter_run_id = run_id.clone();
     info!("Saving to {}", path.display());
     event!(cooldown::CheckpointWriteStarted);
     let mut local = tokio::task::spawn_blocking({
@@ -340,7 +373,7 @@ async fn save_checkpoint_locally(
                 &AetherAdapterMetadata {
                     artifact_type: "lora_adapter".to_string(),
                     format_version: 1,
-                    run_id,
+                    run_id: adapter_run_id,
                     epoch,
                     step,
                     trainable_manifest_digest: trainable_manifest_digest
@@ -360,7 +393,21 @@ async fn save_checkpoint_locally(
         CheckpointError::WriteThreadCrashed
     })??;
 
+    let metadata_path = path.join("aether_checkpoint.json");
+    tokio::fs::write(
+        &metadata_path,
+        serde_json::to_vec_pretty(&checkpoint_metadata)?,
+    )
+    .await?;
+    local.push(metadata_path);
+
     for extra in checkpoint_extra_files {
+        if extra
+            .file_name()
+            .is_some_and(|name| name == "aether_checkpoint.json")
+        {
+            continue;
+        }
         if matches!(training_method, LLMTrainingMethod::Lora(_))
             && extra.file_name().is_some_and(|name| {
                 name == "adapter_config.json"
@@ -395,30 +442,38 @@ async fn upload_checkpoint(
     manifest_metadata: GcsManifestMetadata,
     local: Vec<PathBuf>,
     step: u64,
-    tx_checkpoint: mpsc::UnboundedSender<model::Checkpoint>,
+    epoch: u16,
+    tx_checkpoint: mpsc::UnboundedSender<model::CheckpointUpdate>,
 ) -> Result<(), CheckpointError> {
     event!(cooldown::CheckpointUploadStarted);
     let result = match upload_info {
-        UploadInfo::Gcs(gcs_info) => {
-            upload_to_gcs(gcs_info, manifest_metadata, local, step, tx_checkpoint)
-                .await
-                .map_err(CheckpointError::UploadError)
-        }
-        UploadInfo::Hub(hub_info) => upload_to_hub(hub_info, local, step, tx_checkpoint)
+        UploadInfo::Gcs(gcs_info) => upload_to_gcs(gcs_info, manifest_metadata, local, step)
+            .await
+            .map_err(CheckpointError::UploadError),
+        UploadInfo::Hub(hub_info) => upload_to_hub(hub_info, local, step)
             .await
             .map_err(CheckpointError::UploadError),
     };
     match &result {
-        Ok(()) => event!(cooldown::CheckpointUploadFinished {
-            success: true,
-            error_string: None
-        }),
+        Ok(checkpoint) => {
+            tx_checkpoint
+                .send(model::CheckpointUpdate {
+                    epoch,
+                    step: step as u32,
+                    checkpoint: *checkpoint,
+                })
+                .map_err(|_| CheckpointError::SendCheckpoint)?;
+            event!(cooldown::CheckpointUploadFinished {
+                success: true,
+                error_string: None
+            })
+        }
         Err(e) => event!(cooldown::CheckpointUploadFinished {
             success: false,
             error_string: Some(e.to_string())
         }),
     }
-    result
+    result.map(|_| ())
 }
 
 type CheckpointAndEvalsHandle = JoinHandle<

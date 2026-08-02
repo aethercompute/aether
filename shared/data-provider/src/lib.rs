@@ -23,8 +23,8 @@ pub use gcs::{
     GcsCheckpointManifest, GcsManifestMetadata, GcsUploadInfo, ManifestFileEntry, ManifestMetadata,
 };
 pub use hub::{
-    download_dataset_repo_async, download_dataset_repo_sync, download_model_repo_async,
-    download_model_repo_sync, upload_to_hub, HubUploadInfo,
+    download_dataset_repo_async, download_dataset_repo_sync, download_model_file_async,
+    download_model_repo_async, download_model_repo_sync, upload_to_hub, HubUploadInfo,
 };
 pub use local::LocalDataProvider;
 pub use parquet::record::{ListAccessor, MapAccessor, RowAccessor};

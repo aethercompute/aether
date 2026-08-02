@@ -9,9 +9,6 @@ pub enum UploadError {
     #[error("file {0} doesn't have a valid utf-8 representation")]
     InvalidFilename(PathBuf),
 
-    #[error("failed to send checkpoint notification")]
-    SendCheckpoint,
-
     // Hub-specific errors
     #[error("failed to connect to HF hub: {0}")]
     HfHub(#[from] hf_hub::api::tokio::ApiError),

@@ -594,6 +594,7 @@ impl TrainingStepMetadata {
                                 expected_trainer = ?expected_trainer,
                                 "No commitments for batch {batch_id}, assigned to node {expected_trainer:?}",
                             );
+                            desync_skips += 1;
                             continue;
                         }
                     };
@@ -609,6 +610,7 @@ impl TrainingStepMetadata {
                         Some(x) => x,
                         None => {
                             warn!("No consensus commitment for batch {}", batch_id);
+                            desync_skips += 1;
                             continue;
                         }
                     };
@@ -661,8 +663,15 @@ impl TrainingStepMetadata {
                                 weighted_distro_results.push((results, batch_size(batch_id)));
                             }
                         }
-                        Err(err) => warn!("DESYNC: Got the following error when deserializing results for commitment 0x{}: {}", hex::encode(commitment.data_hash), err),
+                        Err(err) => {
+                            warn!("DESYNC: Got the following error when deserializing results for commitment 0x{}: {}", hex::encode(commitment.data_hash), err);
+                            desync_skips += 1;
+                        }
                     }
+                }
+
+                if desync_skips > 0 {
+                    return Err(ApplyError::DistributedDesync(desync_skips));
                 }
 
                 let distro_results = weight_distro_results(weighted_distro_results);
@@ -838,6 +847,11 @@ pub enum ApplyError {
 
     #[error("DESYNC: Unknown consensus commitment 0x{commitment} for batch {1}", commitment=hex::encode(.0.data_hash))]
     UnknownCommitment(Box<Commitment>, BatchId),
+
+    #[error(
+        "DESYNC: refusing to apply a partial distributed update ({0} missing or invalid payloads)"
+    )]
+    DistributedDesync(usize),
 }
 
 #[derive(Debug, Error)]

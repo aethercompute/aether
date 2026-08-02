@@ -1,16 +1,17 @@
 use aether_centralized_shared::{ClientToServerMessage, ServerErrorCode, ServerToClientMessage};
 use aether_coordinator::model::{self, Checkpoint, LLMTrainingDataLocation, Model, LLM};
 use aether_coordinator::{
-    Client, Coordinator, CoordinatorError, HealthChecks, Round, RunState, TickResult,
-    SOLANA_MAX_NUM_CLIENTS,
+    assign_data_for_state, Client, ClientState, CommitteeSelection, Coordinator, CoordinatorError,
+    HealthChecks, Round, RunState, TickResult, SOLANA_MAX_NUM_CLIENTS,
 };
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 
-use aether_core::{FixedVec, NodeIdentity, Shuffle, SizedIterator, TokenSize};
+use aether_core::{FixedVec, NodeIdentity, OptimizerDefinition, Shuffle, SizedIterator, TokenSize};
 use aether_data_provider::{
-    download_model_from_gcs_async, download_model_repo_async, DataProvider, DataProviderTcpServer,
-    DataServerTui, LocalDataProvider, PreprocessedDataProvider, Split,
+    download_model_file_async, download_model_from_gcs_async, download_model_repo_async,
+    DataProvider, DataProviderTcpServer, DataServerTui, LocalDataProvider,
+    PreprocessedDataProvider, Split,
 };
 use aether_network::{ClientNotification, PublicKey, TcpServer};
 use aether_tui::{
@@ -19,7 +20,7 @@ use aether_tui::{
 use aether_watcher::{CoordinatorTui, OpportunisticData};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::hash::{DefaultHasher, Hasher};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::ops::ControlFlow;
@@ -66,6 +67,130 @@ struct Backend {
     ready_clients: HashSet<NodeIdentity>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct CheckpointGate {
+    epoch: u16,
+    step: u32,
+    publisher: NodeIdentity,
+    published: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct LossObservation {
+    loss: f32,
+    tokens_per_sec: f32,
+    assigned_sequences: u64,
+}
+
+#[derive(Debug)]
+struct PendingLossStep {
+    tokens_processed: u64,
+    expected_sequences: u64,
+    unix_timestamp: u64,
+    observations: HashMap<NodeIdentity, LossObservation>,
+}
+
+fn aggregate_loss_observations(observations: &[LossObservation]) -> Option<(f32, f32, f32, f32)> {
+    if observations.is_empty() {
+        return None;
+    }
+    let total_weight: u64 = observations
+        .iter()
+        .map(|observation| observation.assigned_sequences)
+        .sum();
+    let loss = if total_weight > 0 {
+        observations
+            .iter()
+            .map(|observation| observation.loss as f64 * observation.assigned_sequences as f64)
+            .sum::<f64>()
+            / total_weight as f64
+    } else {
+        observations
+            .iter()
+            .map(|observation| observation.loss as f64)
+            .sum::<f64>()
+            / observations.len() as f64
+    } as f32;
+    let finite_throughputs: Vec<f32> = observations
+        .iter()
+        .map(|observation| observation.tokens_per_sec)
+        .filter(|value| value.is_finite())
+        .collect();
+    let tokens_per_sec = if finite_throughputs.is_empty() {
+        0.0
+    } else {
+        finite_throughputs.iter().sum::<f32>() / finite_throughputs.len() as f32
+    };
+    let loss_min = observations
+        .iter()
+        .map(|observation| observation.loss)
+        .fold(f32::INFINITY, f32::min);
+    let loss_max = observations
+        .iter()
+        .map(|observation| observation.loss)
+        .fold(f32::NEG_INFINITY, f32::max);
+    Some((loss, tokens_per_sec, loss_min, loss_max))
+}
+
+fn adamw_join_allowed(owner: Option<NodeIdentity>, identity: NodeIdentity) -> bool {
+    owner.is_none_or(|owner| owner == identity)
+}
+
+fn initial_admission_open(coordinator: &Coordinator) -> bool {
+    coordinator.run_state == RunState::WaitingForMembers
+        && coordinator.progress.epoch == 0
+        && coordinator.progress.step <= 1
+}
+
+fn requires_hosted_checkpoint(coordinator: &Coordinator) -> bool {
+    let Model::LLM(llm) = coordinator.model;
+    matches!(llm.checkpoint, Checkpoint::Hub(_) | Checkpoint::Gcs(_))
+}
+
+fn checkpoint_destination_matches(coordinator: &Coordinator, checkpoint: Checkpoint) -> bool {
+    let Model::LLM(llm) = coordinator.model;
+    match (llm.training_method, llm.checkpoint, checkpoint) {
+        (model::LLMTrainingMethod::Full, Checkpoint::Hub(current), Checkpoint::Hub(published)) => {
+            current.repo_id == published.repo_id && published.revision.is_some()
+        }
+        (model::LLMTrainingMethod::Full, Checkpoint::Gcs(current), Checkpoint::Gcs(published)) => {
+            current == published
+        }
+        // LoRA publishes adapter-only checkpoints whose destination is not
+        // represented by the base-model checkpoint in coordinator state.
+        (model::LLMTrainingMethod::Lora(_), _, Checkpoint::Hub(repo)) => repo.revision.is_some(),
+        (model::LLMTrainingMethod::Lora(_), _, Checkpoint::Gcs(_)) => true,
+        _ => false,
+    }
+}
+
+fn elect_checkpoint_publisher(coordinator: &Coordinator) -> Option<NodeIdentity> {
+    coordinator
+        .epoch_state
+        .clients
+        .iter()
+        .filter(|client| client.state == ClientState::Healthy)
+        .min_by(|left, right| left.id.signer().cmp(right.id.signer()))
+        .map(|client| client.id)
+}
+
+fn checkpoint_update_authorized(
+    gate: Option<CheckpointGate>,
+    run_state: RunState,
+    coordinator_epoch: u16,
+    from: NodeIdentity,
+    update: model::CheckpointUpdate,
+) -> bool {
+    run_state == RunState::Cooldown
+        && gate.is_some_and(|gate| {
+            gate.epoch == coordinator_epoch
+                && gate.epoch == update.epoch
+                && gate.step == update.step
+                && gate.publisher == from
+                && !gate.published
+        })
+}
+
 impl Backend {
     pub fn port(&self) -> u16 {
         self.net_server.local_addr().port()
@@ -100,7 +225,7 @@ impl aether_watcher::Backend for ChannelCoordinatorBackend {
         bail!("Server does not send health checks");
     }
 
-    async fn send_checkpoint(&mut self, _checkpoint: model::Checkpoint) -> Result<()> {
+    async fn send_checkpoint(&mut self, _checkpoint: model::CheckpointUpdate) -> Result<()> {
         bail!("Server does not send checkpoints");
     }
 }
@@ -128,6 +253,9 @@ pub struct App {
     wandb_info: Option<WandbInfo>,
     last_admission_change_unix_timestamp: u64,
     admission_allowlist: Option<HashSet<NodeIdentity>>,
+    adamw_owner: Option<NodeIdentity>,
+    checkpoint_gate: Option<CheckpointGate>,
+    pending_losses: BTreeMap<u32, PendingLossStep>,
 }
 
 /// Methods intended for testing purposes only.
@@ -474,6 +602,9 @@ impl App {
                 wandb_info,
                 last_admission_change_unix_timestamp: 0,
                 admission_allowlist,
+                adamw_owner: None,
+                checkpoint_gate: None,
+                pending_losses: BTreeMap::new(),
             })
         }.instrument(info_span!("App::new")).await
     }
@@ -501,6 +632,7 @@ impl App {
                     }
                     ClientNotification::Disconnected(from) => {
                         self.on_disconnect(from)?;
+                        self.post_state_change(true).await;
                     }
                 }
             }
@@ -566,7 +698,7 @@ impl App {
             return;
         };
         let mut log = LogData::new();
-        log.insert("_step", point.tokens_processed);
+        log.insert("_step", point.step);
         log.insert("train/loss", point.loss);
         log.insert("train/perplexity", point.loss.exp());
         log.insert(
@@ -577,6 +709,9 @@ impl App {
         );
         log.insert("train/tokens_per_sec", point.tokens_per_sec);
         log.insert("train/total_tokens", point.tokens_processed as f64);
+        log.insert("train/witness_count", point.witness_count as f64);
+        log.insert("train/loss_min", point.loss_min);
+        log.insert("train/loss_max", point.loss_max);
         log.insert(
             "train/global_token_batch_size",
             (self
@@ -607,6 +742,180 @@ impl App {
         admission_allowed(self.admission_allowlist.as_ref(), identity)
     }
 
+    fn uses_adamw(&self) -> bool {
+        let Model::LLM(llm) = self.coordinator.model;
+        matches!(llm.optimizer, OptimizerDefinition::AdamW { .. })
+    }
+
+    fn initial_admission_open(&self) -> bool {
+        initial_admission_open(&self.coordinator)
+    }
+
+    fn elected_checkpoint_publisher(&self) -> Option<NodeIdentity> {
+        elect_checkpoint_publisher(&self.coordinator)
+    }
+
+    fn sync_checkpoint_gate(&mut self) {
+        if self.coordinator.run_state != RunState::Cooldown
+            || !requires_hosted_checkpoint(&self.coordinator)
+        {
+            self.checkpoint_gate = None;
+            return;
+        }
+        let epoch = self.coordinator.progress.epoch;
+        if self.checkpoint_gate.is_some_and(|gate| gate.epoch == epoch) {
+            return;
+        }
+        self.checkpoint_gate =
+            self.elected_checkpoint_publisher()
+                .map(|publisher| CheckpointGate {
+                    epoch,
+                    step: self.coordinator.progress.step.saturating_sub(1),
+                    publisher,
+                    published: false,
+                });
+        if let Some(gate) = self.checkpoint_gate {
+            info!(epoch, publisher = %gate.publisher, "waiting for authoritative checkpoint publication");
+        } else {
+            warn!(
+                epoch,
+                "cooldown has no healthy checkpoint publisher; progression is blocked"
+            );
+        }
+    }
+
+    fn record_loss_observation(
+        &mut self,
+        identity: NodeIdentity,
+        step: u32,
+        loss: f32,
+        tokens_per_sec: f32,
+    ) {
+        let assigned_sequences = CommitteeSelection::from_coordinator(&self.coordinator, 0)
+            .ok()
+            .map(|selection| assign_data_for_state(&self.coordinator, &selection))
+            .map(|assignments| {
+                assignments
+                    .iter()
+                    .filter(|(_, owner)| **owner == identity)
+                    .map(|(batch, _)| batch.0.end - batch.0.start + 1)
+                    .sum()
+            })
+            .unwrap_or(0);
+        let tokens_processed = self
+            .coordinator
+            .total_tokens_processed(self.coordinator.current_round());
+        let expected_sequences =
+            self.coordinator
+                .get_target_global_batch_size(self.coordinator.current_round()) as u64;
+        self.pending_losses
+            .entry(step)
+            .or_insert_with(|| PendingLossStep {
+                tokens_processed,
+                expected_sequences,
+                unix_timestamp: Self::get_timestamp(),
+                observations: HashMap::new(),
+            })
+            .observations
+            .entry(identity)
+            .or_insert(LossObservation {
+                loss,
+                tokens_per_sec,
+                assigned_sequences,
+            });
+    }
+
+    async fn verify_checkpoint_artifact(&self, update: model::CheckpointUpdate) -> bool {
+        match update.checkpoint {
+            Checkpoint::Hub(repo) => {
+                let Some(revision) = repo.revision else {
+                    return false;
+                };
+                let repo_id: String = (&repo.repo_id).into();
+                let revision: String = (&revision).into();
+                let path = match download_model_file_async(
+                    &repo_id,
+                    &revision,
+                    "aether_checkpoint.json",
+                    None,
+                )
+                .await
+                {
+                    Ok(path) => path,
+                    Err(error) => {
+                        warn!(%error, %repo_id, %revision, "failed to fetch checkpoint metadata");
+                        return false;
+                    }
+                };
+                let metadata = match tokio::fs::read(&path).await.ok().and_then(|bytes| {
+                    serde_json::from_slice::<model::CheckpointMetadata>(&bytes).ok()
+                }) {
+                    Some(metadata) => metadata,
+                    None => {
+                        warn!(path = %path.display(), "invalid checkpoint metadata");
+                        return false;
+                    }
+                };
+                metadata.run_id == String::from(&self.coordinator.run_id)
+                    && metadata.epoch == update.epoch
+                    && metadata.step == update.step
+            }
+            // Do not release a gated epoch without backend-verified metadata.
+            // The current production run uses Hub; GCS must add equivalent
+            // manifest verification before gated training is enabled.
+            Checkpoint::Gcs(_) => false,
+            _ => false,
+        }
+    }
+
+    fn finalize_completed_losses(&mut self) {
+        let completed_steps: Vec<u32> = self
+            .pending_losses
+            .range(..self.coordinator.progress.step)
+            .map(|(step, _)| *step)
+            .collect();
+        for step in completed_steps {
+            let Some(pending) = self.pending_losses.remove(&step) else {
+                continue;
+            };
+            if pending.observations.is_empty() {
+                continue;
+            }
+            let observations: Vec<_> = pending.observations.values().collect();
+            let owned_observations: Vec<_> = observations.into_iter().copied().collect();
+            let observed_sequences: u64 = owned_observations
+                .iter()
+                .map(|observation| observation.assigned_sequences)
+                .sum();
+            if observed_sequences != pending.expected_sequences {
+                warn!(
+                    step,
+                    observed_sequences,
+                    expected_sequences = pending.expected_sequences,
+                    "not publishing partial global loss"
+                );
+                continue;
+            }
+            let Some((loss, tokens_per_sec, loss_min, loss_max)) =
+                aggregate_loss_observations(&owned_observations)
+            else {
+                continue;
+            };
+            let point = LossPoint {
+                step,
+                tokens_processed: pending.tokens_processed,
+                loss,
+                tokens_per_sec,
+                unix_timestamp: pending.unix_timestamp,
+                witness_count: owned_observations.len(),
+                loss_min,
+                loss_max,
+            };
+            self.log_to_wandb(&point);
+            self.push_loss_point(point);
+        }
+    }
+
     fn has_joined(&self, identity: &NodeIdentity) -> bool {
         self.backend.pending_clients.contains(identity)
             || self.backend.ready_clients.contains(identity)
@@ -630,8 +939,24 @@ impl App {
         if removed_pending || removed_ready {
             self.last_admission_change_unix_timestamp = Self::get_timestamp();
         }
+        if self
+            .checkpoint_gate
+            .is_some_and(|gate| gate.publisher == from_identity && !gate.published)
+        {
+            tracing::error!(
+                client = %from,
+                "checkpoint publisher disconnected; run remains fail-closed in cooldown and must be restarted"
+            );
+        }
 
-        if self.withdraw_on_disconnect {
+        if removed_pending
+            && self.initial_admission_open()
+            && self.adamw_owner == Some(from_identity)
+        {
+            self.adamw_owner = None;
+        }
+
+        if self.withdraw_on_disconnect || self.coordinator.active() {
             if let Some(index) = self.find_client_index(&from_identity) {
                 match self.coordinator.withdraw(index as u64) {
                     Ok(_) => info!("Withdrew {from}"),
@@ -658,7 +983,10 @@ impl App {
         }
 
         let broadcast = match event {
-            ClientToServerMessage::Join { run_id } => {
+            ClientToServerMessage::Join {
+                run_id,
+                checkpoint_upload,
+            } => {
                 let coord_run_id = String::from(&self.coordinator.run_id);
                 if coord_run_id != run_id {
                     info!("{from:?} tried to join unknown run {run_id}");
@@ -676,7 +1004,33 @@ impl App {
                         "client identity is not in the admission allowlist".to_string(),
                     )
                     .await;
+                } else if !self.has_joined(&from_identity) && !self.initial_admission_open() {
+                    warn!(client = %from, "rejecting late join after training initialization");
+                    self.reject_client(
+                        from,
+                        ServerErrorCode::LateJoinUnsupported,
+                        "late joining is disabled because the server cannot prove model-state equality; restart the run to change membership".to_string(),
+                    )
+                    .await;
+                } else if requires_hosted_checkpoint(&self.coordinator) && !checkpoint_upload {
+                    self.reject_client(
+                        from,
+                        ServerErrorCode::CheckpointUploadRequired,
+                        "every client in a hosted-checkpoint run must be able to publish the elected epoch checkpoint".to_string(),
+                    )
+                    .await;
+                } else if self.uses_adamw() && !adamw_join_allowed(self.adamw_owner, from_identity)
+                {
+                    self.reject_client(
+                        from,
+                        ServerErrorCode::SingleClientOptimizer,
+                        "AdamW supports exactly one network client; use DisTrO or Muon for multi-client training".to_string(),
+                    )
+                    .await;
                 } else {
+                    if self.uses_adamw() {
+                        self.adamw_owner.get_or_insert(from_identity);
+                    }
                     info!("added pending client {from}");
                     if !self.backend.ready_clients.contains(&from_identity)
                         && self.backend.pending_clients.insert(from_identity)
@@ -688,10 +1042,20 @@ impl App {
             }
             ClientToServerMessage::ReadyForEpoch => {
                 // The client has finished downloading/loading the checkpoint.
-                // Promote from pending (syncing) to ready so it can be admitted
-                // at the next epoch boundary.
+                // Readiness is valid only before initial training starts.
                 let mut changed = false;
-                if self.backend.pending_clients.remove(&from_identity) {
+                if self.backend.ready_clients.contains(&from_identity) {
+                    // Idempotent duplicate from an already-ready initial client.
+                } else if !self.initial_admission_open() {
+                    self.backend.pending_clients.remove(&from_identity);
+                    self.reject_client(
+                        from,
+                        ServerErrorCode::LateJoinUnsupported,
+                        "checkpoint loading completed after the initial admission window closed"
+                            .to_string(),
+                    )
+                    .await;
+                } else if self.backend.pending_clients.remove(&from_identity) {
                     info!("client {from} is ready for epoch admission");
                     self.backend.ready_clients.insert(from_identity);
                     self.last_admission_change_unix_timestamp = Self::get_timestamp();
@@ -710,17 +1074,12 @@ impl App {
                             Self::get_timestamp(),
                         );
                         if result.is_ok() && witness_metadata.loss.is_finite() {
-                            let point = LossPoint {
-                                step: witness_metadata.step,
-                                tokens_processed: self
-                                    .coordinator
-                                    .total_tokens_processed(self.coordinator.current_round()),
-                                loss: witness_metadata.loss,
-                                tokens_per_sec: witness_metadata.tokens_per_sec,
-                                unix_timestamp: Self::get_timestamp(),
-                            };
-                            self.log_to_wandb(&point);
-                            self.push_loss_point(point);
+                            self.record_loss_observation(
+                                from_identity,
+                                witness_metadata.step,
+                                witness_metadata.loss,
+                                witness_metadata.tokens_per_sec,
+                            );
                         }
                         result
                     }
@@ -748,23 +1107,55 @@ impl App {
                     }
                 }
             }
-            ClientToServerMessage::Checkpoint(checkpoint) => {
-                match self.find_client_index(&from_identity) {
-                    Some(index) => {
-                        match self
-                            .coordinator
-                            .checkpoint(&from_identity, index as u64, checkpoint)
-                        {
-                            Ok(changed) => changed,
-                            Err(error) => {
-                                warn!("Error when processing checkpoint: {error}");
+            ClientToServerMessage::Checkpoint(update) => {
+                let authorized = checkpoint_update_authorized(
+                    self.checkpoint_gate,
+                    self.coordinator.run_state,
+                    self.coordinator.progress.epoch,
+                    from_identity,
+                    update,
+                );
+                if !authorized {
+                    warn!(client = %from, "ignoring checkpoint from non-publisher or outside cooldown");
+                    false
+                } else {
+                    let checkpoint = update.checkpoint;
+                    if !checkpoint_destination_matches(&self.coordinator, checkpoint) {
+                        warn!(client = %from, "rejecting checkpoint with an unexpected destination or missing immutable revision");
+                        false
+                    } else if !self.verify_checkpoint_artifact(update).await {
+                        warn!(client = %from, "rejecting checkpoint whose committed metadata does not match this epoch and step");
+                        false
+                    } else {
+                        match self.find_client_index(&from_identity) {
+                            Some(index) => {
+                                match self.coordinator.checkpoint(
+                                    &from_identity,
+                                    index as u64,
+                                    checkpoint,
+                                ) {
+                                    Ok(changed) => {
+                                        if matches!(checkpoint, Checkpoint::Hub(_)) && !changed {
+                                            warn!(client = %from, "rejecting stale Hub checkpoint revision");
+                                            return self.post_state_change(false).await;
+                                        }
+                                        if let Some(gate) = &mut self.checkpoint_gate {
+                                            gate.published = true;
+                                        }
+                                        info!(client = %from, epoch = self.coordinator.progress.epoch, "authoritative checkpoint published");
+                                        changed
+                                    }
+                                    Err(error) => {
+                                        warn!("Error when processing checkpoint: {error}");
+                                        false
+                                    }
+                                }
+                            }
+                            None => {
+                                warn!("Got checkpoint but could not find {from} in client list");
                                 false
                             }
                         }
-                    }
-                    None => {
-                        warn!("Got checkpoint but could not find {from} in client list");
-                        false
                     }
                 }
             }
@@ -779,14 +1170,16 @@ impl App {
                 warn!("experiment transition failed: {err:#}");
             }
         }
-        // Only admit clients that have signalled ReadyForEpoch (checkpoint
-        // loaded). Syncing clients stay in `pending_clients` and join at a
-        // later epoch boundary once they finish downloading — this prevents
-        // slow joiners from disrupting warmup.
-        //
-        // Checkpoints are always Hub/GCS (never converted to P2P), so every
-        // client can pre-download before admission and enter warmup already
-        // initialized.
+        self.sync_checkpoint_gate();
+        if self.coordinator.run_state == RunState::Cooldown
+            && !self.checkpoint_gate.is_some_and(|gate| gate.published)
+        {
+            self.post_state_change(false).await;
+            return;
+        }
+        // Initial clients are admitted only after loading the same base
+        // checkpoint. New identities are rejected after training starts until
+        // an exact model-revision synchronization protocol exists.
         let admission_iter: Vec<&NodeIdentity> = self.backend.ready_clients.iter().collect();
         let admission_count = admission_iter.len();
 
@@ -848,6 +1241,7 @@ impl App {
             Ok(TickResult::Ticked) | Err(CoordinatorError::Halted) => {}
             Err(err) => warn!("Coordinator tick error: {err}"),
         }
+        self.finalize_completed_losses();
         self.post_state_change(true).await;
     }
 
@@ -867,6 +1261,7 @@ impl App {
     }
 
     async fn post_state_change(&mut self, broadcast: bool) {
+        self.sync_checkpoint_gate();
         if self.coordinator.active() {
             // reset to original values if we changed them to something special for init
             self.coordinator.config.warmup_time = self.original_warmup_time;
@@ -954,6 +1349,9 @@ impl App {
         self.coordinator = next;
         self.original_warmup_time = self.coordinator.config.warmup_time;
         self.loss_history.clear();
+        self.pending_losses.clear();
+        self.checkpoint_gate = None;
+        self.adamw_owner = None;
         self.last_admission_change_unix_timestamp = Self::get_timestamp();
         self.backend.pending_clients.clear();
         self.backend.ready_clients.clear();
@@ -1072,9 +1470,15 @@ async fn init_wandb(run_id: &str) -> Option<(Arc<wandb::Run>, WandbInfo)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{admission_allowed, ChannelCoordinatorBackend};
+    use super::{
+        adamw_join_allowed, admission_allowed, aggregate_loss_observations,
+        checkpoint_update_authorized, elect_checkpoint_publisher, initial_admission_open,
+        ChannelCoordinatorBackend, CheckpointGate, LossObservation,
+    };
+    use aether_coordinator::{Client, ClientState, Coordinator, RunState};
     use aether_core::NodeIdentity;
     use aether_watcher::Backend;
+    use bytemuck::Zeroable;
     use std::collections::HashSet;
     use tokio::sync::mpsc;
 
@@ -1093,6 +1497,142 @@ mod tests {
 
         assert!(admission_allowed(Some(&allowlist), &allowed));
         assert!(!admission_allowed(Some(&allowlist), &denied));
+    }
+
+    #[test]
+    fn adamw_allows_only_the_owner_identity() {
+        let owner = NodeIdentity::from_single_key([1; 32]);
+        let other = NodeIdentity::from_single_key([2; 32]);
+
+        assert!(adamw_join_allowed(None, owner));
+        assert!(adamw_join_allowed(Some(owner), owner));
+        assert!(!adamw_join_allowed(Some(owner), other));
+    }
+
+    #[test]
+    fn late_admission_closes_as_soon_as_training_starts() {
+        let mut coordinator = Coordinator::zeroed();
+        coordinator.run_state = RunState::WaitingForMembers;
+        coordinator.progress.step = 1;
+        assert!(initial_admission_open(&coordinator));
+
+        coordinator.run_state = RunState::Warmup;
+        assert!(!initial_admission_open(&coordinator));
+        coordinator.run_state = RunState::WaitingForMembers;
+        coordinator.progress.step = 2;
+        assert!(!initial_admission_open(&coordinator));
+    }
+
+    #[test]
+    fn checkpoint_publisher_is_deterministic_and_healthy() {
+        let mut coordinator = Coordinator::zeroed();
+        let low = NodeIdentity::from_single_key([1; 32]);
+        let high = NodeIdentity::from_single_key([2; 32]);
+        coordinator
+            .epoch_state
+            .clients
+            .push(Client::new(high))
+            .unwrap();
+        coordinator
+            .epoch_state
+            .clients
+            .push(Client::new(low))
+            .unwrap();
+        assert_eq!(elect_checkpoint_publisher(&coordinator), Some(low));
+
+        coordinator.epoch_state.clients[1].state = ClientState::Dropped;
+        assert_eq!(elect_checkpoint_publisher(&coordinator), Some(high));
+    }
+
+    #[test]
+    fn checkpoint_publication_requires_exact_epoch_step_and_publisher() {
+        let publisher = NodeIdentity::from_single_key([1; 32]);
+        let other = NodeIdentity::from_single_key([2; 32]);
+        let gate = CheckpointGate {
+            epoch: 3,
+            step: 99,
+            publisher,
+            published: false,
+        };
+        let update = aether_coordinator::model::CheckpointUpdate {
+            epoch: 3,
+            step: 99,
+            checkpoint: aether_coordinator::model::Checkpoint::Ephemeral,
+        };
+
+        assert!(checkpoint_update_authorized(
+            Some(gate),
+            RunState::Cooldown,
+            3,
+            publisher,
+            update,
+        ));
+        assert!(!checkpoint_update_authorized(
+            Some(gate),
+            RunState::Cooldown,
+            3,
+            other,
+            update,
+        ));
+        assert!(!checkpoint_update_authorized(
+            Some(gate),
+            RunState::Cooldown,
+            3,
+            publisher,
+            aether_coordinator::model::CheckpointUpdate { step: 98, ..update },
+        ));
+        assert!(!checkpoint_update_authorized(
+            Some(CheckpointGate {
+                published: true,
+                ..gate
+            }),
+            RunState::Cooldown,
+            3,
+            publisher,
+            update,
+        ));
+    }
+
+    #[test]
+    fn losses_are_weighted_by_assigned_sequences() {
+        let observations = [
+            LossObservation {
+                loss: 1.0,
+                tokens_per_sec: 100.0,
+                assigned_sequences: 2,
+            },
+            LossObservation {
+                loss: 4.0,
+                tokens_per_sec: 200.0,
+                assigned_sequences: 1,
+            },
+        ];
+        let (loss, throughput, min, max) = aggregate_loss_observations(&observations).unwrap();
+
+        assert!((loss - 2.0).abs() < f32::EPSILON);
+        assert!((throughput - 150.0).abs() < f32::EPSILON);
+        assert_eq!(min, 1.0);
+        assert_eq!(max, 4.0);
+    }
+
+    #[test]
+    fn losses_fall_back_to_arithmetic_mean_without_assignments() {
+        let observations = [
+            LossObservation {
+                loss: 1.0,
+                tokens_per_sec: 100.0,
+                assigned_sequences: 0,
+            },
+            LossObservation {
+                loss: 3.0,
+                tokens_per_sec: f32::NAN,
+                assigned_sequences: 0,
+            },
+        ];
+        let (loss, throughput, _, _) = aggregate_loss_observations(&observations).unwrap();
+
+        assert!((loss - 2.0).abs() < f32::EPSILON);
+        assert!((throughput - 100.0).abs() < f32::EPSILON);
     }
 
     #[tokio::test]

@@ -58,8 +58,6 @@ pub struct StepStateMachine {
     tx_request_download: mpsc::UnboundedSender<(BlobTicket, Tag)>,
     tx_opportunistic_data: mpsc::UnboundedSender<OpportunisticData>,
     tx_broadcast_finished: mpsc::UnboundedSender<FinishedBroadcast>,
-    tx_ready_for_epoch: mpsc::UnboundedSender<()>,
-
     current_round: RoundState,
     previous_round: RoundState,
     step_finish_time: Option<Instant>,
@@ -68,8 +66,6 @@ pub struct StepStateMachine {
 
     coordinator_state: Coordinator,
 
-    consecutive_desync_steps: u32,
-
     expected_manifest_digest: [u8; 32],
     expected_result_metadata: Vec<DistroResultMetadata>,
 
@@ -77,8 +73,6 @@ pub struct StepStateMachine {
     pending_upload_handles:
         Vec<tokio::task::JoinHandle<Result<(), crate::state::cooldown::CheckpointError>>>,
 }
-
-const DESYNC_REJOIN_THRESHOLD: u32 = 5;
 
 fn lock_mutex<'a, T>(lock: &'a Mutex<T>, name: &str) -> MutexGuard<'a, T> {
     lock.lock().unwrap_or_else(|poisoned| {
@@ -109,6 +103,9 @@ pub enum StepError {
 
     #[error("Stats logger mutex is poisoned")]
     StatsLoggerMutex,
+
+    #[error("distributed-update desynchronization ({0} skipped payloads)")]
+    DistributedDesync(usize),
 }
 
 #[derive(Error, Debug)]
@@ -155,7 +152,6 @@ impl StepStateMachine {
         tx_request_download: mpsc::UnboundedSender<(BlobTicket, Tag)>,
         tx_opportunistic_data: mpsc::UnboundedSender<OpportunisticData>,
         tx_broadcast_finished: mpsc::UnboundedSender<FinishedBroadcast>,
-        tx_ready_for_epoch: mpsc::UnboundedSender<()>,
         stats_logger: StatsLogger,
     ) -> Self {
         let expected_manifest_digest = trainers
@@ -194,15 +190,12 @@ impl StepStateMachine {
             tx_request_download,
             tx_opportunistic_data,
             tx_broadcast_finished,
-            tx_ready_for_epoch,
 
             coordinator_state,
 
             step_finish_time: None,
             sent_warmup_finished: false,
             sent_warmup_witness: false,
-
-            consecutive_desync_steps: 0,
 
             expected_manifest_digest,
             expected_result_metadata,
@@ -844,28 +837,12 @@ impl StepStateMachine {
                 } = training.finish().await?;
 
                 if desync_skips > 0 {
-                    self.consecutive_desync_steps += 1;
-                    warn!(
+                    error!(
                         step = state.progress.step,
                         skips = desync_skips,
-                        consecutive = self.consecutive_desync_steps,
-                        "Training step completed with {} DESYNC skip(s), {} consecutive step(s) with skips",
-                        desync_skips, self.consecutive_desync_steps
+                        "distributed update desynchronized; stopping client before it can apply a divergent trajectory"
                     );
-                    if self.consecutive_desync_steps >= DESYNC_REJOIN_THRESHOLD {
-                        error!(
-                            threshold = DESYNC_REJOIN_THRESHOLD,
-                            "Too many consecutive DESYNC steps, signalling rejoin"
-                        );
-                        let _ = self.tx_ready_for_epoch.send(());
-                        self.consecutive_desync_steps = 0;
-                    }
-                } else if self.consecutive_desync_steps > 0 {
-                    info!(
-                        was = self.consecutive_desync_steps,
-                        "DESYNC recovered, resets to 0"
-                    );
-                    self.consecutive_desync_steps = 0;
+                    return Err(StepError::DistributedDesync(desync_skips));
                 }
 
                 let step_duration = self

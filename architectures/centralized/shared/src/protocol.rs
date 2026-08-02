@@ -6,15 +6,16 @@ use serde::{Deserialize, Serialize};
 pub enum ClientToServerMessage {
     Join {
         run_id: String,
+        checkpoint_upload: bool,
     },
     /// Sent by a client after it has finished downloading and loading the
-    /// checkpoint for the current coordinator state. The server will only admit
-    /// "ready" clients into an epoch, so slow joiners never disrupt active
-    /// training.
+    /// initial checkpoint. The server admits ready clients only before the
+    /// first epoch; late admission is rejected until exact state synchronization
+    /// is supported.
     ReadyForEpoch,
     Witness(Box<OpportunisticData>),
     HealthCheck(HealthChecks),
-    Checkpoint(model::Checkpoint),
+    Checkpoint(model::CheckpointUpdate),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -31,6 +32,9 @@ pub enum ServerErrorCode {
     RunIdMismatch,
     NotAllowlisted,
     JoinRequired,
+    LateJoinUnsupported,
+    SingleClientOptimizer,
+    CheckpointUploadRequired,
 }
 
 #[cfg(test)]
@@ -44,6 +48,7 @@ mod tests {
     fn client_to_server_join_roundtrip() {
         let msg = ClientToServerMessage::Join {
             run_id: "test-run-42".to_string(),
+            checkpoint_upload: true,
         };
         let back = aether_test_support::postcard_roundtrip(&msg);
         assert!(matches!(back, ClientToServerMessage::Join { .. }));
@@ -74,7 +79,11 @@ mod tests {
 
     #[test]
     fn client_to_server_checkpoint_roundtrip() {
-        let msg = ClientToServerMessage::Checkpoint(model::Checkpoint::Ephemeral);
+        let msg = ClientToServerMessage::Checkpoint(model::CheckpointUpdate {
+            epoch: 1,
+            step: 2,
+            checkpoint: model::Checkpoint::Ephemeral,
+        });
         let back = aether_test_support::postcard_roundtrip(&msg);
         assert!(matches!(back, ClientToServerMessage::Checkpoint(_)));
     }
@@ -102,5 +111,27 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn safety_error_codes_roundtrip() {
+        for code in [
+            ServerErrorCode::LateJoinUnsupported,
+            ServerErrorCode::SingleClientOptimizer,
+            ServerErrorCode::CheckpointUploadRequired,
+        ] {
+            let msg = ServerToClientMessage::Error {
+                code,
+                message: "safety invariant".to_string(),
+            };
+            let back = aether_test_support::postcard_roundtrip(&msg);
+            assert!(matches!(
+                back,
+                ServerToClientMessage::Error {
+                    code: back_code,
+                    ..
+                } if back_code == code
+            ));
+        }
     }
 }

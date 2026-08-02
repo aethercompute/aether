@@ -318,6 +318,13 @@ impl TrainArgs {
 
         let upload_info = self.build_upload_info(&hub_read_token)?;
 
+        if upload_info.is_some() && self.checkpoint_epoch_interval != 1 {
+            bail!(
+                "checkpoint uploads must run every epoch for restart safety (got interval {})",
+                self.checkpoint_epoch_interval
+            );
+        }
+
         if upload_info.is_some() && self.keep_steps == 0 {
             bail!(
                 "keep_steps must be >= 1 for checkpoint uploads (got {})",

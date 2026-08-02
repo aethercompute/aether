@@ -28,7 +28,7 @@ pub type TabsData = <Tabs as CustomWidget>::Data;
 pub enum ToSend {
     Witness(Box<OpportunisticData>),
     HealthCheck(HealthChecks),
-    Checkpoint(model::Checkpoint),
+    Checkpoint(model::CheckpointUpdate),
     ReadyForEpoch,
 }
 
@@ -65,7 +65,7 @@ impl WatcherBackend for Backend {
         Ok(())
     }
 
-    async fn send_checkpoint(&mut self, checkpoint: model::Checkpoint) -> Result<()> {
+    async fn send_checkpoint(&mut self, checkpoint: model::CheckpointUpdate) -> Result<()> {
         self.tx.send(ToSend::Checkpoint(checkpoint))?;
         Ok(())
     }
@@ -85,6 +85,7 @@ pub struct App {
     server_conn: TcpClient<ClientToServerMessage, ServerToClientMessage>,
 
     metrics: Arc<ClientMetrics>,
+    checkpoint_upload: bool,
 }
 
 pub async fn build_app(
@@ -107,6 +108,9 @@ pub async fn build_app(
     let hub_read_token = std::env::var("HF_TOKEN").ok();
     let eval_tasks = p.eval_tasks()?;
     let checkpoint_config = p.checkpoint_config()?;
+    let checkpoint_upload = checkpoint_config
+        .as_ref()
+        .is_some_and(|config| config.upload_info.is_some());
     let wandb_info = p.wandb_info(format!(
         "{{run_id}}-{}",
         identity_secret_key.public().fmt_short()
@@ -159,6 +163,7 @@ pub async fn build_app(
         server_conn,
         run_id: p.run_id,
         metrics,
+        checkpoint_upload,
     };
     Ok((app, allowlist, p2p, state_options))
 }
@@ -172,6 +177,7 @@ impl App {
             .server_conn
             .send(ClientToServerMessage::Join {
                 run_id: self.run_id.clone(),
+                checkpoint_upload: self.checkpoint_upload,
             })
             .await
         {

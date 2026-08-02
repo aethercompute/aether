@@ -584,7 +584,7 @@ pub struct RunInitConfigAndIO {
 
     pub tx_health_check: UnboundedSender<HealthChecks>,
     pub tx_witness: UnboundedSender<OpportunisticData>,
-    pub tx_checkpoint: UnboundedSender<model::Checkpoint>,
+    pub tx_checkpoint: UnboundedSender<model::CheckpointUpdate>,
     pub tx_model: UnboundedSender<HashMap<String, Tensor>>,
     pub tx_parameters_req: UnboundedSender<(Vec<String>, OneshotModelParameterSender)>,
     pub tx_config: UnboundedSender<(String, String)>,
@@ -1382,6 +1382,7 @@ impl RunInitConfigAndIO {
         };
 
         let cooldown = CooldownStepMetadata::new(
+            init_config.identity,
             tx_checkpoint,
             tx_model,
             init_config.checkpoint_config,
@@ -1389,10 +1390,9 @@ impl RunInitConfigAndIO {
             model_task_runner,
         );
 
-        // Signal readiness so the server knows it can admit us into the next
-        // epoch. This decouples checkpoint download from epoch warmup — a slow
-        // joiner downloads in the background and is only admitted once ready,
-        // so it never disrupts active training.
+        // Signal that the initial checkpoint is fully loaded. Centralized runs
+        // reject new identities after training starts because this message does
+        // not carry a model revision.
         info!("Checkpoint loaded — signalling readiness to server");
         let _ = tx_ready_for_epoch.send(());
 
@@ -1407,7 +1407,6 @@ impl RunInitConfigAndIO {
             tx_request_download,
             tx_witness,
             tx_broadcast_finished,
-            tx_ready_for_epoch,
             stats_logger,
         ))
     }

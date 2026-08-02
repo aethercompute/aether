@@ -93,7 +93,7 @@ mod tests {
             Ok(())
         }
 
-        async fn send_checkpoint(&mut self, _: model::Checkpoint) -> Result<()> {
+        async fn send_checkpoint(&mut self, _: model::CheckpointUpdate) -> Result<()> {
             Ok(())
         }
     }

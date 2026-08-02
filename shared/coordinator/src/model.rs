@@ -243,6 +243,21 @@ pub enum Checkpoint {
     P2PGcs(GcsRepo),
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, Copy, PartialEq, TS)]
+pub struct CheckpointUpdate {
+    pub epoch: u16,
+    pub step: u32,
+    pub checkpoint: Checkpoint,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, TS)]
+pub struct CheckpointMetadata {
+    pub run_id: String,
+    pub epoch: u16,
+    pub step: u32,
+    pub trainable_manifest_digest: String,
+}
+
 impl std::fmt::Display for Checkpoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

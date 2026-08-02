@@ -32,7 +32,10 @@ impl WatcherBackend for DummyBackend {
         bail!("Data provider does not send health check");
     }
 
-    async fn send_checkpoint(&mut self, _checkpoint: model::Checkpoint) -> anyhow::Result<()> {
+    async fn send_checkpoint(
+        &mut self,
+        _checkpoint: model::CheckpointUpdate,
+    ) -> anyhow::Result<()> {
         bail!("Data provider does not send checkpoints");
     }
 }

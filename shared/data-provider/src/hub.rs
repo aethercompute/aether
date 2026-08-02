@@ -14,7 +14,6 @@ use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
-use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 const MODEL_EXTENSIONS: [&str; 3] = [".safetensors", ".json", ".py"];
@@ -126,6 +125,26 @@ pub async fn download_model_repo_async(
         &MODEL_EXTENSIONS,
     )
     .await
+}
+
+pub async fn download_model_file_async(
+    repo_id: &str,
+    revision: &str,
+    filename: &str,
+    token: Option<String>,
+) -> Result<PathBuf, ApiError> {
+    let cache = Cache::default();
+    let api = hf_hub::api::tokio::ApiBuilder::new()
+        .with_cache_dir(cache.path().clone())
+        .with_token(hub_read_token(token, &cache))
+        .with_progress(false)
+        .build()?
+        .repo(Repo::with_revision(
+            sanitize_repo_id(repo_id),
+            RepoType::Model,
+            revision.to_string(),
+        ));
+    api.get(filename).await
 }
 
 pub async fn download_dataset_repo_async(
@@ -316,8 +335,7 @@ pub async fn upload_to_hub(
     hub_info: HubUploadInfo,
     local: Vec<PathBuf>,
     step: u64,
-    tx_checkpoint: mpsc::UnboundedSender<model::Checkpoint>,
-) -> Result<(), UploadError> {
+) -> Result<model::Checkpoint, UploadError> {
     let HubUploadInfo {
         hub_repo,
         hub_token,
@@ -379,14 +397,10 @@ pub async fn upload_to_hub(
         "Upload to HuggingFace complete"
     );
 
-    tx_checkpoint
-        .send(model::Checkpoint::Hub(HubRepo {
-            repo_id: FixedString::from_str_truncated(&hub_repo),
-            revision: Some(FixedString::from_str_truncated(&revision)),
-        }))
-        .map_err(|_| UploadError::SendCheckpoint)?;
-
-    Ok(())
+    Ok(model::Checkpoint::Hub(HubRepo {
+        repo_id: FixedString::from_str_truncated(&hub_repo),
+        revision: Some(FixedString::from_str_truncated(&revision)),
+    }))
 }
 
 #[cfg(test)]

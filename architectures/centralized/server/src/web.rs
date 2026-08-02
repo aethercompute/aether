@@ -16,6 +16,9 @@ pub struct LossPoint {
     pub loss: f32,
     pub tokens_per_sec: f32,
     pub unix_timestamp: u64,
+    pub witness_count: usize,
+    pub loss_min: f32,
+    pub loss_max: f32,
 }
 
 #[derive(Clone)]
