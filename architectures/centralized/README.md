@@ -31,8 +31,8 @@ Validate a coordinator config:
 ```sh
 cargo run -p aether-centralized-server -- \
   validate-config \
-  --state config/aether0-500m/state_distro.toml \
-  --data-config config/aether0-500m/data.toml
+  --state config/aether0-50m/state.toml \
+  --data-config config/aether0-50m/data.toml
 ```
 
 Run a server:
@@ -40,8 +40,8 @@ Run a server:
 ```sh
 bash scripts/with-libtorch-env.sh cargo run -p aether-centralized-server -- \
   run \
-  --state config/aether0-500m/state_distro.toml \
-  --data-config config/aether0-500m/data.toml \
+  --state config/aether0-50m/state.toml \
+  --data-config config/aether0-50m/data.toml \
   --server-port 39405 \
   --web-port 8081
 ```
@@ -52,7 +52,7 @@ Run an experiment with multiple state files:
 bash scripts/with-libtorch-env.sh cargo run -p aether-centralized-server -- \
   run \
   --experiment config/experiment-run.toml \
-  --data-config config/aether0-500m/data.toml \
+  --data-config config/aether0-50m/data.toml \
   --server-port 39405 \
   --web-port 8081
 ```
@@ -84,7 +84,7 @@ Run a training client:
 bash scripts/with-libtorch-env.sh cargo run -p aether-centralized-client -- \
   train \
   --server-addr 127.0.0.1:39405 \
-  --run-id ds-v3-dense-100m-ufw \
+  --run-id aether0-50m-5b \
   --identity-secret-key-path .aethercompute/identity.key
 ```
 
@@ -109,7 +109,7 @@ with curated defaults.
 Start a tmux-based local testnet:
 
 ```sh
-just local-testnet --num-clients 2 --config-path config/aether0-500m
+just local-testnet --num-clients 2 --config-path config/aether0-50m
 ```
 
 The testnet command builds server/client packages, validates the config, opens a

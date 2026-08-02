@@ -85,9 +85,9 @@ Initialize and push a model:
 
 ```sh
 python3 scripts/push-new-model-hf.py \
-  --config config/aether0-500m/model-config.json \
+  --config config/aether0-50m/model-config.json \
   --repo user/model \
-  --tokenizer deepseek-ai/DeepSeek-V3 \
+  --tokenizer mistralai/Mistral-7B-v0.1 \
   --dtype bfloat16
 ```
 

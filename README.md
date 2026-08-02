@@ -93,8 +93,8 @@ Run the centralized server against the sample training config:
 ```sh
 bash scripts/with-libtorch-env.sh cargo run -p aether-centralized-server -- \
   run \
-  --state config/aether0-500m/state_distro.toml \
-  --data-config config/aether0-500m/data.toml \
+  --state config/aether0-50m/state.toml \
+  --data-config config/aether0-50m/data.toml \
   --server-port 39405 \
   --web-port 8081
 ```
@@ -105,5 +105,5 @@ Run a client against that server:
 bash scripts/with-libtorch-env.sh cargo run -p aether-centralized-client -- \
   train \
   --server-addr 127.0.0.1:39405 \
-  --run-id ds-v3-dense-100m-ufw
+  --run-id aether0-50m-5b
 ```

@@ -431,7 +431,7 @@ mod tests {
         assert!(err.to_string().contains("expected 64 hex chars"));
     }
 
-    const LEGACY_STATE: &str = include_str!("../../../../config/aether0-500m/state_distro.toml");
+    const LEGACY_STATE: &str = include_str!("../../../../config/aether0-50m/state.toml");
 
     #[test]
     fn legacy_state_defaults_to_full_training() {
@@ -448,7 +448,7 @@ mod tests {
     fn lora_state_deserializes_all_configuration_fields() {
         let lora_state = format!(
             "{}\n[model.LLM.training_method.Lora]\nrank = 16\nalpha = 32.0\ndropout = 0.05\ninit_seed = 42\n",
-            LEGACY_STATE.replace("architecture = \"HfDeepseek\"", "architecture = \"HfAuto\"")
+            LEGACY_STATE.replace("architecture = \"HfLlama\"", "architecture = \"HfAuto\"")
         );
 
         let coordinator = parse_config_state(&lora_state).unwrap();
