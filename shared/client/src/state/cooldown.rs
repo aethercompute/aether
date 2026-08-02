@@ -23,7 +23,7 @@ use tokio::{
     sync::{mpsc, Mutex},
     task::JoinHandle,
 };
-use tracing::{info, info_span, warn, Instrument};
+use tracing::{error, info, info_span, warn, Instrument};
 
 use super::{
     evals::{ModelTaskRunner, RunningEvals},
@@ -452,10 +452,18 @@ async fn upload_checkpoint(
                 error_string: None
             })
         }
-        Err(e) => event!(cooldown::CheckpointUploadFinished {
-            success: false,
-            error_string: Some(e.to_string())
-        }),
+        Err(e) => {
+            error!(
+                error = %e,
+                epoch,
+                step,
+                "checkpoint upload failed; coordinator will remain in cooldown"
+            );
+            event!(cooldown::CheckpointUploadFinished {
+                success: false,
+                error_string: Some(e.to_string())
+            });
+        }
     }
     result.map(|_| ())
 }

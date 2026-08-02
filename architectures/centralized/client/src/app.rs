@@ -275,7 +275,15 @@ impl App {
                 network_tui_state,
                 Default::default(),
             );
-            tx_tui_state.send(states).await?;
+            match tx_tui_state.try_send(states) {
+                Ok(()) => {}
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    debug!("dropping redundant client TUI update because the renderer is behind");
+                }
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    bail!("client TUI state channel closed");
+                }
+            }
         }
         Ok(())
     }
