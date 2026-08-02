@@ -665,7 +665,16 @@ impl App {
                 self.training_data_server.as_ref().map(|o| (&o.1).into()),
                 Default::default(),
             );
-            tx_tui_state.send(states).await?;
+            if let Err(error) = tx_tui_state.try_send(states) {
+                match error {
+                    tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                        return Err(anyhow!("TUI state channel closed"));
+                    }
+                    tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                        debug!("dropping stale TUI update because the renderer is behind");
+                    }
+                }
+            }
         }
         self.update_web_state();
         Ok(())
@@ -1203,9 +1212,9 @@ impl App {
             self.post_state_change(false).await;
             return;
         }
-        // Initial clients are admitted only after loading the same base
-        // checkpoint. New identities are rejected after training starts until
-        // an exact model-revision synchronization protocol exists.
+        // Clients are admitted only after loading the exact checkpoint revision
+        // currently advertised by the coordinator. Late clients remain pending
+        // until the next verified epoch checkpoint is available.
         let checkpoint_publisher_ready = !requires_hosted_checkpoint(&self.coordinator)
             || self
                 .checkpoint_uploader
@@ -1313,8 +1322,15 @@ impl App {
                 warn!("Error in on_tick: {err}");
             }
             if let Some((ref sender, _)) = &self.training_data_server {
-                if let Err(err) = sender.send(self.coordinator).await {
-                    warn!("Error sending coordinator state to training data server: {err}");
+                if let Err(error) = sender.try_send(self.coordinator) {
+                    match error {
+                        tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                            warn!("training data server coordinator channel closed");
+                        }
+                        tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                            debug!("dropping redundant coordinator update because the training data server is behind");
+                        }
+                    }
                 }
             }
         }
