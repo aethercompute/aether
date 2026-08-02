@@ -108,6 +108,7 @@ pub async fn build_app(
     let hub_read_token = std::env::var("HF_TOKEN").ok();
     let eval_tasks = p.eval_tasks()?;
     let checkpoint_config = p.checkpoint_config()?;
+    aether_client::validate_checkpoint_upload_target(checkpoint_config.as_ref()).await?;
     let checkpoint_upload = checkpoint_config
         .as_ref()
         .is_some_and(|config| config.upload_info.is_some());

@@ -14,6 +14,17 @@ pub use state::{
 };
 pub use tui::{ClientTUI, ClientTUIState};
 
+pub async fn validate_checkpoint_upload_target(
+    checkpoint_config: Option<&CheckpointConfig>,
+) -> Result<(), aether_data_provider::UploadError> {
+    if let Some(UploadInfo::Hub(hub_info)) =
+        checkpoint_config.and_then(|config| config.upload_info.as_ref())
+    {
+        aether_data_provider::ensure_hub_repo_writable(hub_info).await?;
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug)]
 pub struct WandBInfo {
     pub project: String,

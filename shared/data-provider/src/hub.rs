@@ -331,6 +331,33 @@ async fn create_hub_model_repo(hub_repo: &str, hub_token: &str) -> Result<(), Up
     })
 }
 
+async fn writable_hub_repo(
+    hub_repo: &str,
+    hub_token: &str,
+) -> Result<hf_hub::api::tokio::ApiRepo, UploadError> {
+    let api = hf_hub::api::tokio::ApiBuilder::new()
+        .with_token(Some(hub_token.to_string()))
+        .build()?;
+    let api_repo = api.repo(Repo::model(hub_repo.to_string()));
+
+    if !api_repo.exists().await {
+        info!(repo = hub_repo, "Creating HuggingFace checkpoint repo");
+        create_hub_model_repo(hub_repo, hub_token).await?;
+    }
+    if !api_repo.is_writable().await {
+        return Err(UploadError::HfRepoNotWritable(hub_repo.to_string()));
+    }
+
+    Ok(api_repo)
+}
+
+pub async fn ensure_hub_repo_writable(hub_info: &HubUploadInfo) -> Result<(), UploadError> {
+    let hub_repo = sanitize_repo_id(&hub_info.hub_repo);
+    writable_hub_repo(&hub_repo, &hub_info.hub_token)
+        .await
+        .map(|_| ())
+}
+
 pub async fn upload_to_hub(
     hub_info: HubUploadInfo,
     local: Vec<PathBuf>,
@@ -345,20 +372,7 @@ pub async fn upload_to_hub(
     let hub_repo = sanitize_repo_id(&hub_repo);
 
     info!(repo = hub_repo, "Uploading checkpoint to HuggingFace");
-
-    let api = hf_hub::api::tokio::ApiBuilder::new()
-        .with_token(Some(hub_token.clone()))
-        .build()?;
-    let repo = Repo::model(hub_repo.clone());
-    let api_repo = api.repo(repo);
-
-    if !api_repo.exists().await {
-        info!(repo = hub_repo, "Creating HuggingFace checkpoint repo");
-        create_hub_model_repo(&hub_repo, &hub_token).await?;
-    }
-    if !api_repo.is_writable().await {
-        return Err(UploadError::HfRepoNotWritable(hub_repo));
-    }
+    let api_repo = writable_hub_repo(&hub_repo, &hub_token).await?;
 
     let files: Result<Vec<(PathBuf, String)>, _> = local
         .into_iter()
