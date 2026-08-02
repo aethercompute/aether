@@ -340,13 +340,9 @@ async fn writable_hub_repo(
         .build()?;
     let api_repo = api.repo(Repo::model(hub_repo.to_string()));
 
-    if !api_repo.exists().await {
-        info!(repo = hub_repo, "Creating HuggingFace checkpoint repo");
-        create_hub_model_repo(hub_repo, hub_token).await?;
-    }
-    if !api_repo.is_writable().await {
-        return Err(UploadError::HfRepoNotWritable(hub_repo.to_string()));
-    }
+    // With exist_ok, this validates write access without hf-hub's empty-commit
+    // probe, which Hugging Face may reject even for an authorized token.
+    create_hub_model_repo(hub_repo, hub_token).await?;
 
     Ok(api_repo)
 }
