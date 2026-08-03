@@ -23,6 +23,7 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+python/*test-results.xml
 
 ### Windows ###
 Thumbs.db

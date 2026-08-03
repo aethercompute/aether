@@ -11,6 +11,7 @@ use tracing::{info, trace, warn};
 use super::{
     evals::{EvalError, MaybeRunningEvals, ModelTaskRunner, RunningEvals},
     round_state::RoundState,
+    types::PayloadState,
 };
 
 #[derive(Debug, Error)]
@@ -93,6 +94,45 @@ impl WitnessStep {
             return None;
         }
 
+        if previous_round
+            .batch_ids_not_yet_trained_on
+            .lock()
+            .unwrap_or_else(|poisoned| {
+                warn!("round batch tracking lock poisoned; recovering state");
+                poisoned.into_inner()
+            })
+            .is_some()
+        {
+            info!("Withholding witness because expected result payloads are missing");
+            return None;
+        }
+
+        if previous_round
+            .downloads
+            .lock()
+            .unwrap_or_else(|poisoned| {
+                warn!("round downloads lock poisoned; recovering state");
+                poisoned.into_inner()
+            })
+            .values()
+            .any(|payload| {
+                !matches!(payload, PayloadState::Deserializing(task) if task.is_finished())
+            })
+        {
+            info!("Withholding witness because result payload processing is incomplete");
+            return None;
+        }
+
+        if !current_round.sent_finished
+            || current_round
+                .data_assignments
+                .values()
+                .any(|trainer| !current_round.clients_finished.contains_key(trainer))
+        {
+            info!("Withholding witness because assigned trainers have not finished");
+            return None;
+        }
+
         let (_, proof, _) = current_round.committee_info.as_ref()?;
         if proof.witness.is_false() {
             return None;
@@ -129,7 +169,7 @@ impl WitnessStep {
 #[cfg(test)]
 mod tests {
     use aether_coordinator::{CommitteeProof, CommitteeSelection, WitnessProof};
-    use aether_core::SmallBoolean;
+    use aether_core::{NodeIdentity, SmallBoolean};
 
     use super::*;
 
@@ -137,6 +177,7 @@ mod tests {
     fn get_witness_to_send_recovers_from_poisoned_blooms_lock() {
         let mut previous_round = RoundState::new();
         let mut current_round = RoundState::new();
+        current_round.sent_finished = true;
         current_round.committee_info = Some((
             CommitteeProof::default(),
             WitnessProof {
@@ -158,5 +199,47 @@ mod tests {
 
         assert!(witness.is_some());
         assert!(previous_round.sent_witness);
+    }
+
+    #[test]
+    fn witness_is_withheld_when_an_expected_payload_is_missing() {
+        let mut previous_round = RoundState::new();
+        let mut current_round = elected_round();
+        *previous_round.batch_ids_not_yet_trained_on.lock().unwrap() =
+            Some(["B[7,7]".parse().unwrap()].into_iter().collect());
+
+        assert!(
+            WitnessStep::get_witness_to_send(&mut previous_round, &mut current_round).is_none()
+        );
+        assert!(!previous_round.sent_witness);
+    }
+
+    #[test]
+    fn witness_is_withheld_until_every_assigned_trainer_finishes() {
+        let mut previous_round = RoundState::new();
+        let mut current_round = elected_round();
+        let trainer = NodeIdentity::from_single_key([3; 32]);
+        current_round
+            .data_assignments
+            .insert("B[7,7]".parse().unwrap(), trainer);
+
+        assert!(
+            WitnessStep::get_witness_to_send(&mut previous_round, &mut current_round).is_none()
+        );
+        assert!(!previous_round.sent_witness);
+    }
+
+    fn elected_round() -> RoundState {
+        let mut round = RoundState::new();
+        round.sent_finished = true;
+        round.committee_info = Some((
+            CommitteeProof::default(),
+            WitnessProof {
+                witness: SmallBoolean::TRUE,
+                ..WitnessProof::default()
+            },
+            CommitteeSelection::new(0, 1, 0, 1, 7).unwrap(),
+        ));
+        round
     }
 }

@@ -993,13 +993,15 @@ impl Coordinator {
         });
         let witness_timed_out = self.check_timeout(unix_timestamp, self.config.round_witness_time);
         if has_quorum || witness_timed_out {
-            self.epoch_state.first_round = false.into();
             self.progress.step += 1;
             let current_round = self.current_round_unchecked();
             let height = current_round.height;
             let num_witnesses = current_round.witnesses.len() as u16;
 
-            if witness_timed_out {
+            // Zero witnesses can mean every healthy witness refused to attest
+            // to an incomplete round. Preserve them for the next epoch rather
+            // than treating the safety response itself as a health failure.
+            if witness_timed_out && num_witnesses > 0 {
                 if let Err(error) = self.eject_missing_witnesses() {
                     warn!(?error, "could not identify missing elected witnesses");
                 }
@@ -1012,6 +1014,8 @@ impl Coordinator {
                 self.start_cooldown(unix_timestamp);
                 return Ok(TickResult::Ticked);
             }
+
+            self.epoch_state.first_round = false.into();
 
             // Once the timeout for the whole epoch is reached, we set the last step as the current
             // step plus two.
@@ -1458,30 +1462,20 @@ mod tests {
     }
 
     #[test]
-    fn witness_timeout_ejects_only_missing_sole_witness() {
+    fn zero_witness_timeout_preserves_healthy_clients() {
         let mut coordinator = witness_timeout_coordinator(3, 1);
-        let selection = CommitteeSelection::from_coordinator(&coordinator, 0).unwrap();
-        let elected_index = (0..3)
-            .find(|index| selection.get_witness(*index).witness.is_true())
-            .unwrap() as usize;
-        let elected_id = coordinator.epoch_state.clients[elected_index].id;
 
         coordinator.tick_round_witness(24, 99).unwrap();
 
         assert_eq!(coordinator.run_state, RunState::Cooldown);
         assert_eq!(coordinator.progress.step, 1);
-        assert_eq!(coordinator.epoch_state.clients.len(), 2);
+        assert_eq!(coordinator.epoch_state.clients.len(), 3);
         assert!(coordinator
             .epoch_state
             .clients
             .iter()
             .all(|client| client.state == ClientState::Healthy));
-        assert_eq!(coordinator.epoch_state.exited_clients.len(), 1);
-        assert_eq!(coordinator.epoch_state.exited_clients[0].id, elected_id);
-        assert_eq!(
-            coordinator.epoch_state.exited_clients[0].state,
-            ClientState::Ejected
-        );
+        assert!(coordinator.epoch_state.exited_clients.is_empty());
     }
 
     #[test]

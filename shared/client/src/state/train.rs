@@ -622,16 +622,9 @@ impl TrainingStepMetadata {
                         poisoned.into_inner()
                     }).remove(&result.ticket.hash());
                     let maybe_results: Result<(Vec<DistroResult>, u32), DeserializeError> = match payload_remove_result {
-                        Some(PayloadState::Deserializing(x)) => match x.is_finished() {
-                            true => x.await.unwrap(),
-                            false => {
-                                warn!(
-                                    "DESYNC: Deserialization not finished for consensus commitment 0x{} for batch {}, skipping",
-                                    hex::encode(commitment.data_hash), batch_id
-                                );
-                                desync_skips += 1;
-                                continue;
-                            }
+                        Some(PayloadState::Deserializing(x)) => match x.await {
+                            Ok(result) => result,
+                            Err(_) => Err(DeserializeError::DeserializeThreadCrashed),
                         },
                         Some(PayloadState::Downloading((_, _, ticket))) => {
                             warn!(
