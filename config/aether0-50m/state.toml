@@ -11,7 +11,7 @@ min_clients = 1
 init_min_clients = 1
 
 # 512 sequences * 1,024 tokens = 524,288 tokens/step.
-# 9,537 steps consume 4,882,944 sequences = 5,000,134,656 tokens.
+# 19,074 steps consume 9,765,888 sequences = 10,000,269,312 tokens.
 global_batch_size_start = 512
 global_batch_size_end = 512
 global_batch_size_warmup_tokens = 0
@@ -19,7 +19,7 @@ global_batch_size_warmup_tokens = 0
 verification_percent = 0
 # Every trainer reports its local loss so the server can publish a batch-weighted global loss.
 witness_nodes = 0
-total_steps = 9537
+total_steps = 19074
 waiting_for_members_extra_time = 120
 
 [model.LLM]
@@ -35,11 +35,11 @@ Server = "train.aethercompute.org:39406"
 repo_id = "aethercompute/aether0-50m"
 
 [model.LLM.lr_schedule.Cosine]
-base_lr = 4.0e-4
-warmup_steps = 191
+base_lr = 5.0e-4
+warmup_steps = 382
 warmup_init_lr = 0.0
-total_steps = 9537
-final_lr = 4.0e-5
+total_steps = 19074
+final_lr = 5.0e-5
 
 [model.LLM.optimizer.Distro]
 clip_grad_norm = 1.0
